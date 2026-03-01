@@ -42,10 +42,15 @@ export class OpenAIChatAdapter implements ProviderAdapter {
     const choice = response.choices[0]
     const content = this.parseResponseContent(choice)
 
+    // Some APIs return finish_reason 'stop' even when tool_calls are present.
+    // Detect tool_use blocks and correct the stopReason.
+    const hasToolUse = content.some((b) => b.type === 'tool_use')
+    const stopReason = hasToolUse ? 'tool_use' : this.mapStopReason(choice.finish_reason)
+
     return {
       id: response.id,
       content,
-      stopReason: this.mapStopReason(choice.finish_reason),
+      stopReason,
       usage: this.parseUsage(response.usage),
       model: response.model,
     }
@@ -64,6 +69,7 @@ export class OpenAIChatAdapter implements ProviderAdapter {
     })
 
     let currentToolCall: { id: string; name: string; arguments: string } | null = null
+    let hadToolCalls = false
 
     for await (const chunk of stream) {
       const delta = chunk.choices[0]?.delta
@@ -79,6 +85,7 @@ export class OpenAIChatAdapter implements ProviderAdapter {
         for (const tc of delta.tool_calls) {
           if (tc.id) {
             // New tool call starting
+            hadToolCalls = true
             if (currentToolCall) {
               yield { type: 'tool_use_end', data: { id: currentToolCall.id } }
             }
@@ -105,10 +112,14 @@ export class OpenAIChatAdapter implements ProviderAdapter {
         if (currentToolCall) {
           yield { type: 'tool_use_end', data: { id: currentToolCall.id } }
         }
+        // Correct finish_reason if tool calls were seen but API said 'stop'
+        const finishReason = hadToolCalls && chunk.choices[0].finish_reason === 'stop'
+          ? 'tool_calls'
+          : chunk.choices[0].finish_reason
         yield {
           type: 'done',
           data: {
-            finishReason: chunk.choices[0].finish_reason,
+            finishReason,
             usage: chunk.usage ? this.parseUsage(chunk.usage) : undefined,
           },
         }
@@ -142,7 +153,10 @@ export class OpenAIChatAdapter implements ProviderAdapter {
           .filter((b) => b.type === 'text')
           .map((b) => (b as { text: string }).text)
           .join('\n')
-        messages.push({ role: 'user', content: textParts })
+        // Skip empty user messages (e.g. tool-result-only messages)
+        if (textParts) {
+          messages.push({ role: 'user', content: textParts })
+        }
       } else if (msg.role === 'assistant') {
         const textParts = msg.content.filter((b) => b.type === 'text')
         const toolUses = msg.content.filter((b) => b.type === 'tool_use')
