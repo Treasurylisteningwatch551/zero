@@ -24,19 +24,22 @@ const pages: Record<string, () => JSX.Element> = {
 }
 
 export function App() {
-  const { currentPage } = useUIStore()
+  const { currentPage, chatDrawerOpen } = useUIStore()
   const PageComponent = pages[currentPage] ?? DashboardPage
 
   return (
     <div className="min-h-screen">
       <Sidebar />
 
-      {/* Main content area */}
-      <main className="ml-[220px]">
+      {/* Main content area — narrows when chat drawer is open (push layout) */}
+      <main
+        className="ml-[220px] transition-[margin-right] duration-300 ease-out"
+        style={{ marginRight: chatDrawerOpen ? '360px' : '0' }}
+      >
         <PageComponent />
       </main>
 
-      {/* Chat drawer overlay */}
+      {/* Chat drawer — push style, no backdrop overlay */}
       <ChatDrawer />
     </div>
   )

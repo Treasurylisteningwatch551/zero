@@ -1,36 +1,95 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Warning } from '@phosphor-icons/react'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, apiPost } from '../../lib/api'
 import { formatTimeAgo } from '../../lib/format'
+import { useWebSocket } from '../../hooks/useWebSocket'
+import { requestNotificationPermission, sendBrowserNotification } from '../../lib/browser-notify'
+import { useUIStore } from '../../stores/ui'
 
 interface Notification {
-  ts: string
-  level: string
+  id: string
+  type?: string
+  severity?: string
+  title?: string
+  ts?: string
+  level?: string
   source: string
   description: string
   sessionId?: string
+  actionable?: boolean
+  actionUrl?: string
+  createdAt?: string
+  dismissedAt?: string
 }
 
 const MAX_VISIBLE = 5
 
-const levelDot: Record<string, string> = {
+const URGENT_TYPES = new Set(['authorization', 'verification'])
+
+const severityDot: Record<string, string> = {
   warn: 'bg-amber-400',
   error: 'bg-red-400',
+  info: 'bg-cyan-400',
 }
 
 export function AttentionCard() {
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const { setCurrentPage } = useUIStore()
 
+  // Request browser notification permission on mount
+  useEffect(() => {
+    requestNotificationPermission()
+  }, [])
+
+  // Initial HTTP fetch
   useEffect(() => {
     apiFetch<{ notifications: Notification[] }>('/api/notifications')
       .then((res) => setNotifications(res.notifications))
       .catch(() => {})
   }, [])
 
+  // WebSocket real-time updates
+  const onEvent = useCallback((topic: string, data: unknown) => {
+    if (topic === 'notification') {
+      const payload = data as Record<string, unknown>
+      const n = payload.notification as Notification | undefined
+      if (n) {
+        setNotifications((prev) => [n, ...prev])
+
+        // Browser notification for urgent types
+        if (n.type && URGENT_TYPES.has(n.type)) {
+          sendBrowserNotification(
+            n.title ?? 'ZeRo OS Alert',
+            n.description
+          )
+        }
+      }
+    }
+  }, [])
+
+  useWebSocket({
+    url: `ws://${window.location.host}/ws`,
+    topics: ['notification'],
+    onEvent,
+  })
+
   if (notifications.length === 0) return null
 
   const visible = notifications.slice(0, MAX_VISIBLE)
   const hasMore = notifications.length > MAX_VISIBLE
+
+  function handleDismiss(id: string) {
+    apiPost(`/api/notifications/${id}/dismiss`, {}).catch(() => {})
+    setNotifications((prev) => prev.filter((n) => n.id !== id))
+  }
+
+  function handleAction(n: Notification) {
+    if (n.actionUrl) {
+      setCurrentPage(n.actionUrl)
+    } else if (n.sessionId) {
+      setCurrentPage('session-detail')
+    }
+  }
 
   return (
     <div
@@ -43,35 +102,63 @@ export function AttentionCard() {
       </div>
 
       <div className="space-y-2">
-        {visible.map((n, i) => (
-          <div key={i} className="flex items-center justify-between gap-3 py-1.5">
-            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <span
-                className={`w-1.5 h-1.5 rounded-full shrink-0 ${levelDot[n.level] ?? 'bg-amber-400'}`}
-              />
-              <span className="text-[13px] text-[var(--color-text-secondary)] truncate">
-                {n.description}
-              </span>
-            </div>
-            <div className="flex items-center gap-3 shrink-0">
-              <span className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-white/[0.04] text-[var(--color-text-muted)]">
-                {n.source}
-              </span>
-              <span className="text-[11px] text-[var(--color-text-disabled)] w-12 text-right">
-                {formatTimeAgo(n.ts)}
-              </span>
-              {n.sessionId && (
-                <span className="text-[11px] text-[var(--color-accent)] cursor-pointer hover:underline">
-                  View Session
+        {visible.map((n, i) => {
+          const level = n.severity ?? n.level ?? 'warn'
+          const timestamp = n.createdAt ?? n.ts ?? ''
+          return (
+            <div key={n.id ?? i} className="flex items-center justify-between gap-3 py-1.5">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${severityDot[level] ?? 'bg-amber-400'}`}
+                />
+                <span className="text-[13px] text-[var(--color-text-secondary)] truncate">
+                  {n.title ?? n.description}
                 </span>
-              )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-white/[0.04] text-[var(--color-text-muted)]">
+                  {n.source}
+                </span>
+                {timestamp && (
+                  <span className="text-[11px] text-[var(--color-text-disabled)] w-12 text-right">
+                    {formatTimeAgo(timestamp)}
+                  </span>
+                )}
+                {n.actionable && (
+                  <button
+                    onClick={() => handleAction(n)}
+                    className="text-[11px] px-2 py-0.5 rounded bg-cyan-400 text-[var(--color-deep-bg)] font-medium hover:bg-cyan-300 transition-colors"
+                  >
+                    去处理
+                  </button>
+                )}
+                {n.sessionId && !n.actionable && (
+                  <span
+                    className="text-[11px] text-[var(--color-accent)] cursor-pointer hover:underline"
+                    onClick={() => handleAction(n)}
+                  >
+                    查看详情
+                  </span>
+                )}
+                {n.id && (
+                  <button
+                    onClick={() => handleDismiss(n.id)}
+                    className="text-[11px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-muted)] transition-colors"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       {hasMore && (
-        <p className="text-[12px] text-[var(--color-accent)] mt-3 cursor-pointer hover:underline">
+        <p
+          className="text-[12px] text-[var(--color-accent)] mt-3 cursor-pointer hover:underline"
+          onClick={() => setCurrentPage('logs')}
+        >
           View all in Logs ({notifications.length} total)
         </p>
       )}

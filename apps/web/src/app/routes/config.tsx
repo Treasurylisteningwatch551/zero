@@ -19,15 +19,28 @@ interface ConfigData {
   fuseList: { pattern: string; description: string }[]
 }
 
+interface ChannelConfig {
+  name: string
+  type: string
+  status: string
+  secrets: { key: string; configured: boolean }[]
+  codePath: string
+}
+
 export function ConfigPage() {
   const [config, setConfig] = useState<ConfigData | null>(null)
+  const [channels, setChannels] = useState<ChannelConfig[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    apiFetch<ConfigData>('/api/config')
+    // Fetch independently so one failure doesn't block the other
+    const p1 = apiFetch<ConfigData>('/api/config')
       .then(setConfig)
       .catch(() => {})
-      .finally(() => setLoading(false))
+    const p2 = apiFetch<{ channels: ChannelConfig[] }>('/api/channels/config')
+      .then((res) => setChannels(res.channels))
+      .catch(() => {})
+    Promise.all([p1, p2]).finally(() => setLoading(false))
   }, [])
 
   if (loading) {
@@ -149,6 +162,66 @@ export function ConfigPage() {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Channels */}
+        <div className="card p-5 animate-fade-up lg:col-span-2" style={{ animationDelay: '240ms' }}>
+          <h3 className="text-[14px] font-semibold mb-3 text-[var(--color-text-secondary)]">Channels</h3>
+          <div className="space-y-3">
+            {channels.map((ch) => {
+              const isOnline = ch.status === 'online'
+              return (
+                <div
+                  key={ch.name}
+                  className={`flex items-center justify-between py-3 px-3 rounded-lg border ${
+                    isOnline
+                      ? 'border-[var(--color-border)]'
+                      : 'border-red-400/30 bg-red-400/[0.05]'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-red-400 animate-pulse'}`}
+                    />
+                    <div>
+                      <p className="text-[13px] text-[var(--color-text-primary)] capitalize">{ch.name}</p>
+                      <p className="text-[11px] font-mono text-[var(--color-text-muted)]">{ch.codePath}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {ch.secrets.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        {ch.secrets.map((s) => (
+                          <span
+                            key={s.key}
+                            className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                              s.configured
+                                ? 'bg-emerald-400/10 text-emerald-400'
+                                : 'bg-red-400/10 text-red-400'
+                            }`}
+                          >
+                            {s.key.replace(/_/g, '_')}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <span
+                      className={`text-[11px] px-2 py-0.5 rounded-md ${
+                        isOnline
+                          ? 'bg-emerald-400/10 text-emerald-400'
+                          : 'bg-red-400/10 text-red-400'
+                      }`}
+                    >
+                      {ch.status}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+            {channels.length === 0 && (
+              <p className="text-[13px] text-[var(--color-text-muted)]">No channels configured</p>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -24,6 +24,11 @@ export interface Channel {
    * Check if the channel is connected and healthy.
    */
   isConnected(): boolean
+
+  /**
+   * Set the handler for incoming messages.
+   */
+  setMessageHandler(handler: MessageHandler): void
 }
 
 /**

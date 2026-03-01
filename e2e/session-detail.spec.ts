@@ -15,8 +15,9 @@ test.describe('Session Detail Page', () => {
     await expect(page.locator('text=Thinking...')).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('text=Thinking...')).not.toBeVisible({ timeout: 45_000 })
 
-    // Close chat drawer
-    await page.locator('.fixed.inset-0.bg-black\\/40').click()
+    // Close chat drawer via X button (push layout, no backdrop)
+    const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')
+    await drawer.locator('button').first().click()
 
     // Go to Sessions page
     await page.locator('nav button:has-text("Sessions")').click()

@@ -318,30 +318,82 @@ export function createRoutes(zero: ZeroOS) {
       return c.json({ entries, limit })
     })
 
-    // Notifications — aggregate warn/error events for dashboard Attention Card
+    // Notifications — return from notification store, fallback to log-based
     .get('/api/notifications', (c) => {
+      if (zero.notifications.length > 0) {
+        const active = zero.notifications
+          .filter((n) => !n.dismissedAt)
+          .slice(-50)
+          .reverse()
+        return c.json({ notifications: active })
+      }
+
+      // Fallback: derive from log entries
       const entries = zero.logger.readEntries<Record<string, unknown>>('operations.jsonl')
       const notifications = entries
         .filter((e) => e.level === 'warn' || e.level === 'error')
         .slice(-50)
         .reverse()
         .map((e) => ({
+          id: crypto.randomUUID(),
+          type: 'system' as const,
+          severity: (e.level as string) === 'error' ? 'error' as const : 'warn' as const,
+          title: (e.event as string) ?? 'System Event',
+          description: (e.event as string) ?? (e.outputSummary as string) ?? 'Unknown event',
+          source: (e.tool as string) ?? (e.event as string) ?? 'system',
+          sessionId: (e.sessionId as string) ?? (e.session_id as string) ?? undefined,
+          actionable: false,
+          createdAt: e.ts as string,
+          // Legacy compat fields
           ts: e.ts as string,
           level: e.level as string,
-          source: (e.tool as string) ?? (e.event as string) ?? 'system',
-          description: (e.event as string) ?? (e.outputSummary as string) ?? 'Unknown event',
-          sessionId: (e.sessionId as string) ?? (e.session_id as string) ?? undefined,
         }))
       return c.json({ notifications })
     })
 
-    // Channel status
+    .post('/api/notifications/:id/dismiss', (c) => {
+      const id = c.req.param('id')
+      const notification = zero.notifications.find((n) => n.id === id)
+      if (!notification) {
+        return c.json({ error: 'Notification not found' }, 404)
+      }
+      notification.dismissedAt = new Date().toISOString()
+      return c.json({ ok: true })
+    })
+
+    // Channel status — real data from channel registry
     .get('/api/channels/status', (c) => {
-      // Web channel is always online if server is running
-      const channels = [
-        { name: 'web', status: 'online' as const },
-      ]
+      const channels = Array.from(zero.channels.entries()).map(([name, ch]) => ({
+        name,
+        type: ch.type,
+        status: ch.isConnected() ? 'online' : 'offline',
+      }))
       return c.json({ channels })
+    })
+
+    // Channel config — detailed configuration info
+    .get('/api/channels/config', (c) => {
+      const channelConfigs = Array.from(zero.channels.entries()).map(([name, ch]) => {
+        const secretKeys: Record<string, string[]> = {
+          feishu: ['feishu_app_id', 'feishu_app_secret'],
+          telegram: ['telegram_bot_token'],
+          web: [],
+        }
+        const keys = secretKeys[ch.type] ?? []
+        const secrets = keys.map((k) => ({
+          key: k,
+          configured: !!zero.vault.get(k),
+        }))
+
+        return {
+          name,
+          type: ch.type,
+          status: ch.isConnected() ? 'online' : 'offline',
+          secrets,
+          codePath: `packages/channel/src/${ch.type}/`,
+        }
+      })
+      return c.json({ channels: channelConfigs })
     })
 
     // Tools

@@ -27,10 +27,14 @@ test.describe('Dashboard', () => {
     await expect(page.getByRole('heading', { name: 'Active Sessions' })).toBeVisible()
   })
 
-  test('shows channel status with channel names', async ({ page }) => {
+  test('shows channel status with all channel names', async ({ page }) => {
     await page.goto('/')
-    // Channel status bar should show at least the web channel
-    await expect(page.locator('text=web')).toBeVisible({ timeout: 10_000 })
+    // Channel status bar uses Plugs icon — locate the channel status component
+    const channelBar = page.locator('.card.flex.items-center')
+    await expect(channelBar).toBeVisible({ timeout: 10_000 })
+    await expect(channelBar).toContainText('web')
+    await expect(channelBar).toContainText('feishu')
+    await expect(channelBar).toContainText('telegram')
   })
 
   test('status bar shows uptime', async ({ page }) => {

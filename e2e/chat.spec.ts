@@ -1,35 +1,61 @@
 import { test, expect } from '@playwright/test'
 
 test.describe('Chat Drawer', () => {
-  test('opens and closes chat drawer', async ({ page }) => {
+  test('opens and closes chat drawer with push layout', async ({ page }) => {
     await page.goto('/')
+    // Check initial main content has no right margin
+    const main = page.locator('main')
+    const initialMargin = await main.evaluate((el) => getComputedStyle(el).marginRight)
+    expect(initialMargin).toBe('0px')
+
     // Click the Chat button in sidebar
     await page.locator('aside button:has-text("Chat")').click()
     // Drawer should appear with placeholder text
     const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')
     await expect(drawer).toBeVisible()
     await expect(drawer).toContainText('Send a message to interact with ZeRo OS')
+
+    // Push layout: main content should have right margin
+    await page.waitForTimeout(400) // wait for transition
+    const pushedMargin = await main.evaluate((el) => getComputedStyle(el).marginRight)
+    expect(pushedMargin).toBe('360px')
+
     // Close via X button (first button in drawer header)
     await drawer.locator('button').first().click()
     await expect(drawer).not.toBeVisible()
   })
 
-  test('closes chat drawer via backdrop click', async ({ page }) => {
+  test('push layout has no backdrop overlay', async ({ page }) => {
     await page.goto('/')
     await page.locator('aside button:has-text("Chat")').click()
     const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')
     await expect(drawer).toBeVisible()
-    // Click the backdrop
-    await page.locator('.fixed.inset-0.bg-black\\/40').click()
-    await expect(drawer).not.toBeVisible()
+    // No backdrop overlay should exist
+    const backdrop = page.locator('.fixed.inset-0.bg-black\\/40')
+    await expect(backdrop).not.toBeVisible()
+  })
+
+  test('shows channel info in header', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('aside button:has-text("Chat")').click()
+    const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')
+    await expect(drawer).toContainText('Web Channel')
+  })
+
+  test('has multi-line textarea input', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('aside button:has-text("Chat")').click()
+    // Should be a textarea, not an input
+    const textarea = page.locator('textarea[placeholder="Send a message..."]')
+    await expect(textarea).toBeVisible()
   })
 
   test('can type a message', async ({ page }) => {
     await page.goto('/')
     await page.locator('aside button:has-text("Chat")').click()
-    const input = page.getByPlaceholder('Send a message...')
-    await input.fill('Hello')
-    await expect(input).toHaveValue('Hello')
+    const textarea = page.getByPlaceholder('Send a message...')
+    await textarea.fill('Hello')
+    await expect(textarea).toHaveValue('Hello')
   })
 
   test('send button disabled when empty', async ({ page }) => {
@@ -46,9 +72,9 @@ test.describe('Chat Drawer', () => {
     await page.goto('/')
     await page.locator('aside button:has-text("Chat")').click()
 
-    const input = page.getByPlaceholder('Send a message...')
-    await input.fill('What is 2+2? Answer with just the number.')
-    await input.press('Enter')
+    const textarea = page.getByPlaceholder('Send a message...')
+    await textarea.fill('What is 2+2? Answer with just the number.')
+    await textarea.press('Enter')
 
     // User message should appear in the drawer
     const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')

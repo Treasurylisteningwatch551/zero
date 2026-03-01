@@ -44,8 +44,9 @@ test.describe('Sessions Page', () => {
     await expect(page.locator('text=Thinking...')).toBeVisible({ timeout: 5_000 })
     await expect(page.locator('text=Thinking...')).not.toBeVisible({ timeout: 45_000 })
 
-    // Close drawer via backdrop and go to sessions
-    await page.locator('.fixed.inset-0.bg-black\\/40').click()
+    // Close drawer via X button (push layout, no backdrop)
+    const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')
+    await drawer.locator('button').first().click()
     await page.locator('nav button:has-text("Sessions")').click()
 
     // Session should appear — check for session metrics in card

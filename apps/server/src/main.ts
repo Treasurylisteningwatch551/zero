@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, appendFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadConfig, loadFuseList } from '@zero-os/core'
 import { ModelRouter } from '@zero-os/model'
@@ -11,6 +11,9 @@ import { JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
 import { MemoryStore, MemoManager } from '@zero-os/memory'
 import { RepairEngine } from '@zero-os/supervisor'
 import { globalBus } from './bus'
+import type { Channel } from '@zero-os/channel'
+import { WebChannel, FeishuChannel, TelegramChannel } from '@zero-os/channel'
+import type { Notification } from '@zero-os/shared'
 
 const ZERO_DIR = join(process.cwd(), '.zero')
 
@@ -28,6 +31,9 @@ export interface ZeroOS {
   tracer: Tracer
   repairEngine: RepairEngine
   bus: typeof globalBus
+  channels: Map<string, Channel>
+  notifications: Notification[]
+  addNotification(n: Omit<Notification, 'id' | 'createdAt'>): Notification
 }
 
 /**
@@ -101,7 +107,118 @@ export async function startZeroOS(): Promise<ZeroOS> {
   // 11. Repair Engine
   const repairEngine = new RepairEngine()
 
-  // 12. Event bus
+  // 12. Notification store
+  const notifications: Notification[] = []
+  const notificationsPath = join(ZERO_DIR, 'logs', 'notifications.jsonl')
+
+  // Load persisted notifications
+  if (existsSync(notificationsPath)) {
+    const lines = readFileSync(notificationsPath, 'utf-8').split('\n').filter(Boolean)
+    for (const line of lines) {
+      try {
+        notifications.push(JSON.parse(line))
+      } catch {}
+    }
+  }
+
+  function addNotification(n: Omit<Notification, 'id' | 'createdAt'>): Notification {
+    const notification: Notification = {
+      ...n,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+    }
+    notifications.push(notification)
+    // Persist to JSONL
+    appendFileSync(notificationsPath, JSON.stringify(notification) + '\n')
+    // Emit to bus so WS clients receive it
+    globalBus.emit('notification', {
+      notification,
+      event: 'notification:new',
+    })
+    // Push to all connected channels
+    for (const [, ch] of channels) {
+      if (ch.isConnected() && ch.type !== 'web') {
+        ch.send('broadcast', `[notification]${notification.title}: ${notification.description}`).catch(() => {})
+      }
+    }
+    return notification
+  }
+
+  // 13. Channel registry
+  const channels = new Map<string, Channel>()
+
+  // Web channel — always registered
+  const webChannel = new WebChannel()
+  await webChannel.start()
+  channels.set('web', webChannel)
+
+  // Feishu channel — register if credentials exist
+  const feishuAppId = vault.get('feishu_app_id')
+  const feishuAppSecret = vault.get('feishu_app_secret')
+  if (feishuAppId && feishuAppSecret) {
+    const feishuChannel = new FeishuChannel({
+      appId: feishuAppId,
+      appSecret: feishuAppSecret,
+      encryptKey: vault.get('feishu_encrypt_key') ?? undefined,
+      verificationToken: vault.get('feishu_verification_token') ?? undefined,
+    })
+    feishuChannel.setMessageHandler(async (msg) => {
+      const session = sessionManager.create('feishu')
+      session.initAgent({
+        name: 'zero-feishu',
+        systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+      })
+      const replies = await session.handleMessage(msg.content)
+      const replyText = replies
+        .filter((m) => m.role === 'assistant')
+        .flatMap((m) => m.content)
+        .filter((b) => b.type === 'text')
+        .map((b) => (b as { type: 'text'; text: string }).text)
+        .join('\n')
+      const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
+      await feishuChannel.send(chatId, replyText)
+    })
+    await feishuChannel.start()
+    channels.set('feishu', feishuChannel)
+    console.log('[ZeRo OS] Feishu channel started')
+  } else {
+    // Register offline placeholder
+    const offlineFeishu = new FeishuChannel({ appId: '', appSecret: '' })
+    channels.set('feishu', offlineFeishu)
+  }
+
+  // Telegram channel — register if credentials exist
+  const telegramToken = vault.get('telegram_bot_token')
+  if (telegramToken) {
+    const telegramChannel = new TelegramChannel({ botToken: telegramToken })
+    telegramChannel.setMessageHandler(async (msg) => {
+      const session = sessionManager.create('telegram')
+      session.initAgent({
+        name: 'zero-telegram',
+        systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+      })
+      const replies = await session.handleMessage(msg.content)
+      const replyText = replies
+        .filter((m) => m.role === 'assistant')
+        .flatMap((m) => m.content)
+        .filter((b) => b.type === 'text')
+        .map((b) => (b as { type: 'text'; text: string }).text)
+        .join('\n')
+      const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
+      await telegramChannel.send(chatId, replyText)
+    })
+    await telegramChannel.start()
+    channels.set('telegram', telegramChannel)
+    console.log('[ZeRo OS] Telegram channel started')
+  } else {
+    // Register offline placeholder
+    const offlineTelegram = new TelegramChannel({ botToken: '' })
+    channels.set('telegram', offlineTelegram)
+  }
+
+  console.log(`[ZeRo OS] ${channels.size} channels registered`)
+
+  // 14. Event bus
   globalBus.on('*', (payload) => {
     logger.log('info', payload.topic, payload.data)
   })
@@ -135,6 +252,9 @@ export async function startZeroOS(): Promise<ZeroOS> {
     tracer,
     repairEngine,
     bus: globalBus,
+    channels,
+    notifications,
+    addNotification,
   }
 }
 

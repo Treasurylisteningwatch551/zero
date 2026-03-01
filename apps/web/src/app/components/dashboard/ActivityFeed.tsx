@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { formatTimeAgo } from '../../lib/format'
 import { apiFetch } from '../../lib/api'
+import { useWebSocket } from '../../hooks/useWebSocket'
 
 interface LogEntry {
   ts: string
@@ -24,14 +25,38 @@ function entryType(entry: LogEntry): string {
   return 'system'
 }
 
+const MAX_ITEMS = 20
+
 export function ActivityFeed() {
   const [items, setItems] = useState<LogEntry[]>([])
 
+  // Initial HTTP fetch
   useEffect(() => {
     apiFetch<{ entries: LogEntry[] }>('/api/logs?limit=20&type=operations')
       .then((res) => setItems(res.entries))
       .catch(() => {})
   }, [])
+
+  // WebSocket real-time updates
+  const onEvent = useCallback((topic: string, data: unknown) => {
+    const entry = data as LogEntry
+    if (!entry) return
+
+    // Map bus events to LogEntry-compatible format
+    const logEntry: LogEntry = {
+      ts: new Date().toISOString(),
+      event: topic,
+      ...entry,
+    }
+
+    setItems((prev) => [logEntry, ...prev].slice(0, MAX_ITEMS))
+  }, [])
+
+  useWebSocket({
+    url: `ws://${window.location.host}/ws`,
+    topics: ['tool:*', 'session:*', 'repair:*', 'fuse:*'],
+    onEvent,
+  })
 
   if (items.length === 0) {
     return (
@@ -58,7 +83,9 @@ export function ActivityFeed() {
           return (
             <div
               key={i}
-              className="flex items-center gap-3 py-1.5 text-[12px] font-mono"
+              className={`flex items-center gap-3 py-1.5 text-[12px] font-mono${
+                i === 0 ? ' animate-fade-up' : ''
+              }`}
             >
               <span className="text-[var(--color-text-disabled)] w-12">
                 {item.ts ? formatTimeAgo(item.ts) : '-'}
