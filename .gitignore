@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.zero/secrets.enc
+.zero/logs/
+.zero/memory/vectors/
+.zero/workspace/
+*.log
+.DS_Store
+.env
+.env.local

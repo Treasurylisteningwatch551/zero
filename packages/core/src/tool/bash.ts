@@ -1,0 +1,70 @@
+import { BaseTool } from './base'
+import { FuseListChecker, FuseError } from '../config/fuse-list'
+import type { ToolContext, ToolResult, FuseRule } from '@zero-os/shared'
+
+interface BashInput {
+  command: string
+  timeout?: number
+}
+
+export class BashTool extends BaseTool {
+  name = 'bash'
+  description = 'Execute a shell command and return output.'
+  parameters = {
+    type: 'object',
+    properties: {
+      command: { type: 'string', description: 'Shell command to execute' },
+      timeout: { type: 'number', description: 'Timeout in milliseconds (default 120000)' },
+    },
+    required: ['command'],
+  }
+
+  private fuseChecker: FuseListChecker
+
+  constructor(fuseRules: FuseRule[]) {
+    super()
+    this.fuseChecker = new FuseListChecker(fuseRules)
+  }
+
+  protected async fuseCheck(input: unknown): Promise<void> {
+    const { command } = input as BashInput
+    this.fuseChecker.check(command)
+  }
+
+  protected async execute(ctx: ToolContext, input: unknown): Promise<ToolResult> {
+    const { command, timeout = 120_000 } = input as BashInput
+
+    const proc = Bun.spawn(['bash', '-c', command], {
+      cwd: ctx.workDir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: { ...process.env },
+    })
+
+    const timeoutId = setTimeout(() => {
+      proc.kill()
+    }, timeout)
+
+    const exitCode = await proc.exited
+    clearTimeout(timeoutId)
+
+    const stdout = await new Response(proc.stdout).text()
+    const stderr = await new Response(proc.stderr).text()
+
+    const output = stdout + (stderr ? `\n[stderr]\n${stderr}` : '')
+
+    if (exitCode !== 0) {
+      return {
+        success: false,
+        output: output || `Exit code: ${exitCode}`,
+        outputSummary: `Command failed (exit ${exitCode}): ${command.slice(0, 80)}`,
+      }
+    }
+
+    return {
+      success: true,
+      output,
+      outputSummary: `Executed: ${command.slice(0, 80)}`,
+    }
+  }
+}

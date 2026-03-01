@@ -1,0 +1,87 @@
+import { describe, test, expect } from 'bun:test'
+import { ModelRegistry } from '../registry'
+import type { SystemConfig } from '@zero-os/shared'
+
+const config: SystemConfig = {
+  providers: {
+    'openai-codex': {
+      apiType: 'openai_chat_completions',
+      baseUrl: 'https://www.right.codes/codex',
+      auth: { type: 'api_key', apiKeyRef: 'api_key' },
+      models: {
+        'gpt-5.3-codex-medium': {
+          modelId: 'gpt-5.3-codex-medium',
+          maxContext: 400000,
+          maxOutput: 128000,
+          capabilities: ['tools', 'vision', 'reasoning'],
+          tags: ['powerful', 'coding'],
+        },
+      },
+    },
+    'test-anthropic': {
+      apiType: 'anthropic_messages',
+      baseUrl: 'https://api.anthropic.com',
+      auth: { type: 'api_key', apiKeyRef: 'anthropic_key' },
+      models: {
+        'claude-sonnet': {
+          modelId: 'claude-sonnet-4-5-20250929',
+          maxContext: 200000,
+          maxOutput: 8192,
+          capabilities: ['tools', 'vision'],
+          tags: ['fast', 'balanced'],
+        },
+      },
+    },
+  },
+  defaultModel: 'gpt-5.3-codex-medium',
+  fallbackChain: ['gpt-5.3-codex-medium'],
+  schedules: [],
+  fuseList: [],
+}
+
+const secrets = new Map([
+  ['api_key', 'sk-test-key'],
+  ['anthropic_key', 'sk-ant-test'],
+])
+
+describe('ModelRegistry', () => {
+  test('resolve finds exact model', () => {
+    const registry = new ModelRegistry(config, secrets)
+    const resolved = registry.resolve('gpt-5.3-codex-medium')
+    expect(resolved).toBeDefined()
+    expect(resolved?.modelName).toBe('gpt-5.3-codex-medium')
+    expect(resolved?.providerName).toBe('openai-codex')
+  })
+
+  test('resolve by model_id', () => {
+    const registry = new ModelRegistry(config, secrets)
+    const resolved = registry.resolve('claude-sonnet-4-5-20250929')
+    expect(resolved).toBeDefined()
+    expect(resolved?.modelName).toBe('claude-sonnet')
+  })
+
+  test('fuzzySearch by tag', () => {
+    const registry = new ModelRegistry(config, secrets)
+    const results = registry.fuzzySearch('fast')
+    expect(results.length).toBe(1)
+    expect(results[0].modelName).toBe('claude-sonnet')
+  })
+
+  test('fuzzySearch by partial name', () => {
+    const registry = new ModelRegistry(config, secrets)
+    const results = registry.fuzzySearch('codex')
+    expect(results.length).toBe(1)
+    expect(results[0].modelName).toBe('gpt-5.3-codex-medium')
+  })
+
+  test('listModels returns all registered models', () => {
+    const registry = new ModelRegistry(config, secrets)
+    const models = registry.listModels()
+    expect(models.length).toBe(2)
+  })
+
+  test('resolve returns undefined for unknown model', () => {
+    const registry = new ModelRegistry(config, secrets)
+    expect(registry.resolve('nonexistent')).toBeUndefined()
+  })
+})

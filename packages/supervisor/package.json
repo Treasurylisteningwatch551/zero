@@ -1,0 +1,16 @@
+{
+  "name": "@zero-os/supervisor",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@zero-os/shared": "workspace:*",
+    "@zero-os/observe": "workspace:*",
+    "simple-git": "^3.27.0"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  }
+}

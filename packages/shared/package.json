@@ -1,0 +1,17 @@
+{
+  "name": "@zero-os/shared",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*/index.ts"
+  },
+  "dependencies": {
+    "yaml": "^2.7.0",
+    "proper-lockfile": "^4.1.2"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "@types/proper-lockfile": "^4.1.4"
+  }
+}

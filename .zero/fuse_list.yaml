@@ -1,0 +1,36 @@
+# Fuse List - Commands that will be blocked by the system
+# These are irreversible, destructive operations that are almost certainly mistakes
+
+rules:
+  - pattern: "rm -rf /"
+    description: "Recursive delete of root filesystem"
+
+  - pattern: "rm -rf /*"
+    description: "Recursive delete of all root directories"
+
+  - pattern: "mkfs"
+    description: "Filesystem formatting"
+
+  - pattern: "dd if=/dev/zero"
+    description: "Disk zeroing"
+
+  - pattern: "dd if=/dev/random"
+    description: "Random data write to disk"
+
+  - pattern: "> /dev/sda"
+    description: "Direct write to disk device"
+
+  - pattern: "chmod -R 777 /"
+    description: "Recursive permission change on root"
+
+  - pattern: ":(){ :|:& };:"
+    description: "Fork bomb"
+
+  - pattern: "shutdown"
+    description: "System shutdown"
+
+  - pattern: "reboot"
+    description: "System reboot"
+
+  - pattern: "launchctl unload"
+    description: "Unload system services"

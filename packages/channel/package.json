@@ -1,0 +1,17 @@
+{
+  "name": "@zero-os/channel",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@zero-os/shared": "workspace:*",
+    "@zero-os/core": "workspace:*",
+    "@zero-os/observe": "workspace:*",
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  }
+}

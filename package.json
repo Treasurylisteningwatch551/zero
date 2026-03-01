@@ -1,0 +1,23 @@
+{
+  "name": "zero-os",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "bun test --recursive packages apps",
+    "test:e2e": "bunx playwright test",
+    "check": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "build:web": "cd apps/web && bun run build",
+    "dev:web": "cd apps/web && bun run dev",
+    "zero": "bun run apps/server/src/cli.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}

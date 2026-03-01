@@ -1,0 +1,23 @@
+{
+  "name": "@zero-os/server",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "dev": "bun --watch run src/main.ts"
+  },
+  "dependencies": {
+    "@zero-os/shared": "workspace:*",
+    "@zero-os/core": "workspace:*",
+    "@zero-os/model": "workspace:*",
+    "@zero-os/memory": "workspace:*",
+    "@zero-os/observe": "workspace:*",
+    "@zero-os/secrets": "workspace:*",
+    "@zero-os/channel": "workspace:*",
+    "@zero-os/scheduler": "workspace:*",
+    "@zero-os/supervisor": "workspace:*"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  }
+}

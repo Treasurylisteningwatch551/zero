@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "types": ["bun-types"],
+    "paths": {
+      "@/*": ["./src/app/*"],
+      "@zero-os/shared": ["../../packages/shared/src"]
+    }
+  },
+  "include": ["src"]
+}
