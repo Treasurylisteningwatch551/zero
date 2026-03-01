@@ -9,6 +9,7 @@ import { Vault, generateMasterKey, setMasterKey, getMasterKey } from '@zero-os/s
 import { OutputSecretFilter } from '@zero-os/secrets'
 import { JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
 import { MemoryStore, MemoManager } from '@zero-os/memory'
+import { RepairEngine } from '@zero-os/supervisor'
 import { globalBus } from './bus'
 
 const ZERO_DIR = join(process.cwd(), '.zero')
@@ -25,6 +26,7 @@ export interface ZeroOS {
   memoryStore: MemoryStore
   memoManager: MemoManager
   tracer: Tracer
+  repairEngine: RepairEngine
   bus: typeof globalBus
 }
 
@@ -96,9 +98,23 @@ export async function startZeroOS(): Promise<ZeroOS> {
   const memoryStore = new MemoryStore(memoryDir)
   const memoManager = new MemoManager(join(memoryDir, 'memo.md'))
 
-  // 11. Event bus
+  // 11. Repair Engine
+  const repairEngine = new RepairEngine()
+
+  // 12. Event bus
   globalBus.on('*', (payload) => {
     logger.log('info', payload.topic, payload.data)
+  })
+
+  // Record repair attempts to MetricsDB
+  globalBus.on('repair:end', (payload) => {
+    metrics.recordRepair({
+      sessionId: payload.data.sessionId as string | undefined,
+      status: (payload.data.status as string) === 'success' ? 'success' : 'failed',
+      diagnosis: (payload.data.diagnosis as string) ?? '',
+      action: (payload.data.action as string) ?? '',
+      result: (payload.data.result as string) ?? '',
+    })
   })
 
   console.log('[ZeRo OS] System ready.')
@@ -117,6 +133,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
     memoryStore,
     memoManager,
     tracer,
+    repairEngine,
     bus: globalBus,
   }
 }

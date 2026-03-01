@@ -218,6 +218,49 @@ export function createRoutes(zero: ZeroOS) {
       return c.json({ data })
     })
 
+    .get('/api/metrics/cache-hit-rate', (c) => {
+      const range = c.req.query('range') ?? '30d'
+      const data = zero.metrics.cacheHitRate(range)
+      return c.json({ data })
+    })
+
+    .get('/api/metrics/task-success-rate', (c) => {
+      const range = c.req.query('range') ?? '30d'
+      const data = zero.metrics.taskSuccessRate(range)
+      return c.json({ data })
+    })
+
+    .get('/api/metrics/health', (c) => {
+      const range = c.req.query('range') ?? '30d'
+      const repairs = zero.metrics.repairStats(range)
+      const repairTrend = zero.metrics.repairByDay(range)
+      return c.json({ repairs, repairTrend })
+    })
+
+    .get('/api/metrics/cost-by-day-model', (c) => {
+      const range = c.req.query('range') ?? '30d'
+      const data = zero.metrics.costByDayModel(range)
+      return c.json({ data })
+    })
+
+    .get('/api/metrics/avg-duration', (c) => {
+      const range = c.req.query('range') ?? '30d'
+      const data = zero.metrics.avgDurationByDay(range)
+      return c.json({ data })
+    })
+
+    .get('/api/metrics/cost-detail', (c) => {
+      const range = c.req.query('range') ?? '30d'
+      const data = zero.metrics.costDetailRecords(range)
+      return c.json({ data })
+    })
+
+    .get('/api/metrics/tool-error-by-day', (c) => {
+      const range = c.req.query('range') ?? '30d'
+      const data = zero.metrics.toolErrorByDay(range)
+      return c.json({ data })
+    })
+
     // Config
     .get('/api/config', (c) => {
       return c.json({
@@ -273,6 +316,32 @@ export function createRoutes(zero: ZeroOS) {
       entries = entries.slice(0, limit)
 
       return c.json({ entries, limit })
+    })
+
+    // Notifications — aggregate warn/error events for dashboard Attention Card
+    .get('/api/notifications', (c) => {
+      const entries = zero.logger.readEntries<Record<string, unknown>>('operations.jsonl')
+      const notifications = entries
+        .filter((e) => e.level === 'warn' || e.level === 'error')
+        .slice(-50)
+        .reverse()
+        .map((e) => ({
+          ts: e.ts as string,
+          level: e.level as string,
+          source: (e.tool as string) ?? (e.event as string) ?? 'system',
+          description: (e.event as string) ?? (e.outputSummary as string) ?? 'Unknown event',
+          sessionId: (e.sessionId as string) ?? (e.session_id as string) ?? undefined,
+        }))
+      return c.json({ notifications })
+    })
+
+    // Channel status
+    .get('/api/channels/status', (c) => {
+      // Web channel is always online if server is running
+      const channels = [
+        { name: 'web', status: 'online' as const },
+      ]
+      return c.json({ channels })
     })
 
     // Tools

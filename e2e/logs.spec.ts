@@ -67,4 +67,24 @@ test.describe('Logs Page', () => {
     // Live mode should be active (cyan highlight)
     await expect(liveBtn).toHaveClass(/text-cyan-400/)
   })
+
+  test('custom time range shows date inputs when selected', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('nav button:has-text("Logs")').click()
+    const timeSelect = page.locator('main select')
+    await timeSelect.selectOption('custom')
+    // Custom range inputs should appear
+    await expect(page.locator('main input[type="datetime-local"]').first()).toBeVisible()
+    await expect(page.locator('main input[type="datetime-local"]').last()).toBeVisible()
+    await expect(page.locator('main')).toContainText('From')
+    await expect(page.locator('main')).toContainText('To')
+  })
+
+  test('trace tab shows trace-specific columns', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('nav button:has-text("Logs")').click()
+    await page.locator('main button:has-text("trace")').click()
+    await expect(page.locator('main')).toContainText('Summary')
+    await expect(page.locator('main')).toContainText('Duration')
+  })
 })

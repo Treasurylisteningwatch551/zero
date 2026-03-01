@@ -15,6 +15,64 @@ export interface CostByPeriod {
   totalTokens: number
 }
 
+export interface CostByDayModel {
+  period: string
+  model: string
+  cost: number
+}
+
+export interface CacheHitRate {
+  period: string
+  hitRate: number
+}
+
+export interface TaskSuccessRate {
+  period: string
+  successRate: number
+  total: number
+}
+
+export interface AvgDuration {
+  period: string
+  avgMs: number
+}
+
+export interface RepairEntry {
+  sessionId?: string
+  status: 'success' | 'failed'
+  diagnosis: string
+  action: string
+  result: string
+}
+
+export interface RepairStats {
+  total: number
+  successCount: number
+  successRate: number
+}
+
+export interface RepairByDay {
+  period: string
+  total: number
+  success: number
+}
+
+export interface CostDetailRecord {
+  date: string
+  model: string
+  input: number
+  output: number
+  cacheRead: number
+  cost: number
+}
+
+export interface ToolErrorByDay {
+  period: string
+  tool: string
+  total: number
+  errors: number
+}
+
 /**
  * SQLite-based metrics aggregation for ZeRo OS observability.
  */
@@ -56,6 +114,18 @@ export class MetricsDB {
     `)
 
     this.db.run(`
+      CREATE TABLE IF NOT EXISTS repairs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT,
+        status TEXT NOT NULL,
+        diagnosis TEXT,
+        action TEXT,
+        result TEXT,
+        created_at TEXT NOT NULL
+      )
+    `)
+
+    this.db.run(`
       CREATE INDEX IF NOT EXISTS idx_requests_model ON requests(model)
     `)
     this.db.run(`
@@ -63,6 +133,9 @@ export class MetricsDB {
     `)
     this.db.run(`
       CREATE INDEX IF NOT EXISTS idx_operations_tool ON operations(tool)
+    `)
+    this.db.run(`
+      CREATE INDEX IF NOT EXISTS idx_repairs_created ON repairs(created_at)
     `)
   }
 
@@ -243,6 +316,172 @@ export class MetricsDB {
       })
     }
     return result
+  }
+
+  /**
+   * Cache hit rate by day: cache_read_tokens / input_tokens.
+   */
+  cacheHitRate(range: string = '30d'): CacheHitRate[] {
+    const since = rangeToCutoff(range)
+    return this.db
+      .query(
+        `SELECT substr(created_at, 1, 10) as period,
+                SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(input_tokens), 0) as hitRate
+         FROM requests
+         WHERE created_at >= ?
+         GROUP BY period
+         ORDER BY period`
+      )
+      .all(since) as CacheHitRate[]
+  }
+
+  /**
+   * Task success rate by day from operations table.
+   */
+  taskSuccessRate(range: string = '30d'): TaskSuccessRate[] {
+    const since = rangeToCutoff(range)
+    return this.db
+      .query(
+        `SELECT substr(created_at, 1, 10) as period,
+                AVG(success) as successRate,
+                COUNT(*) as total
+         FROM operations
+         WHERE created_at >= ?
+         GROUP BY period
+         ORDER BY period`
+      )
+      .all(since) as TaskSuccessRate[]
+  }
+
+  /**
+   * Average operation duration by day.
+   */
+  avgDurationByDay(range: string = '30d'): AvgDuration[] {
+    const since = rangeToCutoff(range)
+    return this.db
+      .query(
+        `SELECT substr(created_at, 1, 10) as period,
+                AVG(duration_ms) as avgMs
+         FROM operations
+         WHERE created_at >= ?
+         GROUP BY period
+         ORDER BY period`
+      )
+      .all(since) as AvgDuration[]
+  }
+
+  /**
+   * Cost grouped by day and model (for stacked bar chart).
+   */
+  costByDayModel(range: string = '30d'): CostByDayModel[] {
+    const since = rangeToCutoff(range)
+    return this.db
+      .query(
+        `SELECT substr(created_at, 1, 10) as period,
+                model,
+                SUM(cost) as cost
+         FROM requests
+         WHERE created_at >= ?
+         GROUP BY period, model
+         ORDER BY period, cost DESC`
+      )
+      .all(since) as CostByDayModel[]
+  }
+
+  /**
+   * Record a self-repair attempt.
+   */
+  recordRepair(entry: RepairEntry): void {
+    this.db.run(
+      `INSERT INTO repairs (session_id, status, diagnosis, action, result, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        entry.sessionId ?? null,
+        entry.status,
+        entry.diagnosis,
+        entry.action,
+        entry.result,
+        new Date().toISOString(),
+      ]
+    )
+  }
+
+  /**
+   * Aggregate repair statistics.
+   */
+  repairStats(range: string = '30d'): RepairStats {
+    const since = rangeToCutoff(range)
+    const row = this.db
+      .query(
+        `SELECT COUNT(*) as total,
+                SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successCount
+         FROM repairs
+         WHERE created_at >= ?`
+      )
+      .get(since) as { total: number; successCount: number }
+    return {
+      total: row.total,
+      successCount: row.successCount,
+      successRate: row.total > 0 ? row.successCount / row.total : 0,
+    }
+  }
+
+  /**
+   * Repair trend by day.
+   */
+  repairByDay(range: string = '30d'): RepairByDay[] {
+    const since = rangeToCutoff(range)
+    return this.db
+      .query(
+        `SELECT substr(created_at, 1, 10) as period,
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success
+         FROM repairs
+         WHERE created_at >= ?
+         GROUP BY period
+         ORDER BY period`
+      )
+      .all(since) as RepairByDay[]
+  }
+
+  /**
+   * Detailed cost records grouped by date and model.
+   */
+  costDetailRecords(range: string = '30d'): CostDetailRecord[] {
+    const since = rangeToCutoff(range)
+    return this.db
+      .query(
+        `SELECT substr(created_at, 1, 10) as date,
+                model,
+                SUM(input_tokens) as input,
+                SUM(output_tokens) as output,
+                SUM(cache_read_tokens) as cacheRead,
+                SUM(cost) as cost
+         FROM requests
+         WHERE created_at >= ?
+         GROUP BY date, model
+         ORDER BY date DESC, cost DESC`
+      )
+      .all(since) as CostDetailRecord[]
+  }
+
+  /**
+   * Tool error counts by day and tool.
+   */
+  toolErrorByDay(range: string = '30d'): ToolErrorByDay[] {
+    const since = rangeToCutoff(range)
+    return this.db
+      .query(
+        `SELECT substr(created_at, 1, 10) as period,
+                tool,
+                COUNT(*) as total,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as errors
+         FROM operations
+         WHERE created_at >= ?
+         GROUP BY period, tool
+         ORDER BY period, errors DESC`
+      )
+      .all(since) as ToolErrorByDay[]
   }
 
   close(): void {

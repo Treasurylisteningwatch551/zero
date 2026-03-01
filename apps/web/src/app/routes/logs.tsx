@@ -25,6 +25,22 @@ interface LogEntry {
   [key: string]: unknown
 }
 
+interface TraceSpan {
+  name: string
+  startTime: string
+  durationMs: number
+  status: string
+  children: TraceSpan[]
+}
+
+interface WaterfallSpan {
+  name: string
+  startOffset: number
+  durationMs: number
+  status: string
+  depth: number
+}
+
 const levelColors: Record<string, string> = {
   info: 'text-cyan-400',
   warn: 'text-amber-400',
@@ -50,6 +66,7 @@ const TIME_RANGES = [
   { label: '最近 1 小时', value: '1h' },
   { label: '最近 24 小时', value: '24h' },
   { label: '最近 7 天', value: '7d' },
+  { label: '自定义', value: 'custom' },
 ] as const
 
 interface ColumnConfig {
@@ -135,26 +152,140 @@ function LevelBadge({ level }: { level?: string }) {
   return <span className={levelColors[level] ?? 'text-slate-400'}>{level}</span>
 }
 
+// --- Waterfall Chart ---
+
+const spanBarColors: Record<string, string> = {
+  bash: 'bg-cyan-400',
+  edit: 'bg-cyan-600',
+  read: 'bg-cyan-500',
+  write: 'bg-cyan-300',
+  browser: 'bg-cyan-700',
+}
+
+function flattenSpans(spans: TraceSpan[], depth: number, sessionStart: number): WaterfallSpan[] {
+  const result: WaterfallSpan[] = []
+  for (const span of spans) {
+    const startOffset = new Date(span.startTime).getTime() - sessionStart
+    result.push({
+      name: span.name,
+      startOffset,
+      durationMs: span.durationMs,
+      status: span.status,
+      depth,
+    })
+    if (span.children && span.children.length > 0) {
+      result.push(...flattenSpans(span.children, depth + 1, sessionStart))
+    }
+  }
+  return result
+}
+
+function collectAllTimes(spans: TraceSpan[]): number[] {
+  const times: number[] = []
+  for (const span of spans) {
+    const start = new Date(span.startTime).getTime()
+    times.push(start, start + span.durationMs)
+    if (span.children && span.children.length > 0) {
+      times.push(...collectAllTimes(span.children))
+    }
+  }
+  return times
+}
+
+function formatMs(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  return `${(ms / 60_000).toFixed(1)}m`
+}
+
+function WaterfallChart({ spans }: { spans: TraceSpan[] }) {
+  if (spans.length === 0) {
+    return <p className="text-[11px] text-[var(--color-text-muted)]">No trace spans</p>
+  }
+
+  const allTimes = collectAllTimes(spans)
+  const minTime = Math.min(...allTimes)
+  const maxTime = Math.max(...allTimes)
+  const totalDuration = maxTime - minTime || 1
+
+  const flatSpans = flattenSpans(spans, 0, minTime)
+
+  const markers = [0, 0.25, 0.5, 0.75, 1].map((pct) => ({
+    pct: pct * 100,
+    label: formatMs(pct * totalDuration),
+  }))
+
+  return (
+    <div className="space-y-0.5">
+      {/* Time axis */}
+      <div className="relative h-5 mb-2 border-b border-[var(--color-border)]">
+        {markers.map((m) => (
+          <span
+            key={m.pct}
+            className="absolute bottom-0 text-[9px] text-[var(--color-text-disabled)] font-mono -translate-x-1/2"
+            style={{ left: `${m.pct}%` }}
+          >
+            {m.label}
+          </span>
+        ))}
+      </div>
+
+      {/* Span bars */}
+      {flatSpans.map((span, idx) => {
+        const leftPct = (span.startOffset / totalDuration) * 100
+        const widthPct = Math.max((span.durationMs / totalDuration) * 100, 2)
+        const barColor = spanBarColors[span.name.toLowerCase()] ?? 'bg-slate-500'
+
+        return (
+          <div key={idx} className="flex items-center h-6" style={{ paddingLeft: `${span.depth * 16}px` }}>
+            <div className="relative flex-1 h-4">
+              <div
+                className={`absolute top-0 h-full rounded-sm ${barColor} opacity-80`}
+                style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+              />
+              <span
+                className="absolute top-0 h-full flex items-center text-[10px] font-mono text-[var(--color-text-primary)] whitespace-nowrap pointer-events-none"
+                style={{ left: `${leftPct + widthPct + 0.5}%` }}
+              >
+                {span.name} <span className="ml-1 text-[var(--color-text-disabled)]">{formatMs(span.durationMs)}</span>
+              </span>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// --- Main Page ---
+
 export function LogsPage() {
   const [entries, setEntries] = useState<LogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [levels, setLevels] = useState<Set<string>>(new Set(['info', 'warn', 'error']))
   const [logType, setLogType] = useState<LogType>('operations')
   const [timeRange, setTimeRange] = useState('1h')
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
   const [filterText, setFilterText] = useState('')
   const [expandedRow, setExpandedRow] = useState<number | null>(null)
   const [isLive, setIsLive] = useState(false)
+  const [traceData, setTraceData] = useState<TraceSpan[] | null>(null)
   const filterRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval>>()
 
-  const fetchLogs = useCallback((lvls: Set<string>, typ: LogType, range: string) => {
+  const fetchLogs = useCallback((lvls: Set<string>, typ: LogType, range: string, cStart: string, cEnd: string) => {
     setLoading(true)
     const params = new URLSearchParams({ type: typ, limit: '200' })
 
-    // Time range to since
-    const ms = range === '1h' ? 3_600_000 : range === '24h' ? 86_400_000 : 604_800_000
-    params.set('since', new Date(Date.now() - ms).toISOString())
+    if (range === 'custom') {
+      if (cStart) params.set('since', new Date(cStart).toISOString())
+      if (cEnd) params.set('until', new Date(cEnd).toISOString())
+    } else {
+      const ms = range === '1h' ? 3_600_000 : range === '24h' ? 86_400_000 : 604_800_000
+      params.set('since', new Date(Date.now() - ms).toISOString())
+    }
 
     // Level filter — if not all selected, pass a single level (API supports single level)
     // For multiple levels, we filter client-side
@@ -171,20 +302,45 @@ export function LogsPage() {
   }, [])
 
   useEffect(() => {
-    fetchLogs(levels, logType, timeRange)
-  }, [levels, logType, timeRange, fetchLogs])
+    fetchLogs(levels, logType, timeRange, customStart, customEnd)
+  }, [levels, logType, timeRange, customStart, customEnd, fetchLogs])
 
   // Live polling
   useEffect(() => {
     if (isLive) {
       pollRef.current = setInterval(() => {
-        fetchLogs(levels, logType, timeRange)
+        fetchLogs(levels, logType, timeRange, customStart, customEnd)
       }, 3000)
     }
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
     }
-  }, [isLive, levels, logType, timeRange, fetchLogs])
+  }, [isLive, levels, logType, timeRange, customStart, customEnd, fetchLogs])
+
+  // Fetch trace data when a trace row is expanded
+  useEffect(() => {
+    if (logType !== 'trace' || expandedRow === null) {
+      setTraceData(null)
+      return
+    }
+
+    const entry = entries[expandedRow]
+    if (!entry) {
+      setTraceData(null)
+      return
+    }
+
+    const sessionId = entry.sessionId ?? entry.session_id
+    if (!sessionId) {
+      setTraceData(null)
+      return
+    }
+
+    setTraceData(null)
+    apiFetch<{ traces: TraceSpan[] }>(`/api/sessions/${sessionId}/traces`)
+      .then((res) => setTraceData(res.traces))
+      .catch(() => setTraceData([]))
+  }, [expandedRow, logType, entries])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -306,6 +462,26 @@ export function LogsPage() {
         </div>
       </div>
 
+      {/* Custom time range inputs */}
+      {timeRange === 'custom' && (
+        <div className="card p-3 mb-4 flex items-center gap-3 animate-fade-up">
+          <span className="text-[12px] text-[var(--color-text-muted)]">From</span>
+          <input
+            type="datetime-local"
+            className="input-field text-[12px]"
+            value={customStart}
+            onChange={(e) => setCustomStart(e.target.value)}
+          />
+          <span className="text-[12px] text-[var(--color-text-muted)]">To</span>
+          <input
+            type="datetime-local"
+            className="input-field text-[12px]"
+            value={customEnd}
+            onChange={(e) => setCustomEnd(e.target.value)}
+          />
+        </div>
+      )}
+
       {/* Log table */}
       <div className="card animate-fade-up" style={{ animationDelay: '60ms' }}>
         {/* Header */}
@@ -344,11 +520,17 @@ export function LogsPage() {
 
                   {/* Expanded detail drawer */}
                   {expandedRow === i && (
-                    <div className="px-4 py-3 bg-black/20 border-b border-[var(--color-border)]">
-                      <pre className="text-[11px] font-mono text-[var(--color-text-secondary)] whitespace-pre-wrap break-all">
-                        {JSON.stringify(entry, null, 2)}
-                      </pre>
-                    </div>
+                    logType === 'trace' ? (
+                      <div className="px-4 py-3 bg-black/20 border-b border-[var(--color-border)]">
+                        {traceData ? <WaterfallChart spans={traceData} /> : <p className="text-[11px] text-[var(--color-text-muted)]">Loading trace...</p>}
+                      </div>
+                    ) : (
+                      <div className="px-4 py-3 bg-black/20 border-b border-[var(--color-border)]">
+                        <pre className="text-[11px] font-mono text-[var(--color-text-secondary)] whitespace-pre-wrap break-all">
+                          {JSON.stringify(entry, null, 2)}
+                        </pre>
+                      </div>
+                    )
                   )}
                 </div>
               )
