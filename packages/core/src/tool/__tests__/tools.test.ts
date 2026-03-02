@@ -143,6 +143,14 @@ describe('BashTool', () => {
     const result = await tool.run(ctx, { command: 'echo safe' })
     expect(result.success).toBe(true)
   })
+
+  test('does NOT block rm -rf /tmp when fuse blocks rm -rf /', async () => {
+    const tool = new BashTool([
+      { pattern: 'rm -rf /', description: 'Block root delete' },
+    ])
+    const result = await tool.run(ctx, { command: 'ls /tmp' })
+    expect(result.success).toBe(true)
+  })
 })
 
 describe('ToolRegistry', () => {
