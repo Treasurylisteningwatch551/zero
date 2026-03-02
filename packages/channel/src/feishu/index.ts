@@ -93,7 +93,18 @@ export class FeishuChannel implements Channel {
             },
           }
 
-          await this.messageHandler(incoming)
+          // Add typing reaction immediately (fire-and-forget, don't block ACK)
+          if (this.client && messageId) {
+            this.client.im.messageReaction.create({
+              path: { message_id: messageId },
+              data: { reaction_type: { emoji_type: 'Typing' } },
+            }).catch(() => {})
+          }
+
+          // Fire-and-forget: return immediately so SDK sends ACK within 3s
+          this.messageHandler(incoming).catch((err) => {
+            console.error('[FeishuChannel] Async handler error:', err)
+          })
         } catch (err) {
           console.error('[FeishuChannel] Error handling im.message.receive_v1:', err)
         }
@@ -169,9 +180,16 @@ export class FeishuChannel implements Channel {
   }
 
   /**
-   * Get the Lark EventDispatcher for mounting as webhook endpoint.
+   * Reply to a specific message (quote-reply).
    */
-  getEventDispatcher(): lark.EventDispatcher | null {
-    return this.eventDispatcher
+  async reply(messageId: string, content: string): Promise<void> {
+    if (!this.client) return
+    await this.client.im.message.reply({
+      path: { message_id: messageId },
+      data: {
+        content: JSON.stringify({ text: content }),
+        msg_type: 'text',
+      },
+    })
   }
 }

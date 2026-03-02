@@ -195,6 +195,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
     })
     feishuChannel.setMessageHandler(async (msg) => {
       const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
+      const messageId = msg.metadata?.messageId as string
       try {
         const { session, isNew } = sessionManager.getOrCreateForChannel('feishu', chatId)
         if (isNew) {
@@ -210,13 +211,19 @@ export async function startZeroOS(): Promise<ZeroOS> {
           .filter((b) => b.type === 'text')
           .map((b) => (b as { type: 'text'; text: string }).text)
           .join('\n')
-        if (replyText) {
+        if (replyText && messageId) {
+          await feishuChannel.reply(messageId, replyText)
+        } else if (replyText) {
           await feishuChannel.send(chatId, replyText)
         }
       } catch (err) {
         console.error('[ZeRo OS] Feishu message handler error:', err)
         try {
-          await feishuChannel.send(chatId, 'An error occurred processing your message.')
+          if (messageId) {
+            await feishuChannel.reply(messageId, 'An error occurred processing your message.')
+          } else {
+            await feishuChannel.send(chatId, 'An error occurred processing your message.')
+          }
         } catch {}
       }
     })

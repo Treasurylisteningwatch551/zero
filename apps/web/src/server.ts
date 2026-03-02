@@ -4,7 +4,6 @@ import { readFileSync, existsSync } from 'node:fs'
 import { createRoutes } from './api/routes'
 import type { ZeroOS } from '../../server/src/main'
 import { WebMessageHandler } from '@zero-os/channel'
-import type { FeishuChannel } from '@zero-os/channel'
 
 const WEB_DIST = join(import.meta.dir, '../dist')
 
@@ -28,40 +27,19 @@ export function startWebServer(zero: ZeroOS): { port: number } {
   const server = new Hono()
   server.route('/', app)
 
-  // Mount Feishu webhook endpoint (fallback for url_verification, events delivered via WSClient)
-  const feishuChannel = zero.channels.get('feishu') as FeishuChannel | undefined
-  const feishuDispatcher = feishuChannel?.getEventDispatcher?.()
-  if (feishuDispatcher) {
-    server.post('/webhook/feishu', async (c) => {
-      let body: any
-      try {
-        body = await c.req.json()
-      } catch {
-        return c.json({ error: 'invalid json' }, 400)
-      }
-
-      // Handle url_verification challenge
-      if (body.type === 'url_verification') {
-        return c.json({ challenge: body.challenge })
-      }
-
-      // Forward to dispatcher for webhook-delivered events
-      const headers = Object.fromEntries(c.req.raw.headers.entries())
-      const dataWithHeaders = Object.assign(Object.create({ headers }), body)
-      try {
-        const result = await feishuDispatcher.invoke(dataWithHeaders)
-        return c.json(result ?? {})
-      } catch (err) {
-        console.error('[Feishu Webhook] Dispatcher error:', err)
-        return c.json({}, 200)
-      }
-    })
-  } else {
-    server.post('/webhook/feishu', (c) => {
-      console.warn('[Feishu Webhook] Request received but no dispatcher configured')
-      return c.json({ error: 'feishu channel not configured' }, 503)
-    })
-  }
+  // Feishu webhook — only url_verification; events delivered via WSClient
+  server.post('/webhook/feishu', async (c) => {
+    let body: any
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: 'invalid json' }, 400)
+    }
+    if (body.type === 'url_verification') {
+      return c.json({ challenge: body.challenge })
+    }
+    return c.json({}, 200)
+  })
 
   // SPA fallback
   server.get('*', (c) => {
