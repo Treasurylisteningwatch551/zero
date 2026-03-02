@@ -74,7 +74,7 @@ export class Agent {
   /**
    * Run the agent's tool-use loop until completion or max loops reached.
    */
-  async run(context: AgentContext, userMessage: string): Promise<Message[]> {
+  async run(context: AgentContext, userMessage: string, onNewMessage?: (msg: Message) => void, shouldInterrupt?: () => boolean): Promise<Message[]> {
     const maxLoops = this.config.maxToolLoops ?? 10
     const messages: Message[] = [...context.conversationHistory]
     const newMessages: Message[] = []
@@ -96,6 +96,7 @@ export class Agent {
     }
     messages.push(userMsg)
     newMessages.push(userMsg)
+    onNewMessage?.(userMsg)
 
     // Build system prompt
     const systemParts: string[] = [context.systemPrompt]
@@ -135,6 +136,7 @@ export class Agent {
       }
       messages.push(assistantMsg)
       newMessages.push(assistantMsg)
+      onNewMessage?.(assistantMsg)
 
       // Emit session update event
       this.obs.bus?.emit('session:update', {
@@ -223,7 +225,11 @@ export class Agent {
         }
         messages.push(toolResultMsg)
         newMessages.push(toolResultMsg)
+        onNewMessage?.(toolResultMsg)
       }
+
+      // Yield to pending message if one arrived during tool execution
+      if (shouldInterrupt?.()) break
     }
 
     // End root trace span

@@ -6,7 +6,7 @@ import type {
   ToolDefinition,
   SecretFilter,
 } from '@zero-os/shared'
-import { generateSessionId, now } from '@zero-os/shared'
+import { generateSessionId, generateId, now, Mutex } from '@zero-os/shared'
 import type { ModelRouter } from '@zero-os/model'
 import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
 import type { ToolRegistry } from '../tool/registry'
@@ -38,6 +38,8 @@ export class Session {
   private toolRegistry: ToolRegistry
   private agent: Agent | null = null
   private deps: SessionDeps
+  private mutex = new Mutex()
+  private interruptFlag = false
 
   constructor(
     source: SessionSource,
@@ -129,6 +131,23 @@ export class Session {
       throw new Error('Agent not initialized. Call initAgent() first.')
     }
 
+    // If another message is already processing, signal it to yield after current tool cycle
+    if (this.mutex.isLocked()) {
+      this.interruptFlag = true
+    }
+
+    const lockId = generateId()
+    await this.mutex.acquire(lockId)
+    this.interruptFlag = false
+
+    try {
+      return await this.processMessage(content)
+    } finally {
+      this.mutex.release(lockId)
+    }
+  }
+
+  private async processMessage(content: string): Promise<Message[]> {
     // Retrieve relevant memories
     let retrievedMemories: string[] = []
     if (this.deps.memoryRetriever) {
@@ -146,9 +165,14 @@ export class Session {
       tools: this.toolRegistry.getDefinitions(),
     }
 
-    const newMessages = await this.agent.run(context, content)
-    this.messages.push(...newMessages)
-    this.data.updatedAt = now()
+    // Push messages to session in real-time so getMessages() reflects in-progress state
+    const onNewMessage = (msg: Message) => {
+      this.messages.push(msg)
+      this.data.updatedAt = now()
+    }
+
+    const shouldInterrupt = () => this.interruptFlag
+    const newMessages = await this.agent!.run(context, content, onNewMessage, shouldInterrupt)
 
     // Emit session:update
     this.deps.bus?.emit('session:update', {
