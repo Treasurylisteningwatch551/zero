@@ -18,4 +18,5 @@ export interface Session {
   modelHistory: ModelHistoryEntry[]
   summary?: string
   tags: string[]
+  channelId?: string
 }

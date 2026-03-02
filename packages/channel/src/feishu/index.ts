@@ -17,9 +17,11 @@ export class FeishuChannel implements Channel {
 
   private client: lark.Client | null = null
   private eventDispatcher: lark.EventDispatcher | null = null
+  private wsClient: lark.WSClient | null = null
   private messageHandler: MessageHandler | null = null
   private connected = false
   private config: FeishuChannelConfig
+  private processedMessageIds: Set<string> = new Set()
 
   constructor(config: FeishuChannelConfig) {
     this.config = config
@@ -39,43 +41,84 @@ export class FeishuChannel implements Channel {
     // Listen for incoming messages
     this.eventDispatcher.register({
       'im.message.receive_v1': async (data: any) => {
-        if (!this.messageHandler) return
+        try {
+          if (!this.messageHandler) return
 
-        const msg = data?.message
-        if (!msg) return
+          const msg = data?.message
+          if (!msg) {
+            console.warn('[FeishuChannel] Received event with no message payload')
+            return
+          }
 
-        // Only handle text messages
-        let content = ''
-        if (msg.message_type === 'text') {
-          const parsed = JSON.parse(msg.content ?? '{}')
-          content = parsed.text ?? ''
-        } else {
-          content = `[${msg.message_type} message]`
+          // Dedup: skip if this message_id was already processed
+          const messageId = msg.message_id
+          if (messageId && this.processedMessageIds.has(messageId)) {
+            console.log('[FeishuChannel] Skipping duplicate message:', messageId)
+            return
+          }
+          if (messageId) {
+            this.processedMessageIds.add(messageId)
+            // Prevent unbounded growth — trim oldest entry when exceeding 1000
+            if (this.processedMessageIds.size > 1000) {
+              const first = this.processedMessageIds.values().next().value!
+              this.processedMessageIds.delete(first)
+            }
+          }
+
+          console.log('[FeishuChannel] im.message.receive_v1 from', data.sender?.sender_id?.open_id ?? 'unknown')
+
+          // Only handle text messages
+          let content = ''
+          if (msg.message_type === 'text') {
+            try {
+              const parsed = JSON.parse(msg.content ?? '{}')
+              content = parsed.text ?? ''
+            } catch (parseErr) {
+              console.error('[FeishuChannel] Failed to parse message content:', parseErr)
+              content = msg.content ?? ''
+            }
+          } else {
+            content = `[${msg.message_type} message]`
+          }
+
+          const incoming: IncomingMessage = {
+            channelType: 'feishu',
+            senderId: data.sender?.sender_id?.open_id ?? 'unknown',
+            content,
+            timestamp: new Date(Number(msg.create_time) * 1000).toISOString(),
+            metadata: {
+              chatId: msg.chat_id,
+              messageId: msg.message_id,
+              chatType: msg.chat_type,
+            },
+          }
+
+          await this.messageHandler(incoming)
+        } catch (err) {
+          console.error('[FeishuChannel] Error handling im.message.receive_v1:', err)
         }
-
-        const incoming: IncomingMessage = {
-          channelType: 'feishu',
-          senderId: data.sender?.sender_id?.open_id ?? 'unknown',
-          content,
-          timestamp: new Date(Number(msg.create_time) * 1000).toISOString(),
-          metadata: {
-            chatId: msg.chat_id,
-            messageId: msg.message_id,
-            chatType: msg.chat_type,
-          },
-        }
-
-        await this.messageHandler(incoming)
       },
     })
+
+    // Use WebSocket long connection for event delivery (no webhook/ngrok needed)
+    this.wsClient = new lark.WSClient({
+      appId: this.config.appId,
+      appSecret: this.config.appSecret,
+      loggerLevel: lark.LoggerLevel.info,
+    })
+    await this.wsClient.start({ eventDispatcher: this.eventDispatcher })
+    console.log('[FeishuChannel] WSClient connected')
 
     this.connected = true
   }
 
   async stop(): Promise<void> {
+    this.wsClient?.close()
+    this.wsClient = null
     this.connected = false
     this.client = null
     this.eventDispatcher = null
+    this.processedMessageIds.clear()
   }
 
   async send(sessionId: string, content: string): Promise<void> {

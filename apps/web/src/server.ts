@@ -1,7 +1,6 @@
 import { Hono } from 'hono'
 import { join } from 'node:path'
 import { readFileSync, existsSync } from 'node:fs'
-import * as lark from '@larksuiteoapi/node-sdk'
 import { createRoutes } from './api/routes'
 import type { ZeroOS } from '../../server/src/main'
 import { WebMessageHandler } from '@zero-os/channel'
@@ -29,45 +28,38 @@ export function startWebServer(zero: ZeroOS): { port: number } {
   const server = new Hono()
   server.route('/', app)
 
-  // Mount Feishu webhook endpoint
+  // Mount Feishu webhook endpoint (fallback for url_verification, events delivered via WSClient)
   const feishuChannel = zero.channels.get('feishu') as FeishuChannel | undefined
   const feishuDispatcher = feishuChannel?.getEventDispatcher?.()
   if (feishuDispatcher) {
-    const feishuHandler = lark.adaptDefault('/webhook/feishu', feishuDispatcher)
     server.post('/webhook/feishu', async (c) => {
-      // Bridge Hono request to the lark adapter
-      const body = await c.req.text()
+      let body: any
+      try {
+        body = await c.req.json()
+      } catch {
+        return c.json({ error: 'invalid json' }, 400)
+      }
+
+      // Handle url_verification challenge
+      if (body.type === 'url_verification') {
+        return c.json({ challenge: body.challenge })
+      }
+
+      // Forward to dispatcher for webhook-delivered events
       const headers = Object.fromEntries(c.req.raw.headers.entries())
-      return new Promise<Response>((resolve) => {
-        const mockReq = {
-          body: JSON.parse(body || '{}'),
-          headers,
-          method: 'POST',
-          url: '/webhook/feishu',
-        }
-        const mockRes = {
-          statusCode: 200,
-          _body: '',
-          status(code: number) { this.statusCode = code; return this },
-          json(data: unknown) {
-            this._body = JSON.stringify(data)
-            resolve(new Response(this._body, {
-              status: this.statusCode,
-              headers: { 'Content-Type': 'application/json' },
-            }))
-          },
-          send(data: string) {
-            this._body = data
-            resolve(new Response(this._body, { status: this.statusCode }))
-          },
-          end() {
-            resolve(new Response(this._body, { status: this.statusCode }))
-          },
-        }
-        feishuHandler(mockReq as any, mockRes as any, () => {
-          resolve(new Response('OK', { status: 200 }))
-        })
-      })
+      const dataWithHeaders = Object.assign(Object.create({ headers }), body)
+      try {
+        const result = await feishuDispatcher.invoke(dataWithHeaders)
+        return c.json(result ?? {})
+      } catch (err) {
+        console.error('[Feishu Webhook] Dispatcher error:', err)
+        return c.json({}, 200)
+      }
+    })
+  } else {
+    server.post('/webhook/feishu', (c) => {
+      console.warn('[Feishu Webhook] Request received but no dispatcher configured')
+      return c.json({ error: 'feishu channel not configured' }, 503)
     })
   }
 

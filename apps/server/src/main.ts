@@ -194,20 +194,31 @@ export async function startZeroOS(): Promise<ZeroOS> {
       verificationToken: vault.get('feishu_verification_token') ?? undefined,
     })
     feishuChannel.setMessageHandler(async (msg) => {
-      const session = sessionManager.create('feishu')
-      session.initAgent({
-        name: 'zero-feishu',
-        systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
-      })
-      const replies = await session.handleMessage(msg.content)
-      const replyText = replies
-        .filter((m) => m.role === 'assistant')
-        .flatMap((m) => m.content)
-        .filter((b) => b.type === 'text')
-        .map((b) => (b as { type: 'text'; text: string }).text)
-        .join('\n')
       const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
-      await feishuChannel.send(chatId, replyText)
+      try {
+        const { session, isNew } = sessionManager.getOrCreateForChannel('feishu', chatId)
+        if (isNew) {
+          session.initAgent({
+            name: 'zero-feishu',
+            systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+          })
+        }
+        const replies = await session.handleMessage(msg.content)
+        const replyText = replies
+          .filter((m) => m.role === 'assistant')
+          .flatMap((m) => m.content)
+          .filter((b) => b.type === 'text')
+          .map((b) => (b as { type: 'text'; text: string }).text)
+          .join('\n')
+        if (replyText) {
+          await feishuChannel.send(chatId, replyText)
+        }
+      } catch (err) {
+        console.error('[ZeRo OS] Feishu message handler error:', err)
+        try {
+          await feishuChannel.send(chatId, 'An error occurred processing your message.')
+        } catch {}
+      }
     })
     await feishuChannel.start()
     channels.set('feishu', feishuChannel)
@@ -223,11 +234,14 @@ export async function startZeroOS(): Promise<ZeroOS> {
   if (telegramToken) {
     const telegramChannel = new TelegramChannel({ botToken: telegramToken })
     telegramChannel.setMessageHandler(async (msg) => {
-      const session = sessionManager.create('telegram')
-      session.initAgent({
-        name: 'zero-telegram',
-        systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
-      })
+      const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
+      const { session, isNew } = sessionManager.getOrCreateForChannel('telegram', chatId)
+      if (isNew) {
+        session.initAgent({
+          name: 'zero-telegram',
+          systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+        })
+      }
       const replies = await session.handleMessage(msg.content)
       const replyText = replies
         .filter((m) => m.role === 'assistant')
@@ -235,7 +249,6 @@ export async function startZeroOS(): Promise<ZeroOS> {
         .filter((b) => b.type === 'text')
         .map((b) => (b as { type: 'text'; text: string }).text)
         .join('\n')
-      const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
       await telegramChannel.send(chatId, replyText)
     })
     await telegramChannel.start()
