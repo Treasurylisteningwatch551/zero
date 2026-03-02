@@ -4,6 +4,7 @@ import { Skeleton, SkeletonText } from '../components/shared/Skeleton'
 import { useUIStore } from '../stores/ui'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import { apiFetch } from '../lib/api'
+import { useWebSocket } from '../hooks/useWebSocket'
 import { MetadataBar } from '../components/session/MetadataBar'
 import { TimelineView, buildTimeline, extractFilesTouched } from '../components/session/TimelineView'
 import { ContextPanel } from '../components/session/ContextPanel'
@@ -58,6 +59,24 @@ export function SessionDetailPage() {
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
   const lastKeyRef = useRef<string>('')
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const wasAtBottomRef = useRef(true)
+
+  const fetchSession = useCallback(() => {
+    if (!sessionId) return
+    apiFetch<SessionDetail>(`/api/sessions/${sessionId}`)
+      .then((data) => {
+        setSession(data)
+        // Auto-scroll if user was already at the bottom
+        if (wasAtBottomRef.current) {
+          requestAnimationFrame(() => {
+            const el = timelineRef.current
+            if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+          })
+        }
+      })
+      .catch(() => {})
+  }, [sessionId])
 
   useEffect(() => {
     if (!sessionId) return
@@ -67,6 +86,33 @@ export function SessionDetailPage() {
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [sessionId])
+
+  // Track whether user is scrolled to the bottom
+  useEffect(() => {
+    const el = timelineRef.current
+    if (!el) return
+    function onScroll() {
+      if (!el) return
+      wasAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [session])
+
+  // WebSocket: auto-refresh on session events
+  const onEvent = useCallback((topic: string, data: unknown) => {
+    const ev = data as { sessionId?: string }
+    if (ev?.sessionId !== sessionId) return
+    // Debounce to avoid rapid re-fetches during tool loops
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(fetchSession, 300)
+  }, [sessionId, fetchSession])
+
+  useWebSocket({
+    url: `ws://${window.location.host}/ws`,
+    topics: ['session:update', 'session:end', 'tool:call', 'tool:result'],
+    onEvent,
+  })
 
   function goBack() {
     setSelectedSessionId(null)

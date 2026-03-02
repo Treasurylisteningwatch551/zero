@@ -4,6 +4,7 @@ import { PulseDot } from '../components/shared/PulseDot'
 import { Skeleton } from '../components/shared/Skeleton'
 import { useNavigate } from '@tanstack/react-router'
 import { apiFetch } from '../lib/api'
+import { useWebSocket } from '../hooks/useWebSocket'
 import { formatTimeAgo, formatModelHistory, formatNumber, formatCost } from '../lib/format'
 import { statusColors } from '../lib/colors'
 import { useUIStore } from '../stores/ui'
@@ -47,13 +48,18 @@ export function SessionsPage() {
   const [loading, setLoading] = useState(true)
   const [focusIndex, setFocusIndex] = useState(-1)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const wsDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const lastKeyRef = useRef<string>('')
+  const filterRef = useRef(filter)
+  const searchRef = useRef(search)
+  filterRef.current = filter
+  searchRef.current = search
   const listRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const { setSelectedSessionId } = useUIStore()
 
-  function fetchSessions(f: string, q: string) {
-    setLoading(true)
+  function fetchSessions(f: string, q: string, showLoading = true) {
+    if (showLoading) setLoading(true)
     const params = new URLSearchParams()
     if (f !== 'all') params.set('filter', f)
     if (q) params.set('q', q)
@@ -61,7 +67,7 @@ export function SessionsPage() {
     apiFetch<{ sessions: SessionInfo[] }>(`/api/sessions${qs ? `?${qs}` : ''}`)
       .then((res) => setSessions(res.sessions))
       .catch(() => {})
-      .finally(() => setLoading(false))
+      .finally(() => { if (showLoading) setLoading(false) })
   }
 
   useEffect(() => {
@@ -112,6 +118,20 @@ export function SessionsPage() {
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
+
+  // WebSocket: auto-refresh session list on session events
+  const onSessionEvent = useCallback(() => {
+    clearTimeout(wsDebounceRef.current)
+    wsDebounceRef.current = setTimeout(() => {
+      fetchSessions(filterRef.current, searchRef.current, false)
+    }, 500)
+  }, [])
+
+  useWebSocket({
+    url: `ws://${window.location.host}/ws`,
+    topics: ['session:create', 'session:update', 'session:end'],
+    onEvent: onSessionEvent,
+  })
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
