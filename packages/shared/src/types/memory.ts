@@ -5,6 +5,7 @@ export type MemoryType =
   | 'decision'
   | 'note'
   | 'preference'
+  | 'inbox'
 
 export type MemoryStatus = 'draft' | 'verified' | 'archived' | 'conflict'
 

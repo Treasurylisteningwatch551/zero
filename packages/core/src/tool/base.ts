@@ -1,4 +1,5 @@
 import type { ToolContext, ToolResult } from '@zero-os/shared'
+import { now } from '@zero-os/shared'
 
 /**
  * Abstract base class for all ZeRo OS tools.
@@ -24,14 +25,42 @@ export abstract class BaseTool {
   protected abstract execute(ctx: ToolContext, input: unknown): Promise<ToolResult>
 
   /**
-   * Post-execution hook - release locks, write logs.
+   * Post-execution hook - release locks, write logs, filter secrets.
    */
-  protected async afterExecute(ctx: ToolContext, result: ToolResult): Promise<void> {
+  protected async afterExecute(ctx: ToolContext, result: ToolResult, durationMs: number): Promise<void> {
+    // Filter secrets from output
+    if (ctx.secretFilter) {
+      result.output = ctx.secretFilter.filter(result.output)
+      result.outputSummary = ctx.secretFilter.filter(result.outputSummary)
+    }
+
     ctx.logger.info('tool_call_complete', {
       tool: this.name,
       success: result.success,
       outputSummary: result.outputSummary,
+      durationMs,
     })
+
+    // Structured observability logging
+    if (ctx.observability) {
+      ctx.observability.logOperation({
+        level: result.success ? 'info' : 'error',
+        sessionId: ctx.sessionId,
+        event: 'tool_call_complete',
+        tool: this.name,
+        input: '',
+        outputSummary: result.outputSummary,
+        durationMs,
+      })
+      ctx.observability.recordOperation({
+        sessionId: ctx.sessionId,
+        tool: this.name,
+        event: 'tool_call_complete',
+        success: result.success,
+        durationMs,
+        createdAt: now(),
+      })
+    }
   }
 
   /**
@@ -43,10 +72,12 @@ export abstract class BaseTool {
       await this.fuseCheck(input)
       await this.beforeExecute(ctx, input)
       const result = await this.execute(ctx, input)
-      await this.afterExecute(ctx, result)
+      const durationMs = Date.now() - startTime
+      await this.afterExecute(ctx, result, durationMs)
       return result
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
+      const durationMs = Date.now() - startTime
       const result: ToolResult = {
         success: false,
         output: errorMessage,
@@ -55,7 +86,7 @@ export abstract class BaseTool {
       ctx.logger.error('tool_call_error', {
         tool: this.name,
         error: errorMessage,
-        durationMs: Date.now() - startTime,
+        durationMs,
       })
       return result
     }

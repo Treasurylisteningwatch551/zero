@@ -1,6 +1,8 @@
 import { MagnifyingGlass } from '@phosphor-icons/react'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { PulseDot } from '../components/shared/PulseDot'
+import { Skeleton } from '../components/shared/Skeleton'
+import { useNavigate } from '@tanstack/react-router'
 import { apiFetch } from '../lib/api'
 import { formatTimeAgo, formatModelHistory, formatNumber, formatCost } from '../lib/format'
 import { statusColors } from '../lib/colors'
@@ -35,13 +37,20 @@ function mapStatusToDot(status: string): 'active' | 'idle' | 'error' | 'warning'
   return 'idle'
 }
 
+const SOURCE_FILTERS = ['all', 'web', 'feishu', 'telegram', 'scheduler'] as const
+
 export function SessionsPage() {
   const [filter, setFilter] = useState('all')
+  const [sourceFilter, setSourceFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const [loading, setLoading] = useState(true)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
-  const { setCurrentPage, setSelectedSessionId } = useUIStore()
+  const [focusIndex, setFocusIndex] = useState(-1)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const lastKeyRef = useRef<string>('')
+  const listRef = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
+  const { setSelectedSessionId } = useUIStore()
 
   function fetchSessions(f: string, q: string) {
     setLoading(true)
@@ -67,8 +76,42 @@ export function SessionsPage() {
 
   function openSession(id: string) {
     setSelectedSessionId(id)
-    setCurrentPage('session-detail')
+    navigate({ to: '/sessions/$id', params: { id } })
   }
+
+  // Apply source filter client-side
+  const filteredSessions = sourceFilter === 'all'
+    ? sessions
+    : sessions.filter((s) => s.source === sourceFilter)
+
+  // Keyboard navigation
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    const tag = (e.target as HTMLElement).tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return
+
+    if (e.key === 'j') {
+      setFocusIndex((prev) => Math.min(prev + 1, filteredSessions.length - 1))
+    } else if (e.key === 'k') {
+      setFocusIndex((prev) => Math.max(prev - 1, 0))
+    } else if (e.key === 'Enter' && focusIndex >= 0 && focusIndex < filteredSessions.length) {
+      openSession(filteredSessions[focusIndex].id)
+    } else if (e.key === 'Escape') {
+      setFocusIndex(-1)
+    } else if (e.key === 'g' && lastKeyRef.current === 'g') {
+      setFocusIndex(0)
+      listRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+    } else if (e.key === 'G') {
+      setFocusIndex(filteredSessions.length - 1)
+      listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
+    }
+
+    lastKeyRef.current = e.key
+  }, [filteredSessions, focusIndex])
+
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [handleKeyDown])
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -103,14 +146,46 @@ export function SessionsPage() {
             />
           </div>
         </div>
+
+        {/* Source filters */}
+        <div className="flex gap-1.5 mt-3 pt-3 border-t border-[var(--color-border)]">
+          <span className="text-[11px] text-[var(--color-text-disabled)] mr-1 self-center">Source:</span>
+          {SOURCE_FILTERS.map((sf) => (
+            <button
+              key={sf}
+              onClick={() => setSourceFilter(sf)}
+              className={`px-2.5 py-0.5 rounded text-[11px] transition-colors ${
+                sourceFilter === sf
+                  ? 'bg-[var(--color-accent-glow)] text-[var(--color-accent)]'
+                  : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
+              }`}
+            >
+              {sf}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Session list */}
       {loading ? (
-        <div className="card p-8 text-center text-[13px] text-[var(--color-text-muted)]">
-          Loading sessions...
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="card p-4" style={{ animationDelay: `${i * 40}ms` }}>
+              <div className="flex items-center gap-3">
+                <Skeleton className="w-2 h-2 rounded-full" />
+                <Skeleton className="h-3.5 w-48" />
+                <span className="flex-1" />
+                <Skeleton className="h-3 w-16" />
+              </div>
+              <div className="ml-7 mt-2 flex gap-2">
+                <Skeleton className="h-2.5 w-16" />
+                <Skeleton className="h-2.5 w-32" />
+                <Skeleton className="h-2.5 w-20" />
+              </div>
+            </div>
+          ))}
         </div>
-      ) : sessions.length === 0 ? (
+      ) : filteredSessions.length === 0 ? (
         <div className="card p-12 text-center animate-fade-up" style={{ animationDelay: '60ms' }}>
           <p className="text-[14px] text-[var(--color-text-muted)] mb-2">No sessions yet</p>
           <p className="text-[12px] text-[var(--color-text-disabled)]">
@@ -118,12 +193,14 @@ export function SessionsPage() {
           </p>
         </div>
       ) : (
-        <div className="space-y-2 animate-fade-up" style={{ animationDelay: '60ms' }}>
-          {sessions.map((s) => (
+        <div ref={listRef} className="space-y-2 animate-fade-up" style={{ animationDelay: '60ms' }}>
+          {filteredSessions.map((s, idx) => (
             <div
               key={s.id}
               onClick={() => openSession(s.id)}
-              className="card p-4 cursor-pointer hover:bg-white/[0.02] transition-colors"
+              className={`card p-4 cursor-pointer hover:bg-white/[0.02] transition-colors ${
+                idx === focusIndex ? 'border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]/30' : ''
+              }`}
             >
               {/* Line 1: Status + ID + Summary */}
               <div className="flex items-center gap-3">

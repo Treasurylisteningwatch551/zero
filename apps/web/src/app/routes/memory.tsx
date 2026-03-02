@@ -1,10 +1,19 @@
-import { MagnifyingGlass } from '@phosphor-icons/react'
+import { MagnifyingGlass, PencilSimple, Check, X } from '@phosphor-icons/react'
 import { useState, useEffect, useRef } from 'react'
 import { typeColors, typeBgColors } from '../lib/colors'
-import { apiFetch } from '../lib/api'
+import { Skeleton, SkeletonText } from '../components/shared/Skeleton'
+import { apiFetch, apiPut } from '../lib/api'
 import { formatTimeAgo } from '../lib/format'
 
-const memoryTypes = ['session', 'incident', 'runbook', 'decision', 'note'] as const
+const memoryTypes = ['session', 'incident', 'runbook', 'decision', 'note', 'inbox', 'preference'] as const
+const STATUS_OPTIONS = ['all', 'draft', 'verified', 'archived', 'conflict'] as const
+const SORT_OPTIONS = [
+  { key: 'newest', label: 'Newest' },
+  { key: 'confidence', label: 'Confidence' },
+  { key: 'type', label: 'Type' },
+] as const
+
+type SortKey = typeof SORT_OPTIONS[number]['key']
 
 interface MemoryItem {
   id: string
@@ -18,13 +27,73 @@ interface MemoryItem {
   tags: string[]
 }
 
+function ConfidenceDots({ value }: { value: number }) {
+  const filled = Math.round(value * 5)
+  return (
+    <div className="flex gap-0.5">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <span key={i} className={`w-1.5 h-1.5 rounded-full ${i < filled ? 'bg-cyan-400' : 'bg-white/10'}`} />
+      ))}
+    </div>
+  )
+}
+
+function MemoryOverview({ memories }: { memories: MemoryItem[] }) {
+  const typeCounts: Record<string, number> = {}
+  for (const m of memories) {
+    typeCounts[m.type] = (typeCounts[m.type] ?? 0) + 1
+  }
+
+  const mostRecent = memories.length > 0
+    ? memories.reduce((a, b) => (new Date(b.updatedAt) > new Date(a.updatedAt) ? b : a))
+    : null
+
+  return (
+    <div className="space-y-4">
+      <h3 className="text-[14px] font-semibold text-[var(--color-text-secondary)]">Memory Overview</h3>
+
+      <div className="flex items-center gap-3">
+        <div className="text-[28px] font-bold tracking-tight">{memories.length}</div>
+        <span className="text-[13px] text-[var(--color-text-muted)]">total memories</span>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[11px] text-[var(--color-text-disabled)] tracking-wide font-semibold">BY TYPE</p>
+        {Object.entries(typeCounts).map(([type, count]) => (
+          <div key={type} className="flex items-center justify-between py-1">
+            <div className="flex items-center gap-2">
+              <span className={`text-[11px] px-1.5 py-0.5 rounded ${typeBgColors[type] ?? ''} ${typeColors[type] ?? 'text-slate-400'}`}>
+                {type}
+              </span>
+            </div>
+            <span className="text-[13px] font-mono text-[var(--color-text-primary)]">{count}</span>
+          </div>
+        ))}
+      </div>
+
+      {mostRecent && (
+        <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
+          <p className="text-[11px] text-[var(--color-text-disabled)] tracking-wide font-semibold mb-2">MOST RECENT</p>
+          <p className="text-[12px] text-[var(--color-text-primary)]">{mostRecent.title}</p>
+          <p className="text-[11px] text-[var(--color-text-muted)]">{formatTimeAgo(mostRecent.updatedAt)}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function MemoryPage() {
   const [selectedType, setSelectedType] = useState<string>('all')
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [sortBy, setSortBy] = useState<SortKey>('newest')
   const [search, setSearch] = useState('')
   const [memories, setMemories] = useState<MemoryItem[]>([])
   const [selected, setSelected] = useState<MemoryItem | null>(null)
   const [loading, setLoading] = useState(true)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const [editing, setEditing] = useState(false)
+  const [editContent, setEditContent] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   function fetchMemories(type: string) {
     setLoading(true)
@@ -57,11 +126,46 @@ export function MemoryPage() {
     debounceRef.current = setTimeout(() => searchMemories(value), 300)
   }
 
+  function startEdit() {
+    if (!selected) return
+    setEditContent(selected.content)
+    setEditing(true)
+  }
+
+  async function saveEdit() {
+    if (!selected) return
+    setEditSaving(true)
+    try {
+      await apiPut(`/api/memory/${selected.id}`, { content: editContent })
+      setSelected({ ...selected, content: editContent })
+      setMemories((prev) => prev.map((m) => m.id === selected.id ? { ...m, content: editContent } : m))
+      setEditing(false)
+    } catch {
+      // keep editing on failure
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  function cancelEdit() {
+    setEditing(false)
+    setEditContent('')
+  }
+
+  // Apply status filter and sorting
+  const filteredMemories = memories
+    .filter((m) => statusFilter === 'all' || m.status === statusFilter)
+    .sort((a, b) => {
+      if (sortBy === 'confidence') return b.confidence - a.confidence
+      if (sortBy === 'type') return a.type.localeCompare(b.type)
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    })
+
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
       <h1 className="text-[20px] font-bold tracking-tight mb-4">Memory</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-4">
         {/* Left panel: filters + list */}
         <div className="space-y-3">
           {/* Search */}
@@ -92,7 +196,7 @@ export function MemoryPage() {
                 onClick={() => { setSelectedType(type); setSearch('') }}
                 className={`px-2.5 py-1 rounded-md text-[11px] tracking-wide transition-colors ${
                   selectedType === type
-                    ? `${typeBgColors[type]} ${typeColors[type]}`
+                    ? `${typeBgColors[type] ?? ''} ${typeColors[type] ?? ''}`
                     : 'text-[var(--color-text-muted)]'
                 }`}
               >
@@ -101,21 +205,51 @@ export function MemoryPage() {
             ))}
           </div>
 
+          {/* Status filter + Sort */}
+          <div className="flex gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="input-field text-[12px] flex-1"
+            >
+              {STATUS_OPTIONS.map((s) => (
+                <option key={s} value={s}>{s === 'all' ? 'All statuses' : s}</option>
+              ))}
+            </select>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortKey)}
+              className="input-field text-[12px] flex-1"
+            >
+              {SORT_OPTIONS.map((s) => (
+                <option key={s.key} value={s.key}>{s.label}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Memory list */}
           {loading ? (
-            <div className="card p-6 text-center">
-              <p className="text-[13px] text-[var(--color-text-muted)]">Loading...</p>
+            <div className="space-y-1.5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="card p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Skeleton className="h-3 w-14 rounded" />
+                    <Skeleton className="h-2.5 w-16" />
+                  </div>
+                  <Skeleton className="h-3 w-full" />
+                </div>
+              ))}
             </div>
-          ) : memories.length === 0 ? (
+          ) : filteredMemories.length === 0 ? (
             <div className="card p-6 text-center">
               <p className="text-[13px] text-[var(--color-text-muted)]">No memories found</p>
             </div>
           ) : (
             <div className="space-y-1.5 max-h-[600px] overflow-y-auto">
-              {memories.map((mem) => (
+              {filteredMemories.map((mem) => (
                 <button
                   key={mem.id}
-                  onClick={() => setSelected(mem)}
+                  onClick={() => { setSelected(mem); setEditing(false) }}
                   className={`w-full text-left card p-3 transition-colors ${
                     selected?.id === mem.id
                       ? 'border-[var(--color-accent)] bg-[var(--color-accent-glow)]'
@@ -126,6 +260,7 @@ export function MemoryPage() {
                     <span className={`text-[10px] px-1.5 py-0.5 rounded ${typeBgColors[mem.type] ?? ''} ${typeColors[mem.type] ?? 'text-slate-400'}`}>
                       {mem.type}
                     </span>
+                    <ConfidenceDots value={mem.confidence} />
                     <span className="text-[10px] text-[var(--color-text-disabled)]">
                       {formatTimeAgo(mem.updatedAt)}
                     </span>
@@ -143,13 +278,43 @@ export function MemoryPage() {
         <div className="card p-6">
           {selected ? (
             <div>
-              <div className="flex items-center gap-2 mb-3">
-                <span className={`text-[11px] px-2 py-0.5 rounded ${typeBgColors[selected.type] ?? ''} ${typeColors[selected.type] ?? ''}`}>
-                  {selected.type}
-                </span>
-                <span className="text-[11px] text-[var(--color-text-disabled)]">
-                  {selected.status} · confidence: {(selected.confidence * 100).toFixed(0)}%
-                </span>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className={`text-[11px] px-2 py-0.5 rounded ${typeBgColors[selected.type] ?? ''} ${typeColors[selected.type] ?? ''}`}>
+                    {selected.type}
+                  </span>
+                  <span className="text-[11px] text-[var(--color-text-disabled)]">
+                    {selected.status}
+                  </span>
+                  <ConfidenceDots value={selected.confidence} />
+                </div>
+                {!editing ? (
+                  <button
+                    onClick={startEdit}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-white/[0.05] transition-colors"
+                  >
+                    <PencilSimple size={12} />
+                    Edit
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={saveEdit}
+                      disabled={editSaving}
+                      className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-emerald-400 hover:bg-emerald-400/10 transition-colors disabled:opacity-40"
+                    >
+                      <Check size={12} />
+                      {editSaving ? 'Saving...' : 'Save'}
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-[var(--color-text-muted)] hover:bg-white/[0.05] transition-colors"
+                    >
+                      <X size={12} />
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
               <h2 className="text-[16px] font-semibold text-[var(--color-text-primary)] mb-2">
                 {selected.title}
@@ -163,14 +328,21 @@ export function MemoryPage() {
                   ))}
                 </div>
               )}
-              <div className="text-[13px] font-mono text-[var(--color-text-secondary)] whitespace-pre-wrap">
-                {selected.content}
-              </div>
+              {editing ? (
+                <textarea
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                  className="w-full min-h-[300px] bg-transparent text-[13px] font-mono text-[var(--color-text-primary)] resize-none outline-none border border-[var(--color-border)] rounded-lg p-3"
+                  spellCheck={false}
+                />
+              ) : (
+                <div className="text-[13px] font-mono text-[var(--color-text-secondary)] whitespace-pre-wrap">
+                  {selected.content}
+                </div>
+              )}
             </div>
           ) : (
-            <p className="text-[13px] text-[var(--color-text-muted)] py-12 text-center">
-              Select a memory to view details
-            </p>
+            <MemoryOverview memories={filteredMemories} />
           )}
         </div>
       </div>

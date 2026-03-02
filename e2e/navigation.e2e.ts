@@ -18,30 +18,38 @@ test.describe('Navigation', () => {
   })
 
   const navItems = [
-    { name: 'Sessions', heading: 'Sessions' },
-    { name: 'Memory', heading: 'Memory' },
-    { name: 'Memo', heading: 'Memo' },
-    { name: 'Tools', heading: 'Tools' },
-    { name: 'Logs', heading: 'Logs' },
-    { name: 'Config', heading: 'Config' },
-    { name: 'Metrics', heading: 'Metrics' },
+    { name: 'Sessions', path: '/sessions', heading: 'Sessions' },
+    { name: 'Memory', path: '/memory', heading: 'Memory' },
+    { name: 'Memo', path: '/memo', heading: 'Memo' },
+    { name: 'Tools', path: '/tools', heading: 'Tools' },
+    { name: 'Logs', path: '/logs', heading: 'Logs' },
+    { name: 'Config', path: '/config', heading: 'Config' },
+    { name: 'Metrics', path: '/metrics', heading: 'Metrics' },
   ]
 
   for (const item of navItems) {
-    test(`navigates to ${item.name} page`, async ({ page }) => {
-      await page.goto('/')
-      // Use exact match to avoid "Memory" matching "Memo"
-      await page.getByRole('button', { name: item.name, exact: true }).click()
+    test(`navigates to ${item.name} page via URL`, async ({ page }) => {
+      await page.goto(item.path)
       await expect(page.locator('main h1')).toContainText(item.heading)
     })
   }
 
+  for (const item of navItems) {
+    test(`navigates to ${item.name} page via sidebar click`, async ({ page }) => {
+      await page.goto('/')
+      await page.getByRole('button', { name: item.name, exact: true }).click()
+      await expect(page.locator('main h1')).toContainText(item.heading)
+      // URL should update via TanStack Router
+      await expect(page).toHaveURL(new RegExp(item.path))
+    })
+  }
+
   test('navigates back to Dashboard', async ({ page }) => {
-    await page.goto('/')
-    await page.locator('nav button:has-text("Sessions")').click()
+    await page.goto('/sessions')
     await expect(page.locator('main h1')).toContainText('Sessions')
-    await page.locator('nav button:has-text("Dashboard")').click()
+    await page.locator('nav button').filter({ hasText: 'Dashboard' }).click()
     await expect(page.locator('main h1')).toContainText('Dashboard')
+    await expect(page).toHaveURL('/')
   })
 
   test('sidebar shows Running status indicator', async ({ page }) => {
@@ -64,13 +72,13 @@ test.describe('Navigation', () => {
 
   test('sidebar has Chat button', async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('aside button:has-text("Chat")')).toBeVisible()
+    await expect(page.locator('aside button').filter({ hasText: 'Chat' })).toBeVisible()
   })
 
   test('active page has highlighted nav item', async ({ page }) => {
     await page.goto('/')
-    // Dashboard should be highlighted with accent border
-    const dashboardBtn = page.locator('nav button:has-text("Dashboard")')
+    // Dashboard should be highlighted with accent glow background
+    const dashboardBtn = page.locator('nav button').filter({ hasText: 'Dashboard' })
     await expect(dashboardBtn).toHaveClass(/border-l-2/)
   })
 })

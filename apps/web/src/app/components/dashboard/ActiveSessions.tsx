@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { PulseDot } from '../shared/PulseDot'
 import { apiFetch } from '../../lib/api'
 import { formatTimeAgo } from '../../lib/format'
+import { useWebSocket } from '../../hooks/useWebSocket'
 
 interface Session {
   id: string
@@ -12,8 +14,15 @@ interface Session {
   toolCallCount: number
 }
 
+interface ToolEvent {
+  sessionId?: string
+  tool?: string
+  event?: string
+}
+
 export function ActiveSessions() {
   const [sessions, setSessions] = useState<Session[]>([])
+  const [liveTools, setLiveTools] = useState<Map<string, string>>(new Map())
 
   useEffect(() => {
     function poll() {
@@ -25,6 +34,32 @@ export function ActiveSessions() {
     const interval = setInterval(poll, 5000)
     return () => clearInterval(interval)
   }, [])
+
+  // WebSocket: live tool call streaming
+  const onEvent = useCallback((topic: string, data: unknown) => {
+    const ev = data as ToolEvent
+    if (!ev?.sessionId) return
+
+    if (topic.startsWith('tool:call')) {
+      setLiveTools((prev) => {
+        const next = new Map(prev)
+        next.set(ev.sessionId!, ev.tool ?? 'unknown')
+        return next
+      })
+    } else if (topic.startsWith('tool:result')) {
+      setLiveTools((prev) => {
+        const next = new Map(prev)
+        next.delete(ev.sessionId!)
+        return next
+      })
+    }
+  }, [])
+
+  useWebSocket({
+    url: `ws://${window.location.host}/ws`,
+    topics: ['tool:call', 'tool:result'],
+    onEvent,
+  })
 
   return (
     <div className="card p-5 animate-fade-up" style={{ animationDelay: '160ms' }}>
@@ -39,19 +74,11 @@ export function ActiveSessions() {
       ) : (
         <div className="space-y-3">
           {sessions.map((s) => {
-            const isActive = s.status === 'active'
+            const activeTool = liveTools.get(s.id)
             return (
               <div key={s.id} className="rounded-lg bg-white/[0.02] p-3">
                 <div className="flex items-center gap-2.5 mb-1">
-                  <span
-                    className={
-                      isActive
-                        ? 'animate-pulse text-cyan-400 text-[10px]'
-                        : 'text-[var(--color-text-disabled)] text-[10px]'
-                    }
-                  >
-                    {isActive ? '●' : '◌'}
-                  </span>
+                  <PulseDot status={s.status === 'active' ? 'active' : 'idle'} size={8} />
                   <span className="text-[12px] font-mono text-[var(--color-text-primary)]">
                     {s.id.slice(0, 8)}
                   </span>
@@ -70,9 +97,16 @@ export function ActiveSessions() {
                     {s.summary}
                   </p>
                 )}
-                <p className="text-[11px] text-[var(--color-text-disabled)] ml-5 mt-0.5">
-                  {s.toolCallCount} tool call{s.toolCallCount !== 1 ? 's' : ''}
-                </p>
+                <div className="ml-5 mt-0.5 flex items-center gap-2">
+                  <span className="text-[11px] text-[var(--color-text-disabled)]">
+                    {s.toolCallCount} tool call{s.toolCallCount !== 1 ? 's' : ''}
+                  </span>
+                  {activeTool && (
+                    <span className="text-[11px] text-[var(--color-accent)] animate-pulse">
+                      running: {activeTool}
+                    </span>
+                  )}
+                </div>
               </div>
             )
           })}

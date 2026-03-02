@@ -1,4 +1,4 @@
-import { X, PaperPlaneRight, CircleNotch, ClipboardText } from '@phosphor-icons/react'
+import { X, PaperPlaneRight, ClipboardText } from '@phosphor-icons/react'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -14,10 +14,11 @@ interface ChatMessage {
 }
 
 export function ChatDrawer() {
-  const { chatDrawerOpen, toggleChatDrawer } = useUIStore()
+  const { chatDrawerOpen, toggleChatDrawer, isMobile } = useUIStore()
   const [message, setMessage] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loading, setLoading] = useState(false)
+  const [streaming, setStreaming] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [modelName, setModelName] = useState('unknown')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -26,6 +27,18 @@ export function ChatDrawer() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Esc-to-close
+  useEffect(() => {
+    if (!chatDrawerOpen) return
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        toggleChatDrawer()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [chatDrawerOpen, toggleChatDrawer])
 
   // Fetch current model name
   useEffect(() => {
@@ -41,12 +54,12 @@ export function ChatDrawer() {
     const textarea = textareaRef.current
     if (!textarea) return
     textarea.style.height = 'auto'
-    const maxHeight = 4 * 24 // 4 lines × ~24px line height
+    const maxHeight = 4 * 24
     textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`
     textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
   }, [message])
 
-  // WebSocket: receive notification cards in chat
+  // WebSocket: receive notification cards + streaming deltas
   const onEvent = useCallback((topic: string, data: unknown) => {
     if (topic === 'notification') {
       const payload = data as Record<string, unknown>
@@ -62,13 +75,49 @@ export function ChatDrawer() {
     }
   }, [])
 
-  useWebSocket({
+  const onStream = useCallback((_sid: string, delta: string) => {
+    if (!streaming) return
+    setMessages((prev) => {
+      const last = prev[prev.length - 1]
+      if (last && last.role === 'assistant') {
+        return [...prev.slice(0, -1), { ...last, content: last.content + delta }]
+      }
+      return [...prev, { role: 'assistant', content: delta }]
+    })
+  }, [streaming])
+
+  const { send: wsSend } = useWebSocket({
     url: `ws://${window.location.host}/ws`,
-    topics: ['notification'],
+    topics: ['notification', 'stream'],
     onEvent,
+    onStream,
   })
 
   if (!chatDrawerOpen) return null
+
+  async function handleCommand(text: string): Promise<boolean> {
+    if (text === '/new') {
+      setSessionId(null)
+      setMessages([{ role: 'assistant', content: 'New session started.' }])
+      return true
+    }
+
+    const modelMatch = text.match(/^\/model\s+(.+)$/)
+    if (modelMatch) {
+      const newModel = modelMatch[1].trim()
+      try {
+        await apiPost('/api/chat/model', { model: newModel, sessionId })
+        setModelName(newModel)
+        setMessages((prev) => [...prev, { role: 'assistant', content: `Model switched to ${newModel}` }])
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : 'Unknown error'
+        setMessages((prev) => [...prev, { role: 'assistant', content: `Failed to switch model: ${errMsg}` }])
+      }
+      return true
+    }
+
+    return false
+  }
 
   async function sendMessage() {
     const text = message.trim()
@@ -76,16 +125,38 @@ export function ChatDrawer() {
 
     setMessage('')
     setMessages((prev) => [...prev, { role: 'user', content: text }])
+
+    // Handle slash commands
+    if (text.startsWith('/')) {
+      const handled = await handleCommand(text)
+      if (handled) return
+    }
+
     setLoading(true)
 
     try {
+      // Attempt WS streaming
+      setStreaming(true)
+      wsSend({ type: 'chat', sessionId, message: text })
+
+      // POST for the full response
       const res = await apiPost<{ sessionId: string; reply: string }>('/api/chat', {
         message: text,
         sessionId,
       })
       setSessionId(res.sessionId)
-      setMessages((prev) => [...prev, { role: 'assistant', content: res.reply }])
+      setStreaming(false)
+
+      // Replace any partial streaming with the final reply
+      setMessages((prev) => {
+        const lastIdx = prev.length - 1
+        if (lastIdx >= 0 && prev[lastIdx].role === 'assistant') {
+          return [...prev.slice(0, lastIdx), { role: 'assistant', content: res.reply }]
+        }
+        return [...prev, { role: 'assistant', content: res.reply }]
+      })
     } catch (err) {
+      setStreaming(false)
       const errMsg = err instanceof Error ? err.message : 'Unknown error'
       setMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${errMsg}` }])
     } finally {
@@ -93,10 +164,14 @@ export function ChatDrawer() {
     }
   }
 
+  const drawerClasses = isMobile
+    ? 'fixed inset-0 w-full h-full z-50'
+    : 'fixed right-0 top-0 h-full w-[360px] z-50'
+
   return (
     <div
-      className="fixed right-0 top-0 h-full w-[360px] bg-[var(--color-main-bg)] border-l border-[var(--color-border)] z-50 flex flex-col"
-      style={{ animation: 'slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards' }}
+      className={`${drawerClasses} bg-[var(--color-main-bg)] border-l border-[var(--color-border)] flex flex-col`}
+      style={!isMobile ? { animation: 'slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards' } : undefined}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]">
@@ -163,16 +238,17 @@ export function ChatDrawer() {
         })}
 
         {loading && (
-          <div className="flex items-center gap-2 text-[var(--color-text-muted)] text-[13px]">
-            <CircleNotch size={16} className="animate-spin" />
-            <span>Thinking...</span>
+          <div className="flex items-center gap-1.5 py-2">
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+            <span className="typing-dot" />
           </div>
         )}
 
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input — multi-line textarea */}
+      {/* Input */}
       <div className="p-3 border-t border-[var(--color-border)]">
         <div className="flex items-end gap-2">
           <textarea

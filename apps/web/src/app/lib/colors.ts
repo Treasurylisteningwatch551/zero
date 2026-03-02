@@ -6,8 +6,9 @@ export const typeColors: Record<string, string> = {
   incident: 'text-red-400',
   runbook: 'text-emerald-400',
   decision: 'text-amber-400',
-  note: 'text-slate-400',
+  note: 'text-blue-400',
   preference: 'text-violet-400',
+  inbox: 'text-pink-400',
 }
 
 export const typeBgColors: Record<string, string> = {
@@ -15,8 +16,9 @@ export const typeBgColors: Record<string, string> = {
   incident: 'bg-red-400/10',
   runbook: 'bg-emerald-400/10',
   decision: 'bg-amber-400/10',
-  note: 'bg-slate-400/10',
+  note: 'bg-blue-400/10',
   preference: 'bg-violet-400/10',
+  inbox: 'bg-pink-400/10',
 }
 
 export const statusColors: Record<string, string> = {

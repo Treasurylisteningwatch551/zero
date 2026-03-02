@@ -1,46 +1,35 @@
-import { Sidebar } from './components/layout/Sidebar'
-import { ChatDrawer } from './components/layout/ChatDrawer'
-import { DashboardPage } from './routes/dashboard'
-import { SessionsPage } from './routes/sessions'
-import { SessionDetailPage } from './routes/session-detail'
-import { MemoryPage } from './routes/memory'
-import { MemoPage } from './routes/memo'
-import { ToolsPage } from './routes/tools'
-import { LogsPage } from './routes/logs'
-import { ConfigPage } from './routes/config'
-import { MetricsPage } from './routes/metrics'
+import { useEffect } from 'react'
+import { RouterProvider } from '@tanstack/react-router'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { useUIStore } from './stores/ui'
+import { queryClient } from './lib/queryClient'
+import { router } from './router'
 
-const pages: Record<string, () => JSX.Element> = {
-  dashboard: DashboardPage,
-  sessions: SessionsPage,
-  'session-detail': SessionDetailPage,
-  memory: MemoryPage,
-  memo: MemoPage,
-  tools: ToolsPage,
-  logs: LogsPage,
-  config: ConfigPage,
-  metrics: MetricsPage,
+function AppShell() {
+  const { setViewport } = useUIStore()
+
+  // Viewport listener
+  useEffect(() => {
+    function handleResize() {
+      setViewport(window.innerWidth)
+    }
+    window.addEventListener('resize', handleResize)
+    // Set initial value
+    handleResize()
+    return () => window.removeEventListener('resize', handleResize)
+  }, [setViewport])
+
+  return (
+    <div className="min-h-[100dvh]">
+      <RouterProvider router={router} />
+    </div>
+  )
 }
 
 export function App() {
-  const { currentPage, chatDrawerOpen } = useUIStore()
-  const PageComponent = pages[currentPage] ?? DashboardPage
-
   return (
-    <div className="min-h-screen">
-      <Sidebar />
-
-      {/* Main content area — narrows when chat drawer is open (push layout) */}
-      <main
-        className="ml-[220px] transition-[margin-right] duration-300 ease-out"
-        style={{ marginRight: chatDrawerOpen ? '360px' : '0' }}
-      >
-        <PageComponent />
-      </main>
-
-      {/* Chat drawer — push style, no backdrop overlay */}
-      <ChatDrawer />
-    </div>
+    <QueryClientProvider client={queryClient}>
+      <AppShell />
+    </QueryClientProvider>
   )
 }

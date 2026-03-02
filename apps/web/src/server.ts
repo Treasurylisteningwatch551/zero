@@ -1,9 +1,11 @@
 import { Hono } from 'hono'
 import { join } from 'node:path'
 import { readFileSync, existsSync } from 'node:fs'
+import * as lark from '@larksuiteoapi/node-sdk'
 import { createRoutes } from './api/routes'
 import type { ZeroOS } from '../../server/src/main'
 import { WebMessageHandler } from '@zero-os/channel'
+import type { FeishuChannel } from '@zero-os/channel'
 
 const WEB_DIST = join(import.meta.dir, '../dist')
 
@@ -26,6 +28,48 @@ export function startWebServer(zero: ZeroOS): { port: number } {
 
   const server = new Hono()
   server.route('/', app)
+
+  // Mount Feishu webhook endpoint
+  const feishuChannel = zero.channels.get('feishu') as FeishuChannel | undefined
+  const feishuDispatcher = feishuChannel?.getEventDispatcher?.()
+  if (feishuDispatcher) {
+    const feishuHandler = lark.adaptDefault('/webhook/feishu', feishuDispatcher)
+    server.post('/webhook/feishu', async (c) => {
+      // Bridge Hono request to the lark adapter
+      const body = await c.req.text()
+      const headers = Object.fromEntries(c.req.raw.headers.entries())
+      return new Promise<Response>((resolve) => {
+        const mockReq = {
+          body: JSON.parse(body || '{}'),
+          headers,
+          method: 'POST',
+          url: '/webhook/feishu',
+        }
+        const mockRes = {
+          statusCode: 200,
+          _body: '',
+          status(code: number) { this.statusCode = code; return this },
+          json(data: unknown) {
+            this._body = JSON.stringify(data)
+            resolve(new Response(this._body, {
+              status: this.statusCode,
+              headers: { 'Content-Type': 'application/json' },
+            }))
+          },
+          send(data: string) {
+            this._body = data
+            resolve(new Response(this._body, { status: this.statusCode }))
+          },
+          end() {
+            resolve(new Response(this._body, { status: this.statusCode }))
+          },
+        }
+        feishuHandler(mockReq as any, mockRes as any, () => {
+          resolve(new Response('OK', { status: 200 }))
+        })
+      })
+    })
+  }
 
   // SPA fallback
   server.get('*', (c) => {

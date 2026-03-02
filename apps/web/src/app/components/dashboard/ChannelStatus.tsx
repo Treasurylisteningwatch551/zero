@@ -39,6 +39,9 @@ export function ChannelStatus() {
 
   const hasOffline = channels.some((ch) => ch.status !== 'online')
 
+  // Auto-hide when all channels are online
+  if (!hasOffline) return null
+
   return (
     <div
       className={`card px-4 py-2.5 animate-fade-up flex items-center gap-3 ${

@@ -11,7 +11,7 @@ import { formatNumber, formatCost } from '../lib/format'
 // ---------------------------------------------------------------------------
 
 type Tab = 'cost' | 'operations' | 'health'
-type TimeRange = '7d' | '30d' | '90d'
+type TimeRange = '7d' | '30d' | '90d' | 'custom'
 
 interface CostByDay { period: string; totalCost: number; totalTokens: number }
 interface CostByModel { model: string; provider: string; totalCost: number; totalInput: number; totalOutput: number; requestCount: number }
@@ -29,7 +29,7 @@ interface LogEntry { ts: string; event?: string; [key: string]: unknown }
 // Constants
 // ---------------------------------------------------------------------------
 
-const MODEL_COLORS = ['#22d3ee', '#0891b2', '#155e75', '#64748b', '#a78bfa', '#f472b6', '#fb923c', '#34d399']
+const MODEL_COLORS = ['#22d3ee', '#06b6d4', '#0891b2', '#0e7490', '#155e75', '#164e63', '#083344', '#67e8f9']
 const CHART_GRID = 'rgba(255, 255, 255, 0.05)'
 const CHART_TEXT = 'rgba(255, 255, 255, 0.4)'
 const TOOLTIP_STYLE = {
@@ -43,7 +43,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'health', label: 'Health' },
 ]
 
-const RANGES: TimeRange[] = ['7d', '30d', '90d']
+const RANGES: TimeRange[] = ['7d', '30d', '90d', 'custom']
 
 // ---------------------------------------------------------------------------
 // Shared UI helpers
@@ -70,7 +70,7 @@ function StatCard({ label, value, delay = 0 }: { label: string; value: string | 
   return (
     <div className="card p-4 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
       <p className="text-[11px] text-[var(--color-text-muted)] mb-1">{label}</p>
-      <p className="text-[22px] font-bold tracking-tight">{value}</p>
+      <p className="text-[28px] font-bold tracking-tight">{value}</p>
     </div>
   )
 }
@@ -533,6 +533,12 @@ function HealthTab({ range }: { range: TimeRange }) {
 export function MetricsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('cost')
   const [range, setRange] = useState<TimeRange>('30d')
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
+
+  // For custom range, compute a matching preset-style range to pass to tabs
+  // (Tabs already accept range as a string for API calls)
+  const effectiveRange = range === 'custom' ? 'custom' : range
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -569,16 +575,36 @@ export function MetricsPage() {
                   : 'text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]'
               }`}
             >
-              {r}
+              {r === 'custom' ? 'Custom' : r}
             </button>
           ))}
         </div>
       </div>
 
+      {/* Custom time range picker */}
+      {range === 'custom' && (
+        <div className="card p-3 mb-4 flex items-center gap-3 animate-fade-up">
+          <span className="text-[12px] text-[var(--color-text-muted)]">From</span>
+          <input
+            type="date"
+            className="input-field text-[12px]"
+            value={customStart}
+            onChange={(e) => setCustomStart(e.target.value)}
+          />
+          <span className="text-[12px] text-[var(--color-text-muted)]">To</span>
+          <input
+            type="date"
+            className="input-field text-[12px]"
+            value={customEnd}
+            onChange={(e) => setCustomEnd(e.target.value)}
+          />
+        </div>
+      )}
+
       {/* Tab content */}
-      {activeTab === 'cost' && <CostTab range={range} />}
-      {activeTab === 'operations' && <OperationsTab range={range} />}
-      {activeTab === 'health' && <HealthTab range={range} />}
+      {activeTab === 'cost' && <CostTab range={effectiveRange} />}
+      {activeTab === 'operations' && <OperationsTab range={effectiveRange} />}
+      {activeTab === 'health' && <HealthTab range={effectiveRange} />}
     </div>
   )
 }

@@ -6,28 +6,27 @@ test.describe('Session Detail Page', () => {
     await page.goto('/')
 
     // Send a chat message to create a session
-    await page.locator('aside button:has-text("Chat")').click()
+    await page.locator('aside button').filter({ hasText: 'Chat' }).click()
     const input = page.getByPlaceholder('Send a message...')
     await input.fill('Say hello briefly')
     await input.press('Enter')
 
-    // Wait for AI reply to complete
-    await expect(page.locator('text=Thinking...')).toBeVisible({ timeout: 10_000 })
-    await expect(page.locator('text=Thinking...')).not.toBeVisible({ timeout: 45_000 })
+    // Wait for AI reply to complete (bounce dots)
+    await expect(page.locator('.typing-dot').first()).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('.typing-dot').first()).not.toBeVisible({ timeout: 45_000 })
 
-    // Close chat drawer via X button (push layout, no backdrop)
-    const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')
-    await drawer.locator('button').first().click()
+    // Close chat drawer via Escape
+    await page.keyboard.press('Escape')
 
-    // Go to Sessions page
-    await page.locator('nav button:has-text("Sessions")').click()
+    // Go to Sessions page via URL
+    await page.goto('/sessions')
     await expect(page.locator('main h1')).toContainText('Sessions')
 
     // Wait for sessions to load and click the first one
     await expect(page.locator('main .card.cursor-pointer').first()).toBeVisible({ timeout: 5_000 })
     await page.locator('main .card.cursor-pointer').first().click()
 
-    // Wait for session detail to load
+    // Wait for session detail to load — URL should change to /sessions/<id>
     await expect(page.locator('main')).toContainText('sess_', { timeout: 10_000 })
   }
 
@@ -49,13 +48,13 @@ test.describe('Session Detail Page', () => {
     await expect(main).toContainText('gpt-5.3-codex-medium')
   })
 
-  test('shows timeline with user message', async ({ page }) => {
+  test('shows 65/35 split layout with timeline and context panel', async ({ page }) => {
     test.setTimeout(90_000)
     await createSessionAndNavigate(page)
 
-    // Should show some user message content in the timeline
-    // (we don't check for specific text since it could be any session)
-    await expect(page.locator('main')).toContainText('gpt-5.3-codex', { timeout: 5_000 })
+    // The split layout uses grid-cols-[65fr_35fr]
+    const grid = page.locator('main .grid.grid-cols-\\[65fr_35fr\\]')
+    await expect(grid).toBeVisible({ timeout: 5_000 })
   })
 
   test('shows context panel with model history', async ({ page }) => {
@@ -85,10 +84,25 @@ test.describe('Session Detail Page', () => {
     test.setTimeout(90_000)
     await createSessionAndNavigate(page)
 
-    // The back button is in main content area (not sidebar)
+    // The back button shows "Sessions" text with ArrowLeft icon
     await page.locator('main button:has-text("Sessions")').click()
 
     // Should be back at sessions list
     await expect(page.locator('main h1')).toContainText('Sessions')
+    await expect(page).toHaveURL(/\/sessions$/)
+  })
+
+  test('shows skeleton loader during loading', async ({ page }) => {
+    test.setTimeout(90_000)
+    // Navigate directly to a session detail URL with delayed API
+    await page.route('**/api/sessions/*', async (route) => {
+      const url = route.request().url()
+      // Only delay individual session requests, not the list
+      if (url.match(/\/api\/sessions\/sess_/)) {
+        await new Promise((r) => setTimeout(r, 1000))
+      }
+      await route.continue()
+    })
+    await createSessionAndNavigate(page)
   })
 })

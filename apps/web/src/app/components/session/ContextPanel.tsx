@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { formatModelHistory, formatNumber } from '../../lib/format'
 import { toolColors } from '../../lib/colors'
+import { apiFetch } from '../../lib/api'
 
 interface ModelHistoryEntry {
   model: string
@@ -16,17 +17,35 @@ interface ToolCallInfo {
   isError?: boolean
 }
 
+interface MemoryResult {
+  id: string
+  type: string
+  title?: string
+  snippet: string
+}
+
 interface Props {
   summary?: string
   modelHistory: ModelHistoryEntry[]
   toolCalls: ToolCallInfo[]
   filesTouched: string[]
   totalTokens: number
+  inputTokens?: number
+  outputTokens?: number
   selectedToolId: string | null
 }
 
-export function ContextPanel({ summary, modelHistory, toolCalls, filesTouched, totalTokens, selectedToolId }: Props) {
+export function ContextPanel({ summary, modelHistory, toolCalls, filesTouched, totalTokens, inputTokens, outputTokens, selectedToolId }: Props) {
   const [tab, setTab] = useState<'summary' | 'trace'>('summary')
+  const [relatedMemory, setRelatedMemory] = useState<MemoryResult[]>([])
+
+  // Fetch related memory based on session summary
+  useEffect(() => {
+    if (!summary) return
+    apiFetch<{ results: MemoryResult[] }>(`/api/memory/search?q=${encodeURIComponent(summary.slice(0, 100))}`)
+      .then((res) => setRelatedMemory(res.results ?? []))
+      .catch(() => {})
+  }, [summary])
 
   const selectedTool = selectedToolId
     ? toolCalls.find((t) => t.id === selectedToolId)
@@ -104,11 +123,38 @@ export function ContextPanel({ summary, modelHistory, toolCalls, filesTouched, t
             </p>
           </Section>
 
-          {/* Token Usage */}
-          <Section title="Token Usage">
-            <p className="text-[12px] text-[var(--color-text-muted)]">
-              {formatNumber(totalTokens)} total
-            </p>
+          {/* Model Usage — token breakdown */}
+          <Section title="Model Usage">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[12px]">
+                <span className="text-[var(--color-text-muted)]">Total</span>
+                <span className="font-mono text-[var(--color-text-secondary)]">{formatNumber(totalTokens)}</span>
+              </div>
+              {inputTokens !== undefined && (
+                <div className="flex items-center justify-between text-[12px]">
+                  <span className="text-[var(--color-text-muted)]">Input</span>
+                  <span className="font-mono text-[var(--color-text-secondary)]">{formatNumber(inputTokens)}</span>
+                </div>
+              )}
+              {outputTokens !== undefined && (
+                <div className="flex items-center justify-between text-[12px]">
+                  <span className="text-[var(--color-text-muted)]">Output</span>
+                  <span className="font-mono text-[var(--color-text-secondary)]">{formatNumber(outputTokens)}</span>
+                </div>
+              )}
+              {inputTokens !== undefined && outputTokens !== undefined && totalTokens > 0 && (
+                <div className="h-1.5 bg-white/5 rounded-full overflow-hidden flex mt-1">
+                  <div
+                    className="h-full bg-[var(--color-accent)] rounded-l-full"
+                    style={{ width: `${(inputTokens / totalTokens) * 100}%` }}
+                  />
+                  <div
+                    className="h-full bg-[var(--color-accent-dim)]"
+                    style={{ width: `${(outputTokens / totalTokens) * 100}%` }}
+                  />
+                </div>
+              )}
+            </div>
           </Section>
 
           {/* Tool Calls Distribution */}
@@ -143,6 +189,23 @@ export function ContextPanel({ summary, modelHistory, toolCalls, filesTouched, t
               <div className="space-y-0.5">
                 {filesTouched.map((f) => (
                   <p key={f} className="text-[11px] font-mono text-[var(--color-text-muted)] truncate">{f}</p>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {/* Related Memory */}
+          {relatedMemory.length > 0 && (
+            <Section title="Related Memory">
+              <div className="space-y-1.5">
+                {relatedMemory.slice(0, 5).map((m) => (
+                  <div key={m.id} className="rounded bg-white/[0.02] p-2">
+                    <span className="text-[10px] text-[var(--color-accent)] capitalize">{m.type}</span>
+                    {m.title && (
+                      <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">{m.title}</p>
+                    )}
+                    <p className="text-[11px] text-[var(--color-text-muted)] truncate">{m.snippet}</p>
+                  </div>
                 ))}
               </div>
             </Section>

@@ -8,8 +8,10 @@ import { SessionManager } from '@zero-os/core'
 import { Vault, generateMasterKey, setMasterKey, getMasterKey } from '@zero-os/secrets'
 import { OutputSecretFilter } from '@zero-os/secrets'
 import { JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
-import { MemoryStore, MemoManager } from '@zero-os/memory'
+import { MemoryStore, MemoManager, MemoryRetriever } from '@zero-os/memory'
 import { RepairEngine } from '@zero-os/supervisor'
+import { HeartbeatWriter } from '@zero-os/supervisor'
+import { CronScheduler } from '@zero-os/scheduler'
 import { globalBus } from './bus'
 import type { Channel } from '@zero-os/channel'
 import { WebChannel, FeishuChannel, TelegramChannel } from '@zero-os/channel'
@@ -96,18 +98,47 @@ export async function startZeroOS(): Promise<ZeroOS> {
   toolRegistry.register(new TaskTool(modelRouter, toolRegistry))
   console.log(`[ZeRo OS] ${toolRegistry.list().length} tools registered`)
 
-  // 9. Session Manager
-  const sessionManager = new SessionManager(modelRouter, toolRegistry)
-
-  // 10. Memory
+  // 9. Memory
   const memoryDir = join(ZERO_DIR, 'memory')
   const memoryStore = new MemoryStore(memoryDir)
   const memoManager = new MemoManager(join(memoryDir, 'memo.md'))
+  const memoryRetriever = new MemoryRetriever(memoryStore)
+
+  // 10. Session Manager — pass observability deps, memory, bus, secret filter
+  const sessionManager = new SessionManager(modelRouter, toolRegistry, {
+    logger,
+    metrics,
+    tracer,
+    secretFilter,
+    memoryRetriever,
+    bus: globalBus,
+  })
 
   // 11. Repair Engine
   const repairEngine = new RepairEngine()
 
-  // 12. Notification store
+  // 12. Heartbeat Writer
+  const heartbeat = new HeartbeatWriter(join(ZERO_DIR, 'heartbeat.json'))
+  heartbeat.start()
+  console.log('[ZeRo OS] Heartbeat writer started')
+
+  // 13. Scheduler
+  const scheduler = new CronScheduler()
+  scheduler.setTriggerHandler(async (schedConfig) => {
+    const session = sessionManager.create('scheduler')
+    session.initAgent({
+      name: `schedule-${schedConfig.name}`,
+      systemPrompt: schedConfig.instruction,
+    })
+    await session.handleMessage(schedConfig.instruction)
+  })
+  for (const s of config.schedules) {
+    scheduler.add(s)
+  }
+  scheduler.start()
+  console.log(`[ZeRo OS] Scheduler started (${config.schedules.length} schedules)`)
+
+  // 14. Notification store
   const notifications: Notification[] = []
   const notificationsPath = join(ZERO_DIR, 'logs', 'notifications.jsonl')
 
@@ -144,7 +175,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
     return notification
   }
 
-  // 13. Channel registry
+  // 15. Channel registry
   const channels = new Map<string, Channel>()
 
   // Web channel — always registered
@@ -218,7 +249,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
 
   console.log(`[ZeRo OS] ${channels.size} channels registered`)
 
-  // 14. Event bus
+  // 16. Event bus — wildcard logging
   globalBus.on('*', (payload) => {
     logger.log('info', payload.topic, payload.data)
   })
@@ -231,6 +262,18 @@ export async function startZeroOS(): Promise<ZeroOS> {
       diagnosis: (payload.data.diagnosis as string) ?? '',
       action: (payload.data.action as string) ?? '',
       result: (payload.data.result as string) ?? '',
+    })
+  })
+
+  // Record tool call metrics from bus events
+  globalBus.on('tool:call', (payload) => {
+    metrics.recordOperation({
+      sessionId: (payload.data.sessionId as string) ?? '',
+      tool: (payload.data.tool as string) ?? '',
+      event: 'tool:call',
+      success: true,
+      durationMs: 0,
+      createdAt: payload.timestamp,
     })
   })
 

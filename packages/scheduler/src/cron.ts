@@ -15,6 +15,8 @@ export class CronScheduler {
   private entries: Map<string, ScheduleEntry> = new Map()
   private timers: Map<string, ReturnType<typeof setTimeout>> = new Map()
   private onTrigger: ((config: ScheduleConfig) => Promise<void>) | null = null
+  private queued: Map<string, ScheduleConfig[]> = new Map()
+  private runningAbort: Map<string, AbortController> = new Map()
 
   /**
    * Set the trigger handler called when a schedule fires.
@@ -103,14 +105,45 @@ export class CronScheduler {
   }
 
   private async fire(name: string, entry: ScheduleEntry): Promise<void> {
-    // Check overlap policy
     const policy = entry.config.overlapPolicy?.type ?? 'skip'
-    if (entry.running && policy === 'skip') {
-      return
+
+    if (entry.running) {
+      switch (policy) {
+        case 'skip':
+          // Skip this execution
+          break
+        case 'queue':
+          // Queue for later execution
+          if (!this.queued.has(name)) {
+            this.queued.set(name, [])
+          }
+          this.queued.get(name)!.push(entry.config)
+          break
+        case 'replace':
+          // Abort the running execution (signal via abort controller), then re-run
+          const controller = this.runningAbort.get(name)
+          if (controller) {
+            controller.abort()
+          }
+          // Wait a tick for the abort to propagate, then fall through to execute
+          await new Promise((r) => setTimeout(r, 10))
+          break
+      }
+
+      if (policy !== 'replace') {
+        // Schedule next run
+        const interval = parser.parseExpression(entry.config.cron)
+        entry.nextRun = interval.next().toDate()
+        this.scheduleNext(name, entry)
+        return
+      }
     }
 
     entry.running = true
     entry.lastRun = new Date()
+
+    const abortController = new AbortController()
+    this.runningAbort.set(name, abortController)
 
     try {
       if (this.onTrigger) {
@@ -118,6 +151,18 @@ export class CronScheduler {
       }
     } finally {
       entry.running = false
+      this.runningAbort.delete(name)
+
+      // Process queued executions
+      const queue = this.queued.get(name)
+      if (queue && queue.length > 0) {
+        queue.shift()
+        if (queue.length > 0) {
+          // Re-fire immediately for queued item
+          this.fire(name, entry)
+          return
+        }
+      }
 
       // Schedule next run
       const interval = parser.parseExpression(entry.config.cron)

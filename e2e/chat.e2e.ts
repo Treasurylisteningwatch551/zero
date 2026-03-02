@@ -9,7 +9,7 @@ test.describe('Chat Drawer', () => {
     expect(initialMargin).toBe('0px')
 
     // Click the Chat button in sidebar
-    await page.locator('aside button:has-text("Chat")').click()
+    await page.locator('aside button').filter({ hasText: 'Chat' }).click()
     // Drawer should appear with placeholder text
     const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')
     await expect(drawer).toBeVisible()
@@ -27,7 +27,7 @@ test.describe('Chat Drawer', () => {
 
   test('push layout has no backdrop overlay', async ({ page }) => {
     await page.goto('/')
-    await page.locator('aside button:has-text("Chat")').click()
+    await page.locator('aside button').filter({ hasText: 'Chat' }).click()
     const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')
     await expect(drawer).toBeVisible()
     // No backdrop overlay should exist
@@ -35,16 +35,26 @@ test.describe('Chat Drawer', () => {
     await expect(backdrop).not.toBeVisible()
   })
 
+  test('closes with Escape key', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('aside button').filter({ hasText: 'Chat' }).click()
+    const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')
+    await expect(drawer).toBeVisible()
+    // Press Escape to close
+    await page.keyboard.press('Escape')
+    await expect(drawer).not.toBeVisible()
+  })
+
   test('shows channel info in header', async ({ page }) => {
     await page.goto('/')
-    await page.locator('aside button:has-text("Chat")').click()
+    await page.locator('aside button').filter({ hasText: 'Chat' }).click()
     const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')
     await expect(drawer).toContainText('Web Channel')
   })
 
   test('has multi-line textarea input', async ({ page }) => {
     await page.goto('/')
-    await page.locator('aside button:has-text("Chat")').click()
+    await page.locator('aside button').filter({ hasText: 'Chat' }).click()
     // Should be a textarea, not an input
     const textarea = page.locator('textarea[placeholder="Send a message..."]')
     await expect(textarea).toBeVisible()
@@ -52,7 +62,7 @@ test.describe('Chat Drawer', () => {
 
   test('can type a message', async ({ page }) => {
     await page.goto('/')
-    await page.locator('aside button:has-text("Chat")').click()
+    await page.locator('aside button').filter({ hasText: 'Chat' }).click()
     const textarea = page.getByPlaceholder('Send a message...')
     await textarea.fill('Hello')
     await expect(textarea).toHaveValue('Hello')
@@ -60,17 +70,17 @@ test.describe('Chat Drawer', () => {
 
   test('send button disabled when empty', async ({ page }) => {
     await page.goto('/')
-    await page.locator('aside button:has-text("Chat")').click()
+    await page.locator('aside button').filter({ hasText: 'Chat' }).click()
     // The send button should be disabled when input is empty
     const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')
     const sendBtn = drawer.locator('button[disabled]')
     await expect(sendBtn).toBeVisible()
   })
 
-  test('sends message and receives AI reply', async ({ page }) => {
+  test('sends message and shows bounce dots loading indicator', async ({ page }) => {
     test.setTimeout(60_000)
     await page.goto('/')
-    await page.locator('aside button:has-text("Chat")').click()
+    await page.locator('aside button').filter({ hasText: 'Chat' }).click()
 
     const textarea = page.getByPlaceholder('Send a message...')
     await textarea.fill('What is 2+2? Answer with just the number.')
@@ -80,11 +90,11 @@ test.describe('Chat Drawer', () => {
     const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')
     await expect(drawer).toContainText('What is 2+2?')
 
-    // Should show loading indicator
-    await expect(drawer.locator('text=Thinking...')).toBeVisible({ timeout: 5_000 })
+    // Should show bounce dots loading indicator (not "Thinking...")
+    await expect(drawer.locator('.typing-dot').first()).toBeVisible({ timeout: 5_000 })
 
     // Wait for AI reply (real API call)
-    await expect(drawer.locator('text=Thinking...')).not.toBeVisible({ timeout: 45_000 })
+    await expect(drawer.locator('.typing-dot').first()).not.toBeVisible({ timeout: 45_000 })
 
     // Should contain the answer "4" somewhere in the reply
     await expect(drawer).toContainText('4')

@@ -44,9 +44,9 @@ export function ActivityFeed() {
 
     // Map bus events to LogEntry-compatible format
     const logEntry: LogEntry = {
-      ts: new Date().toISOString(),
-      event: topic,
       ...entry,
+      ts: entry.ts ?? new Date().toISOString(),
+      event: entry.event ?? topic,
     }
 
     setItems((prev) => [logEntry, ...prev].slice(0, MAX_ITEMS))
@@ -84,7 +84,7 @@ export function ActivityFeed() {
             <div
               key={i}
               className={`flex items-center gap-3 py-1.5 text-[12px] font-mono${
-                i === 0 ? ' animate-fade-up' : ''
+                i === 0 ? ' animate-slide-down' : ''
               }`}
             >
               <span className="text-[var(--color-text-disabled)] w-12">

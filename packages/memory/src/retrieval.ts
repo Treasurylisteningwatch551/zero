@@ -23,7 +23,7 @@ export class MemoryRetriever {
     const keywords = extractKeywords(query)
 
     // Get all memories of specified types
-    const targetTypes = types ?? ['session', 'incident', 'runbook', 'decision', 'note'] as Memory['type'][]
+    const targetTypes = types ?? ['session', 'incident', 'runbook', 'decision', 'note', 'inbox'] as Memory['type'][]
     let allMemories: Memory[] = []
 
     for (const type of targetTypes) {

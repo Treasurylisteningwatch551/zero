@@ -2,69 +2,99 @@ import { test, expect } from '@playwright/test'
 
 test.describe('Config Page', () => {
   test('shows config heading', async ({ page }) => {
-    await page.goto('/')
-    await page.locator('nav button:has-text("Config")').click()
+    await page.goto('/config')
     await expect(page.locator('main h1')).toContainText('Config')
   })
 
-  test('shows providers section with data', async ({ page }) => {
-    await page.goto('/')
-    await page.locator('nav button:has-text("Config")').click()
-    await expect(page.locator('main h3:has-text("Providers")')).toBeVisible()
-    // API data should load: openai-codex provider
+  test('shows all 6 tab buttons', async ({ page }) => {
+    await page.goto('/config')
+    const tabArea = page.locator('main .flex.gap-1\\.5').first()
+    await expect(tabArea.locator('button:has-text("Models")')).toBeVisible()
+    await expect(tabArea.locator('button:has-text("Scheduler")')).toBeVisible()
+    await expect(tabArea.locator('button:has-text("Fuse List")')).toBeVisible()
+    await expect(tabArea.locator('button:has-text("Secrets")')).toBeVisible()
+    await expect(tabArea.locator('button:has-text("Channels")')).toBeVisible()
+    await expect(tabArea.locator('button:has-text("Version")')).toBeVisible()
+  })
+
+  test('Models tab shows providers section with data', async ({ page }) => {
+    await page.goto('/config')
+    // Models tab is default
+    await expect(page.locator('main h3:has-text("Providers")')).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('main')).toContainText('openai-codex', { timeout: 10_000 })
   })
 
-  test('shows models section with data', async ({ page }) => {
-    await page.goto('/')
-    await page.locator('nav button:has-text("Config")').click()
-    await expect(page.locator('main h3:has-text("Models")')).toBeVisible()
-    // Should show the model name
+  test('Models tab shows models section with data', async ({ page }) => {
+    await page.goto('/config')
+    await expect(page.locator('main h3:has-text("Models")')).toBeVisible({ timeout: 10_000 })
     await expect(page.locator('main')).toContainText('gpt-5.3-codex-medium', { timeout: 10_000 })
   })
 
-  test('shows scheduled tasks section', async ({ page }) => {
-    await page.goto('/')
-    await page.locator('nav button:has-text("Config")').click()
-    await expect(page.locator('main h3:has-text("Scheduled Tasks")')).toBeVisible()
-  })
-
-  test('shows fuse list section', async ({ page }) => {
-    await page.goto('/')
-    await page.locator('nav button:has-text("Config")').click()
-    await expect(page.locator('main h3:has-text("Fuse List")')).toBeVisible()
-  })
-
-  test('shows default model badge', async ({ page }) => {
-    await page.goto('/')
-    await page.locator('nav button:has-text("Config")').click()
+  test('Models tab shows default model badge', async ({ page }) => {
+    await page.goto('/config')
     await expect(page.locator('main span:has-text("Default")')).toBeVisible({ timeout: 10_000 })
   })
 
-  test('shows channels section', async ({ page }) => {
-    await page.goto('/')
-    await page.locator('nav button:has-text("Config")').click()
+  test('Scheduler tab shows scheduled tasks', async ({ page }) => {
+    await page.goto('/config')
+    await page.locator('main button:has-text("Scheduler")').click()
+    await expect(page.locator('main h3:has-text("Scheduled Tasks")')).toBeVisible()
+  })
+
+  test('Fuse List tab shows fuse list', async ({ page }) => {
+    await page.goto('/config')
+    await page.locator('main button:has-text("Fuse List")').click()
+    await expect(page.locator('main h3:has-text("Fuse List")')).toBeVisible()
+  })
+
+  test('Secrets tab shows secrets section', async ({ page }) => {
+    await page.goto('/config')
+    await page.locator('main button:has-text("Secrets")').click()
+    await expect(page.locator('main h3:has-text("Secrets")')).toBeVisible()
+  })
+
+  test('Channels tab shows channel names', async ({ page }) => {
+    await page.goto('/config')
+    await page.locator('main button:has-text("Channels")').click()
     await expect(page.locator('main h3:has-text("Channels")')).toBeVisible({ timeout: 10_000 })
+    await expect(page.locator('main')).toContainText('web')
+    await expect(page.locator('main')).toContainText('feishu')
+    await expect(page.locator('main')).toContainText('telegram')
   })
 
-  test('shows channel names in channels section', async ({ page }) => {
-    await page.goto('/')
-    await page.locator('nav button:has-text("Config")').click()
-    // Wait for channels section to load
-    const channelsCard = page.locator('main .lg\\:col-span-2')
-    await expect(channelsCard).toBeVisible({ timeout: 10_000 })
-    await expect(channelsCard).toContainText('Channels')
-    // All three channels should be visible in the channels card
-    await expect(channelsCard).toContainText('web')
-    await expect(channelsCard).toContainText('feishu')
-    await expect(channelsCard).toContainText('telegram')
+  test('Channels tab shows channel status indicators', async ({ page }) => {
+    await page.goto('/config')
+    await page.locator('main button:has-text("Channels")').click()
+    await expect(page.locator('main')).toContainText('online', { timeout: 10_000 })
   })
 
-  test('shows channel status indicators', async ({ page }) => {
-    await page.goto('/')
-    await page.locator('nav button:has-text("Config")').click()
-    // At least web channel should show "online" in the channels card
-    const channelsCard = page.locator('main .lg\\:col-span-2')
-    await expect(channelsCard).toContainText('online', { timeout: 10_000 })
+  test('Version tab shows version info', async ({ page }) => {
+    await page.goto('/config')
+    await page.locator('main button:has-text("Version")').click()
+    await expect(page.locator('main h3:has-text("Version Info")')).toBeVisible()
+    await expect(page.locator('main')).toContainText('v0.1.0')
+    await expect(page.locator('main')).toContainText('Bun')
+    await expect(page.locator('main')).toContainText('macOS')
+  })
+
+  test('tab switching hides previous tab content', async ({ page }) => {
+    await page.goto('/config')
+    // Models tab is default
+    await expect(page.locator('main h3:has-text("Providers")')).toBeVisible({ timeout: 10_000 })
+    // Switch to Scheduler tab
+    await page.locator('main button:has-text("Scheduler")').click()
+    await expect(page.locator('main h3:has-text("Providers")')).not.toBeVisible()
+    await expect(page.locator('main h3:has-text("Scheduled Tasks")')).toBeVisible()
+  })
+
+  test('shows skeleton loaders while loading', async ({ page }) => {
+    // Intercept API to delay response
+    await page.route('**/api/config', async (route) => {
+      await new Promise((r) => setTimeout(r, 1000))
+      await route.continue()
+    })
+    await page.goto('/config')
+    // Skeleton cards should be visible during loading
+    await expect(page.locator('main .skeleton').first()).toBeVisible()
   })
 })

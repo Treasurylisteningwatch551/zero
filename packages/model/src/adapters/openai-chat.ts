@@ -244,9 +244,14 @@ export class OpenAIChatAdapter implements ProviderAdapter {
   }
 
   private parseUsage(usage?: OpenAI.CompletionUsage | null): TokenUsage {
+    const raw = usage as Record<string, unknown> | undefined | null
+    const details = raw?.prompt_tokens_details as Record<string, number> | undefined
     return {
       input: usage?.prompt_tokens ?? 0,
       output: usage?.completion_tokens ?? 0,
+      cacheWrite: details?.cache_creation_input_tokens,
+      cacheRead: details?.cached_tokens,
+      reasoning: (raw?.completion_tokens_details as Record<string, number> | undefined)?.reasoning_tokens,
     }
   }
 }

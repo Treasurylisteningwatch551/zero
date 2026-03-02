@@ -1,10 +1,34 @@
 import type { SecretFilter } from './config'
 
+/**
+ * Minimal interface for structured logging from tools.
+ */
+export interface ObservabilityHandle {
+  logOperation(entry: {
+    level: string
+    sessionId: string
+    event: string
+    tool: string
+    input: string
+    outputSummary: string
+    durationMs: number
+  }): void
+  recordOperation(entry: {
+    sessionId: string
+    tool: string
+    event: string
+    success: boolean
+    durationMs: number
+    createdAt: string
+  }): void
+}
+
 export interface ToolContext {
   sessionId: string
   workDir: string
   logger: ToolLogger
   secretFilter?: SecretFilter
+  observability?: ObservabilityHandle
 }
 
 export interface ToolLogger {

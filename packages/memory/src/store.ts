@@ -132,6 +132,7 @@ export class MemoryStore {
       decision: 'decisions',
       note: 'notes',
       preference: 'preferences',
+      inbox: 'inbox',
     }
     return join(this.basePath, dirMap[type])
   }

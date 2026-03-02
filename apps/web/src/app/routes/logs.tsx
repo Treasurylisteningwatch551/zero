@@ -1,7 +1,9 @@
-import { MagnifyingGlass, Play, Pause } from '@phosphor-icons/react'
+import { MagnifyingGlass, Play, Pause, ArrowDown } from '@phosphor-icons/react'
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { Skeleton } from '../components/shared/Skeleton'
 import { apiFetch } from '../lib/api'
 import { formatTimeAgo } from '../lib/format'
+import { useWebSocket } from '../hooks/useWebSocket'
 
 interface LogEntry {
   ts: string
@@ -271,9 +273,10 @@ export function LogsPage() {
   const [expandedRow, setExpandedRow] = useState<number | null>(null)
   const [isLive, setIsLive] = useState(false)
   const [traceData, setTraceData] = useState<TraceSpan[] | null>(null)
+  const [userScrolledUp, setUserScrolledUp] = useState(false)
   const filterRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const pollRef = useRef<ReturnType<typeof setInterval>>()
+  const pollRef = useRef<ReturnType<typeof setInterval>>(undefined)
 
   const fetchLogs = useCallback((lvls: Set<string>, typ: LogType, range: string, cStart: string, cEnd: string) => {
     setLoading(true)
@@ -305,17 +308,55 @@ export function LogsPage() {
     fetchLogs(levels, logType, timeRange, customStart, customEnd)
   }, [levels, logType, timeRange, customStart, customEnd, fetchLogs])
 
-  // Live polling
+  // WebSocket live tail (replaces 3-second polling)
+  const onWsEvent = useCallback((_topic: string, data: unknown) => {
+    if (!isLive) return
+    const entry = data as LogEntry
+    if (!entry) return
+    const logEntry: LogEntry = {
+      ...entry,
+      ts: entry.ts ?? new Date().toISOString(),
+    }
+    setEntries((prev) => [...prev, logEntry].slice(-200))
+
+    // Auto-scroll to bottom if user hasn't scrolled up
+    if (!userScrolledUp && scrollRef.current) {
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+      })
+    }
+  }, [isLive, userScrolledUp])
+
+  useWebSocket({
+    url: `ws://${window.location.host}/ws`,
+    topics: isLive ? ['log:*', 'tool:*', 'session:*'] : [],
+    onEvent: onWsEvent,
+  })
+
+  // Fallback polling when WS is not connected
   useEffect(() => {
     if (isLive) {
       pollRef.current = setInterval(() => {
         fetchLogs(levels, logType, timeRange, customStart, customEnd)
-      }, 3000)
+      }, 5000)
     }
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
     }
   }, [isLive, levels, logType, timeRange, customStart, customEnd, fetchLogs])
+
+  // Scroll detection: pause auto-scroll when user scrolls up
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    function handleScroll() {
+      if (!el) return
+      const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+      setUserScrolledUp(!isAtBottom)
+    }
+    el.addEventListener('scroll', handleScroll, { passive: true })
+    return () => el.removeEventListener('scroll', handleScroll)
+  }, [entries.length])
 
   // Fetch trace data when a trace row is expanded
   useEffect(() => {
@@ -483,7 +524,20 @@ export function LogsPage() {
       )}
 
       {/* Log table */}
-      <div className="card animate-fade-up" style={{ animationDelay: '60ms' }}>
+      <div className="card animate-fade-up relative" style={{ animationDelay: '60ms' }}>
+        {/* Jump to latest FAB */}
+        {userScrolledUp && !loading && filtered.length > 0 && (
+          <button
+            onClick={() => {
+              scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+              setUserScrolledUp(false)
+            }}
+            className="absolute bottom-4 right-4 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--color-accent)] text-[var(--color-deep-bg)] text-[12px] font-medium shadow-lg hover:bg-[var(--color-accent-hover)] transition-colors animate-fade-up"
+          >
+            <ArrowDown size={14} weight="bold" />
+            Jump to latest
+          </button>
+        )}
         {/* Header */}
         <div className="p-3 border-b border-[var(--color-border)]">
           <div className={`grid ${config.cols} gap-3 text-[10px] font-semibold text-[var(--color-text-disabled)] tracking-wide`}>
@@ -495,8 +549,15 @@ export function LogsPage() {
 
         {/* Body */}
         {loading ? (
-          <div className="p-8 text-center text-[12px] text-[var(--color-text-muted)]">
-            Loading logs...
+          <div className="p-3 space-y-0.5">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 h-8">
+                <Skeleton className="h-2.5 w-16" />
+                <Skeleton className="h-2.5 w-10" />
+                <Skeleton className="h-2.5 w-16" />
+                <Skeleton className="h-2.5 flex-1" />
+              </div>
+            ))}
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-8 text-center text-[12px] text-[var(--color-text-muted)]">
