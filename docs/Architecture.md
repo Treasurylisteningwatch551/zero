@@ -35,7 +35,7 @@ ZeRo OS 是一个可在本机自动执行任务的 AI 系统。
 │  ┌──────────────────────▼─────────────────────────────┐ │
 │  │                  Agent                              │ │
 │  │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────────┐│ │
-│  │  │ Read │ │Write │ │ Edit │ │ Bash │ │ Browser  ││ │
+│  │  │ Read │ │Write │ │ Edit │ │ Bash │ │ Fetch    ││ │
 │  │  └──────┘ └──────┘ └──────┘ └──────┘ └──────────┘│ │
 │  │  ┌──────────────────────────────────────────────┐ │ │
 │  │  │ Task（SubAgent 编排）                         │ │ │
@@ -123,12 +123,79 @@ ZeRo OS 的所有数据统一存放在 `.zero/` 目录下：
 2. `Write`：在工作区写入新内容。
 3. `Edit`：对现有文件做精确修改。
 4. `Bash`：执行系统命令（Mac）。
-5. `Browser`：进行网页访问与浏览器操作。
+5. `Fetch`：HTTP 请求，读取网页内容 / API / 下载文件。底层使用 Bun 内置 `fetch()` + `@mozilla/readability` + `turndown`（HTML → Markdown），依赖极轻（~100KB），无锁完全并发。
 6. `Task`：启动 SubAgent 执行特定任务，包含预设 SubAgent（Explorer 等），也支持用户自定义。
+
+### Fetch 工具
+
+Fetch 覆盖 90% 的网页访问场景（读文档、调 API、下载文件），返回可读文本。
+
+- **输入**：`{ url, method?, headers?, body?, format?, timeout?, credentialRef? }`
+- **输出**：`{ status, body(markdown/json/text), truncated }`
+- `format: 'auto'` 根据 Content-Type 自动选择：HTML → readability 提取正文 → markdown；JSON → 格式化输出；其他 → 原文
+- `credentialRef` 支持从保密箱注入认证信息（Bearer token、API Key 等）
+- HTML 处理流程：先用 readability 提取正文（去掉导航/广告/侧栏），不够时退回 turndown 全页转换
+
+如果页面需要 JavaScript 渲染或交互操作，通过 Bash 调用 `agent-browser`（见「Browser Skill」）。
 
 ### Bash 安全约束
 
 Bash 命令默认全放行，仅受熔断名单约束。所有执行记录写入操作日志。
+
+### Browser Skill
+
+浏览器交互能力不再作为核心工具，而是作为 Skill 通过 `agent-browser` + CDP 提供。
+
+**为什么降级为 Skill**：
+
+1. 90% 场景（读文档、调 API）不需要 Playwright + Chromium（~150MB），Fetch 即可覆盖。
+2. 无头浏览器容易被反爬检测（Cloudflare、reCAPTCHA 等），CDP 连接真实 Chrome 则不会。
+3. 核心工具应有明确的 input/output Schema，浏览器交互的 Schema 难以统一定义。
+
+**集成方式**：
+
+```
+┌─────────────────────────────────────────┐
+│              Agent                       │
+│                                          │
+│  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐  │
+│  │ Read │ │Write │ │ Edit │ │ Bash │──┐│
+│  └──────┘ └──────┘ └──────┘ └──────┘  ││
+│  ┌──────┐ ┌──────────────────────────┐ ││
+│  │Fetch │ │ Task（SubAgent 编排）     │ ││
+│  └──────┘ └──────────────────────────┘ ││
+│                                         ││
+│  Skill: Browser（.zero/skills/browser/）││
+│  ┌──────────────────────────────────┐  ││
+│  │ SKILL.md — 描述浏览器工作流      │◄─┘│
+│  │ 底层：agent-browser CLI via Bash │   │
+│  │ 连接：CDP → 用户的 Chrome        │   │
+│  └──────────────────────────────────┘   │
+└─────────────────────────────────────────┘
+```
+
+- AI 通过 Bash 调用 `agent-browser` CLI 命令操作浏览器，不需要额外的 Tool 定义
+- agent-browser 通过 CDP 连接到用户的 Chrome（或按需启动 headed Chrome），复用已登录的 session
+- Session 隔离由 agent-browser 的 `--session` 机制处理
+- Skill 通过 `.zero/skills/browser/SKILL.md` 定义工作流，教 AI 怎么用 agent-browser
+
+**agent-browser 核心工作流**（Snapshot/Ref 模型）：
+
+```
+1. agent-browser open <url>          → 打开页面
+2. agent-browser snapshot -i         → 获取交互元素的可访问性树（@e1, @e2...）
+3. agent-browser click @e3           → 用 ref 点击元素
+4. agent-browser fill @e5 "text"     → 用 ref 填写表单
+5. agent-browser snapshot -i         → DOM 变化后重新获取快照
+6. agent-browser close               → 完成后关闭
+```
+
+| 维度 | Playwright 无头 | CDP 连接真实 Chrome |
+|------|----------------|-------------------|
+| 反爬检测 | 容易被检测阻止 | 和用户正常浏览一样 |
+| 登录状态 | 需要重新登录 | 复用用户已登录的 session |
+| 用户可见性 | 后台运行，不可见 | 用户能看到 AI 在做什么 |
+| 资源占用 | 额外启动 Chromium 进程 | 复用已有的 Chrome |
 
 ---
 
@@ -466,7 +533,8 @@ claude-opus → claude-sonnet → gpt-4o
 - **Read**：无锁，任意并发。
 - **Write / Edit**：按文件路径加锁，同一文件写互斥。
 - **Bash**：默认无锁并发。
-- **Browser**：实例级锁，同一时间只有一个 Session 能使用。
+- **Fetch**：无锁，完全并发。
+- **Browser Skill**（via agent-browser）：agent-browser 自身的 `--session` 机制处理隔离，不需要 ZeRo-OS 层面加锁。
 
 ---
 

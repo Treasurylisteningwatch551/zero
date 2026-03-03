@@ -142,12 +142,14 @@ Read：优先使用 Read 查看文件内容，不要用 Bash cat。
 Write：只在工作目录（.zero/workspace/{agentName}/）和共享目录（.zero/workspace/shared/）中写入。写入其他路径前必须确认。
 Edit：修改文件前先 Read 确认当前内容，避免基于过期认知做编辑。
 Bash：命令执行前检查是否命中熔断名单。长时间运行的命令（构建、测试）加 timeout。
-Browser：同一时间只有一个 Session 能使用 Browser，如果被占用会收到锁冲突错误，等待后重试。
+Fetch：用 Fetch 读取网页、调用 API、下载内容。返回可读文本。如果页面需要 JavaScript 渲染或交互操作，通过 Bash 调用 agent-browser。
 Task：拆分 SubAgent 时明确每个子任务的输入、输出和依赖关系。不要把含糊的大任务直接丢给 SubAgent。
 </tool_rules>
 ```
 
 实现上，Tool Rules 在 `buildSystemPrompt()` 中根据 Agent 当前可用的工具集动态生成——不可用的工具不出现对应规则，减少噪音。
+
+**Skill 上下文注入**：当 Agent 需要使用 Skill（如 Browser Skill）时，对应 Skill 的 `SKILL.md` 内容按需注入到 `<tool_rules>` 或单独的 `<skill>` 标签中，教会 Agent 该 Skill 的工作流和命令模式。Skill 不占用固定预算，仅在被激活时动态注入。例如 Browser Skill 被激活后，Agent 的上下文中会出现 agent-browser 的命令模式（open/snapshot/click/fill/close），引导 Agent 通过 Bash 工具调用 agent-browser CLI。
 
 #### Output Constraints — 输出约束
 
@@ -333,7 +335,7 @@ function allocateBudget(maxContext: number, maxOutput: number): ContextBudget {
   // 固定预算的上限（非实际占用，是各分区允许的最大 token 数）
   const fixedLimits = {
     role: 500,
-    toolRules: 800,           // 6 个工具，每个约 100 tokens
+    toolRules: 800,           // 6 个工具（Read/Write/Edit/Bash/Fetch/Task），每个约 100 tokens
     constraints: 300,
     identity: 3000,           // 全局 ~1k + Agent ~2k
     memo: 1500,               // 备忘录应保持精简
@@ -428,7 +430,7 @@ const TOOL_OUTPUT_LIMITS: Record<string, number> = {
   Write: 500,       // 写入结果，极简
   Edit: 1000,       // 编辑结果 + diff 摘要
   Bash: 4000,       // 命令输出
-  Browser: 4000,    // 页面内容
+  Fetch: 6000,      // 网页内容（readability 提取后的 markdown）
   Task: 2000,       // SubAgent 结果摘要
 }
 
@@ -1034,7 +1036,7 @@ async function migrateContext(
 | `toolOutput.Write` | 500 tokens | Write 结果上限 |
 | `toolOutput.Edit` | 1,000 tokens | Edit 结果上限 |
 | `toolOutput.Bash` | 4,000 tokens | Bash 命令输出上限 |
-| `toolOutput.Browser` | 4,000 tokens | Browser 页面内容上限 |
+| `toolOutput.Fetch` | 6,000 tokens | Fetch 网页内容上限 |
 | `toolOutput.Task` | 2,000 tokens | SubAgent 结果摘要上限 |
 | `toolOutput.headRatio` | 0.6 | 截断时头部保留比例 |
 | `toolOutput.tailRatio` | 0.2 | 截断时尾部保留比例 |

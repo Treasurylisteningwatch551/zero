@@ -39,7 +39,7 @@ zero-os/
 │   │   ├── src/
 │   │   │   ├── session/          #   Session 生命周期管理
 │   │   │   ├── agent/            #   Agent 执行引擎（含排队消息注入）
-│   │   │   ├── tool/             #   Tool 基类 + 6 个内置工具
+│   │   │   ├── tool/             #   Tool 基类 + 6 个内置工具（Read, Write, Edit, Bash, Fetch, Task）
 │   │   │   ├── task/             #   SubAgent 编排器
 │   │   │   ├── config/           #   config.yaml 解析与校验
 │   │   │   └── index.ts
@@ -304,7 +304,8 @@ export async function setMasterKey(key: Buffer): Promise<void> {
 |------|------|------|
 | 子进程 / Shell | `Bun.$` | Bun 内置 Shell API，tagged template，替代 `execa` |
 | 文件监听 | `chokidar` | 监听 `.zero/` 目录变更，触发 UI 实时更新 |
-| 浏览器自动化 | Playwright | Browser 工具的底层驱动 |
+| 网页内容提取 | `@mozilla/readability` + `turndown` | Fetch 工具的 HTML → Markdown 转换（readability 提取正文，turndown 转 Markdown） |
+| 浏览器自动化 | `agent-browser`（CDP） | Browser Skill 的底层驱动，通过 CDP 连接真实 Chrome（非 Playwright 无头） |
 | Git 操作 | `simple-git` | 版本管理、自动 commit、回滚 |
 | Cron 解析 | `cron-parser` | 解析 cron 表达式，计算下次执行时间 |
 | 系统 Cron | `crontab` CLI | Scheduler 直接操作系统 crontab |
@@ -795,7 +796,7 @@ abstract class BaseTool {
 | Write | `proper-lockfile` 按文件路径 |
 | Edit | `proper-lockfile` 按文件路径 |
 | Bash | 无锁（受熔断名单约束） |
-| Browser | 实例级互斥锁（同一时间仅一个 Session） |
+| Fetch | 无锁，完全并发 |
 | Task | 无锁（SubAgent 各自独立） |
 
 ### Session 生命周期
@@ -1019,7 +1020,7 @@ Supervisor 启动主进程（apps/server）
 │  4. 初始化 SQLite (metrics.db)            │
 │  5. 加载向量索引                           │
 │  6. 初始化 Model Registry + Router        │
-│  7. 初始化 6 个基础 Tool                   │
+│  7. 初始化 6 个基础 Tool（含 Fetch）        │
 │  8. 启动 Channel 监听（飞书/TG/Web）       │
 │  9. 启动 Web UI（Hono 服务）               │
 │  10. 同步 Scheduler 到系统 crontab         │
@@ -1173,16 +1174,22 @@ react-markdown             # Markdown 渲染
 remark-gfm
 lucide-react               # 图标
 
+# 网页内容提取（Fetch 工具）
+@mozilla/readability       # HTML 正文提取
+turndown                   # HTML → Markdown 转换
+
 # 系统交互（子进程 / Shell / ID 生成由 Bun 内置提供）
 chokidar                   # 文件监听
-playwright                 # 浏览器自动化
 simple-git                 # Git 操作
 proper-lockfile            # 文件锁
 cron-parser                # Cron 解析
+
+# 浏览器自动化（Browser Skill，非核心依赖，按需安装）
+# agent-browser            # CDP 连接真实 Chrome，通过 CLI 调用
 
 # Channel
 @larksuiteoapi/node-sdk    # 飞书
 telegraf                   # Telegram
 ```
 
-总计约 22 个核心依赖（Bun 内置替换了 `better-sqlite3`、`execa`、`nanoid`）。无重型框架（无 LangChain、无 Next.js、无 Prisma），无 native addon，保持可审计和 AI 可理解。
+总计约 23 个核心依赖（Bun 内置替换了 `better-sqlite3`、`execa`、`nanoid`）。Playwright 已移除，替换为 `@mozilla/readability` + `turndown`（~100KB vs ~150MB），浏览器自动化改用 `agent-browser`（CDP 连接真实 Chrome）作为 Skill 按需使用。无重型框架（无 LangChain、无 Next.js、无 Prisma），无 native addon，保持可审计和 AI 可理解。
