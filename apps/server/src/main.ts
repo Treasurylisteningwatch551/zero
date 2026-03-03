@@ -104,13 +104,19 @@ export async function startZeroOS(): Promise<ZeroOS> {
   const memoManager = new MemoManager(join(memoryDir, 'memo.md'))
   const memoryRetriever = new MemoryRetriever(memoryStore)
 
-  // 10. Session Manager — pass observability deps, memory, bus, secret filter
+  // 9.5 Load identity for context engineering
+  const globalPref = memoryStore.list('preference').find(m => m.id === 'pref_global')
+  const globalIdentity = globalPref?.content ?? ''
+
+  // 10. Session Manager — pass observability deps, memory, bus, secret filter, identity, memo
   const sessionManager = new SessionManager(modelRouter, toolRegistry, {
     logger,
     metrics,
     tracer,
     secretFilter,
     memoryRetriever,
+    globalIdentity,
+    memoReader: () => memoManager.read(),
     bus: globalBus,
   })
 

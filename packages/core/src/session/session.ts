@@ -10,6 +10,9 @@ import { generateSessionId, generateId, now, Mutex } from '@zero-os/shared'
 import type { ModelRouter } from '@zero-os/model'
 import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
 import { buildSystemPrompt } from '../agent/prompt'
+import { allocateBudget } from '../agent/budget'
+import { estimateConversationTokens } from '../agent/context'
+import type { QueuedMessage } from '../agent/queue'
 import type { ToolRegistry } from '../tool/registry'
 import type { JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
 import type { MemoryRetriever } from '@zero-os/memory'
@@ -27,6 +30,7 @@ export interface SessionDeps {
   memoContent?: string
   globalIdentity?: string
   agentIdentity?: string
+  memoReader?: () => string
   bus?: {
     emit(topic: string, data: Record<string, unknown>): void
   }
@@ -44,6 +48,7 @@ export class Session {
   private deps: SessionDeps
   private mutex = new Mutex()
   private interruptFlag = false
+  private messageQueue: QueuedMessage[] = []
 
   constructor(
     source: SessionSource,
@@ -128,16 +133,18 @@ export class Session {
   async handleMessage(content: string): Promise<Message[]> {
     // Check for commands
     if (content.startsWith('/')) {
-      return this.handleCommand(content)
+      return await this.handleCommand(content)
     }
 
     if (!this.agent) {
       throw new Error('Agent not initialized. Call initAgent() first.')
     }
 
-    // If another message is already processing, signal it to yield after current tool cycle
+    // If another message is already processing, queue it instead of blocking
     if (this.mutex.isLocked()) {
+      this.messageQueue.push({ content, timestamp: now() })
       this.interruptFlag = true
+      return []
     }
 
     const lockId = generateId()
@@ -159,7 +166,10 @@ export class Session {
     let systemPrompt: string
     let retrievedMemories: string[] = []
 
-    if (this.deps.globalIdentity || this.deps.agentIdentity || this.deps.memoContent) {
+    // Hot-reload memo content on each call
+    const memoContent = this.deps.memoReader?.() ?? this.deps.memoContent ?? ''
+
+    if (this.deps.globalIdentity || this.deps.agentIdentity || memoContent) {
       // Use structured XML prompt builder
       let memories: import('@zero-os/shared').Memory[] = []
       if (this.deps.memoryRetriever) {
@@ -174,7 +184,7 @@ export class Session {
         tools,
         globalIdentity: this.deps.globalIdentity ?? '',
         agentIdentity: this.deps.agentIdentity ?? '',
-        memo: this.deps.memoContent ?? '',
+        memo: memoContent,
         retrievedMemories: memories,
         currentTime: new Date().toISOString(),
       })
@@ -206,7 +216,12 @@ export class Session {
     }
 
     const shouldInterrupt = () => this.interruptFlag
-    const newMessages = await this.agent!.run(context, content, onNewMessage, shouldInterrupt)
+    const getQueuedMessages = () => {
+      const msgs = [...this.messageQueue]
+      this.messageQueue.length = 0
+      return msgs
+    }
+    const newMessages = await this.agent!.run(context, content, onNewMessage, shouldInterrupt, getQueuedMessages)
 
     // Emit session:update
     this.deps.bus?.emit('session:update', {
@@ -221,7 +236,7 @@ export class Session {
   /**
    * Handle session commands (/new, /model, etc.).
    */
-  private handleCommand(command: string): Message[] {
+  private async handleCommand(command: string): Promise<Message[]> {
     const parts = command.trim().split(/\s+/)
     const cmd = parts[0].toLowerCase()
     const args = parts.slice(1).join(' ')
@@ -244,6 +259,29 @@ export class Session {
             from: oldModel,
             to: result.model.modelName,
           })
+
+          // Context migration: check if conversation exceeds new model's budget
+          if (this.messages.length > 0 && result.model.modelConfig) {
+            const newBudget = allocateBudget(
+              result.model.modelConfig.maxContext,
+              result.model.modelConfig.maxOutput,
+            )
+            const currentTokens = estimateConversationTokens(this.messages)
+            if (currentTokens > newBudget.conversation) {
+              const adapter = this.modelRouter.getAdapter()
+              const { compressConversation } = await import('../agent/compress')
+              const compResult = await compressConversation(
+                this.messages, newBudget.conversation, adapter, this.data.id,
+              )
+              this.messages.length = 0
+              this.messages.push(...compResult.retainedMessages)
+            }
+          }
+
+          // Re-initialize agent with new adapter
+          if (this.agent) {
+            this.initAgent({ name: 'zero', systemPrompt: 'You are ZeRo OS, an AI agent system running on macOS.' })
+          }
         }
         return [this.makeSystemMessage(result.message)]
       }

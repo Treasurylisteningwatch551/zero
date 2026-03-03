@@ -26,8 +26,12 @@ export { TaskOrchestrator } from './task/orchestrator'
 export type { TaskNode, TaskResult } from './task/orchestrator'
 
 // Context Engineering
-export { buildSystemPrompt } from './agent/prompt'
+export { buildSystemPrompt, buildSubAgentPrompt } from './agent/prompt'
 export { allocateBudget, shouldCompress } from './agent/budget'
 export { truncateToolOutput } from './agent/truncate'
 export { prepareConversationHistory, estimateConversationTokens } from './agent/context'
 export { compressConversation } from './agent/compress'
+export { CONTEXT_PARAMS } from './agent/params'
+export { formatQueuedMessages, injectQueuedMessages, isTaskComplete, CONTINUATION_PROMPT } from './agent/queue'
+export type { QueuedMessage } from './agent/queue'
+export { buildSnapshot } from './agent/snapshot'

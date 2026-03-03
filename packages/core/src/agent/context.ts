@@ -1,5 +1,6 @@
 import type { Message, ContentBlock, ToolResultBlock } from '@zero-os/shared'
 import { estimateTokens, estimateMessageTokens } from '@zero-os/shared'
+import { CONTEXT_PARAMS } from './params'
 
 /**
  * Prepare conversation history with progressive tool output reduction.
@@ -49,13 +50,13 @@ export function prepareConversationHistory(messages: Message[]): Message[] {
     if (!hasToolResult) return msg
 
     const age = turnAgeMap.get(idx) ?? turnBoundaries.length
-    if (age <= 3) return msg // Recent: keep full
+    if (age <= CONTEXT_PARAMS.history.fullRetainTurns) return msg // Recent: keep full
 
     // Process content blocks
     const newContent = msg.content.map(block => {
       if (block.type !== 'tool_result') return block
 
-      if (age <= 8) {
+      if (age <= CONTEXT_PARAMS.history.summaryRetainTurns) {
         // Mid-range: truncate to ~200 char summary
         return summarizeToolResult(block)
       }
@@ -68,7 +69,7 @@ export function prepareConversationHistory(messages: Message[]): Message[] {
 }
 
 function summarizeToolResult(block: ToolResultBlock): ToolResultBlock {
-  const summary = block.outputSummary ?? block.content.slice(0, 200)
+  const summary = block.outputSummary ?? block.content.slice(0, CONTEXT_PARAMS.history.summaryMaxChars)
   const truncated = summary.length < block.content.length
     ? `${summary}...`
     : summary

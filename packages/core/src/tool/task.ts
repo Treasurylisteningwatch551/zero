@@ -2,6 +2,7 @@ import { BaseTool } from './base'
 import { ToolRegistry } from './registry'
 import { TaskOrchestrator, type TaskNode, type TaskResult } from '../task/orchestrator'
 import { Agent, type AgentConfig, type AgentContext } from '../agent/agent'
+import { buildSubAgentPrompt } from '../agent/prompt'
 import type { ModelRouter } from '@zero-os/model'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
 import { generateId, now } from '@zero-os/shared'
@@ -169,8 +170,16 @@ export class TaskTool extends BaseTool {
 
       const agent = new Agent(node.agentConfig, adapter, scopedRegistry, toolContext)
 
+      // Build structured SubAgent prompt with upstream results
+      const subAgentSystemPrompt = buildSubAgentPrompt(
+        scopedRegistry.getDefinitions(),
+        node.instruction,
+        upstreamResults as Map<string, { output: string; success: boolean }>,
+        node.dependsOn,
+      )
+
       const agentContext: AgentContext = {
-        systemPrompt: node.agentConfig.systemPrompt,
+        systemPrompt: subAgentSystemPrompt,
         conversationHistory: [],
         tools: scopedRegistry.getDefinitions(),
       }

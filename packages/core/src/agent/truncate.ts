@@ -1,12 +1,13 @@
 import { estimateTokens } from '@zero-os/shared'
+import { CONTEXT_PARAMS } from './params'
 
 const TOOL_OUTPUT_LIMITS: Record<string, number> = {
-  read: 8000,
-  write: 500,
-  edit: 1000,
-  bash: 4000,
-  browser: 4000,
-  task: 2000,
+  read: CONTEXT_PARAMS.toolOutput.read,
+  write: CONTEXT_PARAMS.toolOutput.write,
+  edit: CONTEXT_PARAMS.toolOutput.edit,
+  bash: CONTEXT_PARAMS.toolOutput.bash,
+  browser: CONTEXT_PARAMS.toolOutput.browser,
+  task: CONTEXT_PARAMS.toolOutput.task,
 }
 
 /**
@@ -14,7 +15,7 @@ const TOOL_OUTPUT_LIMITS: Record<string, number> = {
  * Uses head 60% + tail 20% strategy with an omission marker in the middle.
  */
 export function truncateToolOutput(toolName: string, output: string): string {
-  const limit = TOOL_OUTPUT_LIMITS[toolName.toLowerCase()] ?? 4000
+  const limit = TOOL_OUTPUT_LIMITS[toolName.toLowerCase()] ?? CONTEXT_PARAMS.toolOutput.default
   const tokens = estimateTokens(output)
   if (tokens <= limit) return output
 

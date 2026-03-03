@@ -17,6 +17,8 @@ import type { JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
 import { truncateToolOutput } from './truncate'
 import { prepareConversationHistory, estimateConversationTokens } from './context'
 import { allocateBudget, shouldCompress } from './budget'
+import { type QueuedMessage, injectQueuedMessages, CONTINUATION_PROMPT, isTaskComplete } from './queue'
+import { CONTEXT_PARAMS } from './params'
 
 export interface AgentConfig {
   name: string
@@ -79,8 +81,9 @@ export class Agent {
   /**
    * Run the agent's tool-use loop until completion or max loops reached.
    */
-  async run(context: AgentContext, userMessage: string, onNewMessage?: (msg: Message) => void, shouldInterrupt?: () => boolean): Promise<Message[]> {
+  async run(context: AgentContext, userMessage: string, onNewMessage?: (msg: Message) => void, shouldInterrupt?: () => boolean, getQueuedMessages?: () => QueuedMessage[]): Promise<Message[]> {
     const maxLoops = this.config.maxToolLoops ?? 10
+    let continuationCount = 0
     const messages: Message[] = [...prepareConversationHistory(context.conversationHistory)]
     const newMessages: Message[] = []
 
@@ -110,6 +113,8 @@ export class Agent {
       systemParts.push('## Relevant Memories\n' + context.retrievedMemories.join('\n---\n'))
     }
     const system = systemParts.join('\n\n')
+
+    let hadQueuedMessages = false
 
     for (let loop = 0; loop < maxLoops; loop++) {
       const request: CompletionRequest = {
@@ -150,8 +155,24 @@ export class Agent {
         model: response.model,
       })
 
-      // If no tool use, we're done
+      // If no tool use, check if continuation is needed after queued message response
       if (response.stopReason !== 'tool_use') {
+        if (hadQueuedMessages && !isTaskComplete(response.content) && continuationCount < CONTEXT_PARAMS.queue.maxContinuationRetries) {
+          // Task not complete after responding to queued messages — inject continuation prompt
+          const contMsg: Message = {
+            id: generateId(),
+            sessionId: this.toolContext.sessionId,
+            role: 'user',
+            messageType: 'message',
+            content: [{ type: 'text', text: CONTINUATION_PROMPT }],
+            createdAt: now(),
+          }
+          messages.push(contMsg)
+          newMessages.push(contMsg)
+          continuationCount++
+          hadQueuedMessages = false
+          continue
+        }
         break
       }
 
@@ -255,9 +276,19 @@ export class Agent {
         }
       }
 
+      // Inject queued messages into the last user message (tool result)
+      const queued = getQueuedMessages?.() ?? []
+      hadQueuedMessages = false
+      if (queued.length > 0 && messages.length > 0) {
+        const lastIdx = messages.length - 1
+        if (messages[lastIdx].role === 'user') {
+          messages[lastIdx] = injectQueuedMessages(messages[lastIdx], queued)
+          hadQueuedMessages = true
+        }
+      }
+
       // Yield to pending message if one arrived during tool execution
-      // But first let model process tool results — call without tools to force text response
-      if (shouldInterrupt?.()) {
+      if (shouldInterrupt?.() && !hadQueuedMessages) {
         const finalRequest: CompletionRequest = {
           messages,
           system,

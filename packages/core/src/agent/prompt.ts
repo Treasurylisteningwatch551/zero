@@ -1,6 +1,8 @@
 import type { PromptComponents } from '@zero-os/shared'
 import type { ToolDefinition, Memory } from '@zero-os/shared'
+import { truncateToTokens } from '@zero-os/shared'
 import { enforceFixedBudget } from './budget'
+import { CONTEXT_PARAMS } from './params'
 
 export function buildSystemPrompt(components: PromptComponents): string {
   const sections: string[] = []
@@ -88,4 +90,52 @@ export function buildRetrievedMemoryBlock(memories: Memory[]): string {
   })
   const content = memoryEntries.join('\n\n')
   return enforceFixedBudget(`<retrieved_memories>\n${content}\n</retrieved_memories>`, 2000, 'Retrieved Memories')
+}
+
+/**
+ * Build a simplified System Prompt for SubAgents.
+ * SubAgents are task-oriented one-shot executors — no identity, memo, or retrieved memories.
+ */
+export function buildSubAgentPrompt(
+  tools: ToolDefinition[],
+  instruction: string,
+  upstreamResults?: Map<string, { output: string; success: boolean }>,
+  dependsOn?: string[],
+): string {
+  const sections: string[] = []
+
+  // Simplified role
+  sections.push(`<role>
+你是 ZeRo OS 的 SubAgent，负责执行一项特定任务。
+任务完成后输出结果，不需要与用户交互。
+</role>`)
+
+  // Tool rules (reuse existing builder)
+  sections.push(buildToolRulesBlock(tools))
+
+  // Constraints (reuse existing builder)
+  sections.push(buildConstraintsBlock())
+
+  // Task block
+  sections.push(`<task>
+${instruction}
+</task>`)
+
+  // Upstream results (if any dependencies)
+  if (dependsOn && dependsOn.length > 0 && upstreamResults) {
+    const items = dependsOn
+      .map(depId => {
+        const result = upstreamResults.get(depId)
+        if (!result) return ''
+        const output = truncateToTokens(result.output, CONTEXT_PARAMS.subAgent.upstreamMaxTokens)
+        return `  <upstream id="${depId}" status="${result.success ? 'success' : 'failed'}">\n${output}\n  </upstream>`
+      })
+      .filter(Boolean)
+
+    if (items.length > 0) {
+      sections.push(`<upstream_results>\n${items.join('\n\n')}\n</upstream_results>`)
+    }
+  }
+
+  return sections.join('\n\n')
 }

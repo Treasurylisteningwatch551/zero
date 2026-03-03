@@ -1,6 +1,7 @@
 import type { Message, CompressionResult } from '@zero-os/shared'
 import { generateId, now, estimateMessageTokens } from '@zero-os/shared'
 import type { ProviderAdapter } from '@zero-os/model'
+import { CONTEXT_PARAMS } from './params'
 
 /**
  * Compress conversation history when it exceeds the budget.
@@ -16,7 +17,7 @@ export async function compressConversation(
   const tokensBefore = messages.reduce((sum, m) => sum + estimateMessageTokens(m.content) + 4, 0)
 
   // Find split point: retained section gets 70% of budget
-  const retainBudget = Math.floor(conversationBudget * 0.70)
+  const retainBudget = Math.floor(conversationBudget * CONTEXT_PARAMS.compression.retainRatio)
   let retainedTokens = 0
   let splitIndex = messages.length
 
@@ -27,8 +28,9 @@ export async function compressConversation(
     splitIndex = i
   }
 
-  // Ensure at least 4 recent turns (8 messages) are retained
-  const minRetain = Math.max(0, messages.length - 8)
+  // Ensure minimum recent turns are retained
+  const minRetainMessages = CONTEXT_PARAMS.compression.minRetainTurns * 2
+  const minRetain = Math.max(0, messages.length - minRetainMessages)
   splitIndex = Math.min(splitIndex, minRetain)
 
   // If nothing to compress, return as-is

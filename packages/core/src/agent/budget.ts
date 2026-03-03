@@ -1,13 +1,7 @@
 import { estimateTokens, truncateToTokens } from '@zero-os/shared'
+import { CONTEXT_PARAMS } from './params'
 
-const FIXED_LIMITS = {
-  role: 500,
-  toolRules: 800,
-  constraints: 300,
-  identity: 3000,
-  memo: 1500,
-  retrievedMemory: 2000,
-}
+const FIXED_LIMITS = CONTEXT_PARAMS.budget
 
 export function allocateBudget(maxContext: number, maxOutput: number): import('@zero-os/shared').ContextBudget {
   const reserved = maxOutput
@@ -18,7 +12,7 @@ export function allocateBudget(maxContext: number, maxOutput: number): import('@
 }
 
 export function shouldCompress(conversationTokens: number, conversationBudget: number): boolean {
-  return conversationTokens >= conversationBudget * 0.85
+  return conversationTokens >= conversationBudget * CONTEXT_PARAMS.compression.threshold
 }
 
 export function enforceFixedBudget(content: string, limit: number, label: string): string {
