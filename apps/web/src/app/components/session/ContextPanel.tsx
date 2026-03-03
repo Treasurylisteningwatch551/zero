@@ -26,6 +26,7 @@ interface MemoryResult {
 
 interface Props {
   summary?: string
+  systemPrompt?: string
   modelHistory: ModelHistoryEntry[]
   toolCalls: ToolCallInfo[]
   filesTouched: string[]
@@ -35,8 +36,9 @@ interface Props {
   selectedToolId: string | null
 }
 
-export function ContextPanel({ summary, modelHistory, toolCalls, filesTouched, totalTokens, inputTokens, outputTokens, selectedToolId }: Props) {
+export function ContextPanel({ summary, systemPrompt, modelHistory, toolCalls, filesTouched, totalTokens, inputTokens, outputTokens, selectedToolId }: Props) {
   const [tab, setTab] = useState<'summary' | 'trace'>('summary')
+  const [promptExpanded, setPromptExpanded] = useState(false)
   const [relatedMemory, setRelatedMemory] = useState<MemoryResult[]>([])
 
   // Fetch related memory based on session summary
@@ -113,6 +115,23 @@ export function ContextPanel({ summary, modelHistory, toolCalls, filesTouched, t
           {summary && (
             <Section title="Summary">
               <p className="text-[12px] text-[var(--color-text-secondary)]">{summary}</p>
+            </Section>
+          )}
+
+          {/* System Prompt */}
+          {systemPrompt && (
+            <Section title="System Prompt">
+              <button
+                onClick={() => setPromptExpanded(!promptExpanded)}
+                className="text-[11px] text-[var(--color-accent)] hover:underline mb-1"
+              >
+                {promptExpanded ? 'Collapse' : 'Expand'} ({systemPrompt.length.toLocaleString()} chars)
+              </button>
+              {promptExpanded && (
+                <pre className="text-[11px] font-mono text-[var(--color-text-muted)] whitespace-pre-wrap break-all bg-black/20 rounded p-2 max-h-[400px] overflow-y-auto mt-1">
+                  {systemPrompt}
+                </pre>
+              )}
             </Section>
           )}
 

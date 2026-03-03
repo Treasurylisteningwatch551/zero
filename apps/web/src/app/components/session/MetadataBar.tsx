@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Archive, Clock, CurrencyDollar } from '@phosphor-icons/react'
+import { Archive, Clock, CurrencyDollar, Trash } from '@phosphor-icons/react'
 import { formatModelHistory, formatTimeRange, formatNumber, formatCost } from '../../lib/format'
-import { apiPost } from '../../lib/api'
+import { apiPost, apiDelete } from '../../lib/api'
 import { useUIStore } from '../../stores/ui'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 
@@ -24,6 +24,7 @@ interface Props {
   outputTokens: number
   totalCost: number
   onArchived?: () => void
+  onDeleted?: () => void
 }
 
 export function MetadataBar({
@@ -39,8 +40,10 @@ export function MetadataBar({
   outputTokens,
   totalCost,
   onArchived,
+  onDeleted,
 }: Props) {
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const { addToast } = useUIStore()
 
   async function handleArchive() {
@@ -48,6 +51,13 @@ export function MetadataBar({
     addToast('success', 'Session 已归档')
     setShowArchiveConfirm(false)
     onArchived?.()
+  }
+
+  async function handleDelete() {
+    await apiDelete(`/api/sessions/${sessionId}`)
+    addToast('success', 'Session 已删除')
+    setShowDeleteConfirm(false)
+    onDeleted?.()
   }
 
   return (
@@ -66,13 +76,22 @@ export function MetadataBar({
             {formatTimeRange(createdAt, updatedAt)}
           </p>
         </div>
-        <button
-          onClick={() => setShowArchiveConfirm(true)}
-          className="px-3 py-1.5 rounded-md text-[11px] text-[var(--color-text-muted)] border border-[var(--color-border)] hover:text-red-400 hover:border-red-400/30 transition-colors flex items-center gap-1.5"
-        >
-          <Archive size={14} />
-          Archive
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="px-3 py-1.5 rounded-md text-[11px] text-red-400/70 border border-red-400/20 hover:text-red-400 hover:border-red-400/40 hover:bg-red-400/5 transition-colors flex items-center gap-1.5"
+          >
+            <Trash size={14} />
+            Delete
+          </button>
+          <button
+            onClick={() => setShowArchiveConfirm(true)}
+            className="px-3 py-1.5 rounded-md text-[11px] text-[var(--color-text-muted)] border border-[var(--color-border)] hover:text-red-400 hover:border-red-400/30 transition-colors flex items-center gap-1.5"
+          >
+            <Archive size={14} />
+            Archive
+          </button>
+        </div>
       </div>
 
       {/* Stats row */}
@@ -102,6 +121,16 @@ export function MetadataBar({
         danger
         onConfirm={handleArchive}
         onCancel={() => setShowArchiveConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="删除此 Session？"
+        description="删除后 Session 及其关联的记忆数据将被永久移除，无法恢复。"
+        confirmText="删除"
+        danger
+        onConfirm={handleDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
       />
     </div>
   )

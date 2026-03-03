@@ -66,6 +66,7 @@ export class Session {
   private interruptFlag = false
   private messageQueue: QueuedMessage[] = []
   private lastAgentConfig: AgentConfig | null = null
+  private lastSystemPrompt: string = ''
 
   constructor(
     source: SessionSource,
@@ -276,6 +277,8 @@ export class Session {
       systemPrompt = 'You are ZeRo OS, an AI agent system running on macOS.'
     }
 
+    this.lastSystemPrompt = systemPrompt
+
     const context: AgentContext = {
       systemPrompt,
       identityMemory: this.deps.identityMemory,
@@ -429,11 +432,16 @@ export class Session {
     ;(session as any).messageQueue = []
     ;(session as any).agent = null
     ;(session as any).lastAgentConfig = null
+    ;(session as any).lastSystemPrompt = ''
     return session
   }
 
   getAgentConfig(): AgentConfig | null {
     return this.lastAgentConfig
+  }
+
+  getSystemPrompt(): string {
+    return this.lastSystemPrompt
   }
 
   getMessages(): Message[] {

@@ -1,7 +1,9 @@
-import type { SessionSource } from '@zero-os/shared'
+import type { Session as SessionData, SessionSource, SessionStatus, Message } from '@zero-os/shared'
 import type { ModelRouter } from '@zero-os/model'
 import type { ToolRegistry } from '../tool/registry'
 import { Session, type SessionDeps } from './session'
+import type { SessionDB, SessionRow, MetricsDB } from '@zero-os/observe'
+import type { MemoryStore } from '@zero-os/memory'
 
 /**
  * Manages all active sessions.
@@ -12,11 +14,13 @@ export class SessionManager {
   private modelRouter: ModelRouter
   private toolRegistry: ToolRegistry
   private deps: SessionDeps
+  private sessionDb?: SessionDB
 
-  constructor(modelRouter: ModelRouter, toolRegistry: ToolRegistry, deps: SessionDeps = {}) {
+  constructor(modelRouter: ModelRouter, toolRegistry: ToolRegistry, deps: SessionDeps = {}, sessionDb?: SessionDB) {
     this.modelRouter = modelRouter
     this.toolRegistry = toolRegistry
     this.deps = deps
+    this.sessionDb = sessionDb
   }
 
   /**
@@ -83,5 +87,98 @@ export class SessionManager {
       }
     }
     this.sessions.delete(id)
+  }
+
+  // --- Persistence methods ---
+
+  /**
+   * Restore active/idle sessions from the database on startup.
+   * Returns the number of sessions restored.
+   */
+  restoreFromDB(): number {
+    if (!this.sessionDb) return 0
+
+    const rows = this.sessionDb.loadActiveSessions()
+    let restored = 0
+
+    for (const row of rows) {
+      const data: SessionData = {
+        id: row.id,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        source: row.source,
+        status: row.status,
+        currentModel: row.currentModel,
+        modelHistory: row.modelHistory,
+        summary: row.summary,
+        tags: row.tags,
+        channelId: row.channelId,
+      }
+
+      const messages = this.sessionDb.loadSessionMessages(row.id)
+      const session = Session.restore(data, messages, this.modelRouter, this.toolRegistry, this.deps)
+
+      // Re-initialize agent if config was saved
+      if (row.agentConfigJson) {
+        try {
+          const agentConfig = JSON.parse(row.agentConfigJson)
+          session.initAgent(agentConfig)
+        } catch {
+          // If agent config is invalid, skip re-init — session still usable
+        }
+      }
+
+      this.sessions.set(session.data.id, session)
+
+      // Restore channel mapping
+      if (row.channelId) {
+        this.channelSessions.set(`${row.source}:${row.channelId}`, row.id)
+      }
+
+      restored++
+    }
+
+    return restored
+  }
+
+  /**
+   * Flush all in-memory sessions to DB (for graceful shutdown).
+   */
+  flushAll(): void {
+    if (!this.sessionDb) return
+    for (const [id, session] of this.sessions) {
+      const agentConfig = session.getAgentConfig()
+      this.sessionDb.saveSession(
+        session.data,
+        agentConfig ? JSON.stringify(agentConfig) : undefined,
+        session.getSystemPrompt() || undefined
+      )
+      this.sessionDb.saveMessages(id, session.getMessages())
+    }
+  }
+
+  /**
+   * Permanently delete a session and all associated data.
+   */
+  deleteSession(id: string, memoryStore?: MemoryStore, metrics?: MetricsDB): boolean {
+    this.remove(id)
+    const dbDeleted = this.sessionDb?.deleteSession(id) ?? false
+    metrics?.deleteSessionMetrics(id)
+    memoryStore?.deleteBySessionId(id)
+    return dbDeleted
+  }
+
+  // --- DB query proxies (for API routes to access historical sessions) ---
+
+  getFromDB(id: string): SessionRow | null {
+    return this.sessionDb?.getSession(id) ?? null
+  }
+
+  getMessagesFromDB(id: string): Message[] {
+    return this.sessionDb?.loadSessionMessages(id) ?? []
+  }
+
+  listAllFromDB(filter?: { status?: SessionStatus; limit?: number; offset?: number }): SessionRow[] {
+    return this.sessionDb?.loadAllSessions(filter) ?? []
   }
 }

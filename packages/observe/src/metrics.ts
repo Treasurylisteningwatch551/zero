@@ -484,6 +484,15 @@ export class MetricsDB {
       .all(since) as ToolErrorByDay[]
   }
 
+  /**
+   * Delete all metrics data for a session.
+   */
+  deleteSessionMetrics(sessionId: string): void {
+    this.db.run(`DELETE FROM requests WHERE session_id = ?`, [sessionId])
+    this.db.run(`DELETE FROM operations WHERE session_id = ?`, [sessionId])
+    this.db.run(`DELETE FROM repairs WHERE session_id = ?`, [sessionId])
+  }
+
   close(): void {
     this.db.close()
   }

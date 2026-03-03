@@ -2,7 +2,8 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { ZeroOS } from '../../../server/src/main'
 import { MemoryRetriever } from '@zero-os/memory'
-import type { MemoryType } from '@zero-os/shared'
+import type { MemoryType, SessionStatus } from '@zero-os/shared'
+import type { SessionRow } from '@zero-os/observe'
 import { GitOps } from '@zero-os/supervisor'
 
 export function createRoutes(zero: ZeroOS) {
@@ -30,6 +31,7 @@ export function createRoutes(zero: ZeroOS) {
       const filter = c.req.query('filter') ?? 'all'
       const q = c.req.query('q')?.toLowerCase() ?? ''
 
+      // In-memory sessions (active runtime)
       let sessions = filter === 'active'
         ? zero.sessionManager.listActive()
         : zero.sessionManager.listAll()
@@ -43,7 +45,7 @@ export function createRoutes(zero: ZeroOS) {
       const sessionIds = sessions.map((s) => s.data.id)
       const statsBatch = zero.metrics.sessionStatsBatch(sessionIds)
 
-      const result = sessions.map((s) => {
+      const result: Array<Record<string, unknown>> = sessions.map((s) => {
         const msgs = s.getMessages()
         const toolCallCount = msgs
           .flatMap((m) => m.content)
@@ -67,12 +69,45 @@ export function createRoutes(zero: ZeroOS) {
         }
       })
 
+      // Merge DB-only sessions for non-active filters
+      if (filter !== 'active') {
+        const inMemoryIds = new Set(sessionIds)
+        const dbFilter = filter === 'completed' || filter === 'archived'
+          ? { status: filter as SessionStatus }
+          : undefined
+        const dbRows = zero.sessionManager.listAllFromDB(dbFilter)
+        const dbOnlyIds = dbRows.filter((r) => !inMemoryIds.has(r.id)).map((r) => r.id)
+        const dbStatsBatch = dbOnlyIds.length > 0
+          ? zero.metrics.sessionStatsBatch(dbOnlyIds)
+          : new Map()
+
+        for (const row of dbRows) {
+          if (inMemoryIds.has(row.id)) continue
+          const stats = dbStatsBatch.get(row.id)
+          result.push({
+            id: row.id,
+            source: row.source,
+            status: row.status,
+            currentModel: row.currentModel,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+            messageCount: 0,
+            tags: row.tags,
+            summary: row.summary,
+            modelHistory: row.modelHistory,
+            toolCallCount: 0,
+            totalTokens: stats?.totalTokens ?? 0,
+            totalCost: stats?.totalCost ?? 0,
+          })
+        }
+      }
+
       const filtered = q
         ? result.filter((s) =>
-            s.id.toLowerCase().includes(q) ||
-            s.source.toLowerCase().includes(q) ||
-            s.currentModel.toLowerCase().includes(q) ||
-            (s.summary?.toLowerCase().includes(q) ?? false)
+            (s.id as string).toLowerCase().includes(q) ||
+            (s.source as string).toLowerCase().includes(q) ||
+            (s.currentModel as string).toLowerCase().includes(q) ||
+            ((s.summary as string)?.toLowerCase().includes(q) ?? false)
           )
         : result
 
@@ -82,21 +117,47 @@ export function createRoutes(zero: ZeroOS) {
     .get('/api/sessions/:id', (c) => {
       const id = c.req.param('id')
       const session = zero.sessionManager.get(id)
-      if (!session) {
+      if (session) {
+        const stats = zero.metrics.sessionStats(id)
+        return c.json({
+          id: session.data.id,
+          source: session.data.source,
+          status: session.getStatus(),
+          currentModel: session.data.currentModel,
+          createdAt: session.data.createdAt,
+          updatedAt: session.data.updatedAt,
+          messages: session.getMessages(),
+          tags: session.data.tags,
+          summary: session.data.summary,
+          modelHistory: session.data.modelHistory,
+          systemPrompt: session.getSystemPrompt() || undefined,
+          totalTokens: stats.totalTokens,
+          inputTokens: stats.inputTokens,
+          outputTokens: stats.outputTokens,
+          totalCost: stats.totalCost,
+          requestCount: stats.requestCount,
+        })
+      }
+
+      // Fallback to DB for historical sessions
+      const row = zero.sessionManager.getFromDB(id)
+      if (!row) {
         return c.json({ error: 'Session not found' }, 404)
       }
+      const messages = zero.sessionManager.getMessagesFromDB(id)
       const stats = zero.metrics.sessionStats(id)
       return c.json({
-        id: session.data.id,
-        source: session.data.source,
-        status: session.getStatus(),
-        currentModel: session.data.currentModel,
-        createdAt: session.data.createdAt,
-        updatedAt: session.data.updatedAt,
-        messages: session.getMessages(),
-        tags: session.data.tags,
-        summary: session.data.summary,
-        modelHistory: session.data.modelHistory,
+        id: row.id,
+        source: row.source,
+        status: row.status,
+        currentModel: row.currentModel,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        messages,
+        tags: row.tags,
+        summary: row.summary,
+        modelHistory: row.modelHistory,
+        systemPrompt: row.systemPrompt,
         totalTokens: stats.totalTokens,
         inputTokens: stats.inputTokens,
         outputTokens: stats.outputTokens,
@@ -118,6 +179,15 @@ export function createRoutes(zero: ZeroOS) {
         return c.json({ error: 'Session not found' }, 404)
       }
       session.setStatus('archived')
+      return c.json({ ok: true })
+    })
+
+    .delete('/api/sessions/:id', (c) => {
+      const id = c.req.param('id')
+      const deleted = zero.sessionManager.deleteSession(id, zero.memoryStore, zero.metrics)
+      if (!deleted) {
+        return c.json({ error: 'Session not found' }, 404)
+      }
       return c.json({ ok: true })
     })
 
@@ -173,6 +243,51 @@ export function createRoutes(zero: ZeroOS) {
       if (!q) return c.json({ results: [], query: q })
       const results = await retriever.retrieve(q, { topN: 20, confidenceThreshold: 0 })
       return c.json({ results, query: q })
+    })
+
+    .post('/api/memory', async (c) => {
+      const body = await c.req.json<{
+        type: MemoryType
+        title: string
+        content: string
+        tags?: string[]
+        status?: string
+        confidence?: number
+      }>()
+      if (!body.type || !body.title || !body.content) {
+        return c.json({ error: 'type, title, and content are required' }, 400)
+      }
+      const memory = zero.memoryStore.create(body.type, body.title, body.content, {
+        tags: body.tags ?? [],
+        status: body.status ?? 'draft',
+        confidence: body.confidence ?? 0.5,
+      })
+      return c.json({ memory })
+    })
+
+    .get('/api/memory/:type/:id', (c) => {
+      const type = c.req.param('type') as MemoryType
+      const id = c.req.param('id')
+      const memory = zero.memoryStore.get(type, id)
+      if (!memory) return c.json({ error: 'Memory not found' }, 404)
+      return c.json({ memory })
+    })
+
+    .put('/api/memory/:type/:id', async (c) => {
+      const type = c.req.param('type') as MemoryType
+      const id = c.req.param('id')
+      const body = await c.req.json<Record<string, unknown>>()
+      const updated = zero.memoryStore.update(type, id, body)
+      if (!updated) return c.json({ error: 'Memory not found' }, 404)
+      return c.json({ memory: updated })
+    })
+
+    .delete('/api/memory/:type/:id', (c) => {
+      const type = c.req.param('type') as MemoryType
+      const id = c.req.param('id')
+      const deleted = zero.memoryStore.delete(type, id)
+      if (!deleted) return c.json({ error: 'Memory not found' }, 404)
+      return c.json({ ok: true })
     })
 
     // Memo

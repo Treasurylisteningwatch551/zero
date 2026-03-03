@@ -36,4 +36,8 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
   })
 }
 
+export async function apiDelete<T>(path: string): Promise<T> {
+  return apiFetch<T>(path, { method: 'DELETE' })
+}
+
 export { useUIStore } from '../stores/ui'

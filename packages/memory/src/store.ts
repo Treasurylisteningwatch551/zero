@@ -135,6 +135,31 @@ export class MemoryStore {
     return parsed?.content ?? ''
   }
 
+  /**
+   * Delete all memory files associated with a session.
+   */
+  deleteBySessionId(sessionId: string): number {
+    const { unlinkSync } = require('node:fs') as typeof import('node:fs')
+    const allTypes: MemoryType[] = ['session', 'incident', 'runbook', 'decision', 'note', 'preference', 'inbox']
+    let deleted = 0
+
+    for (const type of allTypes) {
+      const dir = this.typeDir(type)
+      if (!existsSync(dir)) continue
+
+      for (const file of readdirSync(dir).filter(f => f.endsWith('.md'))) {
+        const filePath = join(dir, file)
+        const memory = this.parseFile(filePath)
+        if (memory?.sessionId === sessionId) {
+          unlinkSync(filePath)
+          deleted++
+        }
+      }
+    }
+
+    return deleted
+  }
+
   private typeDir(type: MemoryType): string {
     const dirMap: Record<MemoryType, string> = {
       session: 'sessions',
@@ -152,7 +177,7 @@ export class MemoryStore {
     try {
       const raw = readFileSync(filePath, 'utf-8')
       const { data, content } = matter(raw)
-      return {
+      const memory: Memory = {
         id: data.id ?? basename(filePath, '.md'),
         type: data.type ?? 'note',
         title: data.title ?? '',
@@ -164,6 +189,8 @@ export class MemoryStore {
         related: data.related ?? [],
         content: content.trim(),
       }
+      if (data.sessionId) memory.sessionId = data.sessionId
+      return memory
     } catch {
       return undefined
     }

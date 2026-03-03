@@ -39,6 +39,7 @@ interface SessionDetail {
   messages: Message[]
   tags: string[]
   summary?: string
+  systemPrompt?: string
   modelHistory: ModelHistoryEntry[]
   totalTokens: number
   inputTokens: number
@@ -258,6 +259,7 @@ export function SessionDetailPage() {
         outputTokens={session.outputTokens}
         totalCost={session.totalCost}
         onArchived={goBack}
+        onDeleted={goBack}
       />
 
       {/* Content area: Timeline (left 65%) + Context panel (right 35%) */}
@@ -280,6 +282,7 @@ export function SessionDetailPage() {
         {/* Context panel */}
         <ContextPanel
           summary={session.summary}
+          systemPrompt={session.systemPrompt}
           modelHistory={session.modelHistory}
           toolCalls={toolCalls}
           filesTouched={filesTouched}
