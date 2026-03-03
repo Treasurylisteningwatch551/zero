@@ -42,7 +42,7 @@ describe('startZeroOS Integration', () => {
     expect(names).toContain('write')
     expect(names).toContain('edit')
     expect(names).toContain('bash')
-    expect(names).toContain('browser')
+    expect(names).toContain('fetch')
     expect(names).toContain('task')
   })
 

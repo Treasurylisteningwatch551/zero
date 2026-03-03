@@ -77,7 +77,7 @@ describe('buildToolRulesBlock', () => {
     // Should not contain rules for tools not in the list
     expect(result).not.toContain('Write：')
     expect(result).not.toContain('Edit：')
-    expect(result).not.toContain('Browser：')
+    expect(result).not.toContain('Fetch：')
     expect(result).not.toContain('Task：')
   })
 

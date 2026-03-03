@@ -29,6 +29,7 @@ export interface ToolContext {
   logger: ToolLogger
   secretFilter?: SecretFilter
   observability?: ObservabilityHandle
+  secretResolver?: (ref: string) => string | undefined
 }
 
 export interface ToolLogger {

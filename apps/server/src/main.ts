@@ -2,8 +2,7 @@ import { existsSync, mkdirSync, appendFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadConfig, loadFuseList } from '@zero-os/core'
 import { ModelRouter } from '@zero-os/model'
-import { ToolRegistry, ReadTool, WriteTool, EditTool, BashTool, BrowserTool, TaskTool } from '@zero-os/core'
-import { Mutex } from '@zero-os/shared'
+import { ToolRegistry, ReadTool, WriteTool, EditTool, BashTool, FetchTool, TaskTool } from '@zero-os/core'
 import { SessionManager } from '@zero-os/core'
 import { Vault, generateMasterKey, setMasterKey, getMasterKey } from '@zero-os/secrets'
 import { OutputSecretFilter } from '@zero-os/secrets'
@@ -32,6 +31,8 @@ export interface ZeroOS {
   memoManager: MemoManager
   tracer: Tracer
   repairEngine: RepairEngine
+  heartbeat: HeartbeatWriter
+  scheduler: CronScheduler
   bus: typeof globalBus
   channels: Map<string, Channel>
   notifications: Notification[]
@@ -88,13 +89,12 @@ export async function startZeroOS(): Promise<ZeroOS> {
 
   // 8. Initialize Tools
   const fuseRules = loadFuseList(join(ZERO_DIR, 'fuse_list.yaml'))
-  const browserMutex = new Mutex()
   const toolRegistry = new ToolRegistry()
   toolRegistry.register(new ReadTool())
   toolRegistry.register(new WriteTool())
   toolRegistry.register(new EditTool())
   toolRegistry.register(new BashTool(fuseRules))
-  toolRegistry.register(new BrowserTool(browserMutex))
+  toolRegistry.register(new FetchTool())
   toolRegistry.register(new TaskTool(modelRouter, toolRegistry))
   console.log(`[ZeRo OS] ${toolRegistry.list().length} tools registered`)
 
@@ -111,11 +111,13 @@ export async function startZeroOS(): Promise<ZeroOS> {
   const agentIdentity = agentPref?.content ?? ''
 
   // 10. Session Manager — pass observability deps, memory, bus, secret filter, identity, memo
+  const secretResolver = (ref: string) => vault.get(ref) ?? undefined
   const sessionManager = new SessionManager(modelRouter, toolRegistry, {
     logger,
     metrics,
     tracer,
     secretFilter,
+    secretResolver,
     memoryRetriever,
     globalIdentity,
     agentIdentity,
@@ -323,6 +325,8 @@ export async function startZeroOS(): Promise<ZeroOS> {
     memoManager,
     tracer,
     repairEngine,
+    heartbeat,
+    scheduler,
     bus: globalBus,
     channels,
     notifications,
@@ -336,6 +340,7 @@ function ensureDirectories(): void {
     join(ZERO_DIR, 'channels'),
     join(ZERO_DIR, 'tools'),
     join(ZERO_DIR, 'skills'),
+    join(ZERO_DIR, 'skills', 'browser'),
     join(ZERO_DIR, 'logs'),
     join(ZERO_DIR, 'memory'),
     join(ZERO_DIR, 'memory/preferences'),

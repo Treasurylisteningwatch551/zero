@@ -8,7 +8,7 @@ export { ReadTool } from './tool/read'
 export { WriteTool } from './tool/write'
 export { EditTool } from './tool/edit'
 export { BashTool } from './tool/bash'
-export { BrowserTool } from './tool/browser'
+export { FetchTool } from './tool/fetch'
 export { TaskTool } from './tool/task'
 export { ToolRegistry } from './tool/registry'
 

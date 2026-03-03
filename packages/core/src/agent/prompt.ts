@@ -44,7 +44,7 @@ export function buildToolRulesBlock(tools: ToolDefinition[]): string {
     write: 'Write：写入文件前先确认路径正确。写入其他路径前必须确认。',
     edit: 'Edit：修改文件前先 Read 确认当前内容，避免基于过期认知做编辑。',
     bash: 'Bash：命令执行前检查是否命中熔断名单。长时间运行的命令加 timeout。',
-    browser: 'Browser：同一时间只有一个 Session 能使用 Browser，如果被占用会收到锁冲突错误，等待后重试。',
+    fetch: 'Fetch：用于读取网页内容、调用 API、下载文件。HTML 自动通过 readability 提取正文转为 Markdown。需要 JavaScript 渲染或交互操作时，通过 Bash 调用 agent-browser。',
     task: 'Task：拆分 SubAgent 时明确每个子任务的输入、输出和依赖关系。不要把含糊的大任务直接丢给 SubAgent。',
   }
 

@@ -10,12 +10,15 @@
     "@zero-os/model": "workspace:*",
     "@zero-os/observe": "workspace:*",
     "@zero-os/secrets": "workspace:*",
-    "playwright-core": "^1.58.0",
+    "@mozilla/readability": "^0.5.0",
+    "turndown": "^7.2.0",
+    "linkedom": "^0.18.9",
     "proper-lockfile": "^4.1.2",
     "simple-git": "^3.27.0"
   },
   "devDependencies": {
     "bun-types": "latest",
-    "@types/proper-lockfile": "^4.1.4"
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/turndown": "^5.0.5"
   }
 }

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Lock } from '@phosphor-icons/react'
 import { Skeleton } from '../components/shared/Skeleton'
+import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { apiFetch } from '../lib/api'
+import { useUIStore } from '../stores/ui'
 
 interface ToolInfo {
   name: string
@@ -13,7 +14,7 @@ interface ToolInfo {
 type ToolType = 'built-in' | 'tool' | 'skill' | 'mcp'
 type Filter = 'all' | ToolType
 
-const BUILT_IN_TOOLS = new Set(['read', 'write', 'edit', 'bash', 'browser'])
+const BUILT_IN_TOOLS = new Set(['read', 'write', 'edit', 'bash', 'fetch'])
 
 function getToolType(name: string): ToolType {
   if (BUILT_IN_TOOLS.has(name)) return 'built-in'
@@ -43,6 +44,8 @@ export function ToolsPage() {
   const [filter, setFilter] = useState<Filter>('all')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [disabledTools, setDisabledTools] = useState<Set<string>>(new Set())
+  const [confirmDisable, setConfirmDisable] = useState<string | null>(null)
+  const { addToast } = useUIStore()
 
   useEffect(() => {
     apiFetch<{ tools: ToolInfo[] }>('/api/tools')
@@ -67,13 +70,25 @@ export function ToolsPage() {
     })
   }
 
-  function toggleEnabled(name: string) {
+  function requestToggle(name: string) {
+    const isCurrentlyEnabled = !disabledTools.has(name)
+    if (isCurrentlyEnabled) {
+      setConfirmDisable(name)
+    } else {
+      doToggle(name)
+    }
+  }
+
+  function doToggle(name: string) {
+    const wasDisabled = disabledTools.has(name)
     setDisabledTools((prev) => {
       const next = new Set(prev)
       if (next.has(name)) next.delete(name)
       else next.add(name)
       return next
     })
+    addToast('success', wasDisabled ? `${name} 已启用` : `${name} 已禁用`)
+    setConfirmDisable(null)
   }
 
   const filtered = filter === 'all'
@@ -88,7 +103,6 @@ export function ToolsPage() {
     const style = TYPE_STYLES[type]
     const isEnabled = !disabledTools.has(tool.name)
     const isExpanded = expanded.has(tool.name)
-    const isBrowser = tool.name === 'Browser'
 
     return (
       <div key={tool.name} className="card p-5 animate-fade-up">
@@ -100,13 +114,10 @@ export function ToolsPage() {
             <span className={`text-[10px] px-1.5 py-0.5 rounded ${style.bg} ${style.text}`}>
               {type}
             </span>
-            {isBrowser && (
-              <Lock size={12} className="text-[var(--color-text-disabled)]" />
-            )}
           </div>
           {/* Toggle switch */}
           <button
-            onClick={() => toggleEnabled(tool.name)}
+            onClick={() => requestToggle(tool.name)}
             className={`relative w-9 h-5 rounded-full transition-colors ${
               isEnabled ? 'bg-[var(--color-accent)]' : 'bg-white/[0.1]'
             }`}
@@ -207,6 +218,16 @@ export function ToolsPage() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDisable !== null}
+        title={`禁用 ${confirmDisable}？`}
+        description="禁用后该工具将不可被 Agent 使用，可随时重新启用。"
+        confirmText="禁用"
+        danger
+        onConfirm={() => { if (confirmDisable) doToggle(confirmDisable) }}
+        onCancel={() => setConfirmDisable(null)}
+      />
     </div>
   )
 }

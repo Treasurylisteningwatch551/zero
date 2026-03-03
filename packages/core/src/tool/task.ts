@@ -34,7 +34,7 @@ const PRESET_AGENTS: Record<string, PresetConfig> = {
     name: 'Explorer',
     systemPrompt:
       'You are an Explorer SubAgent for ZeRo OS. Research, investigate, and report findings. Be thorough and concise.',
-    defaultTools: ['read', 'bash', 'browser'],
+    defaultTools: ['read', 'bash', 'fetch'],
     maxToolLoops: 15,
   },
   coder: {

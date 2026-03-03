@@ -27,6 +27,7 @@ export interface SessionDeps {
   metrics?: MetricsDB
   tracer?: Tracer
   secretFilter?: SecretFilter
+  secretResolver?: (ref: string) => string | undefined
   memoryRetriever?: MemoryRetriever
   identityMemory?: string
   memoContent?: string
@@ -121,6 +122,7 @@ export class Session {
       },
       secretFilter: this.deps.secretFilter,
       observability: observabilityHandle,
+      secretResolver: this.deps.secretResolver,
     }
 
     const agentObs: AgentObservability = {

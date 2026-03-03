@@ -31,7 +31,7 @@ export const CONTEXT_PARAMS = {
     write: 500,
     edit: 1000,
     bash: 4000,
-    browser: 4000,
+    fetch: 6000,
     task: 2000,
     /** Default limit for unknown tools */
     default: 4000,
