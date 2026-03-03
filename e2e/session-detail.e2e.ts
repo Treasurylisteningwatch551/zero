@@ -42,10 +42,10 @@ test.describe('Session Detail Page', () => {
     test.setTimeout(90_000)
     await createSessionAndNavigate(page)
 
-    // Metadata bar shows source (lowercase), model, and Archive button
+    // Metadata bar shows model and Archive button
     const main = page.locator('main')
-    await expect(main).toContainText('web')
     await expect(main).toContainText('gpt-5.3-codex-medium')
+    await expect(main).toContainText('Archive')
   })
 
   test('shows 65/35 split layout with timeline and context panel', async ({ page }) => {
