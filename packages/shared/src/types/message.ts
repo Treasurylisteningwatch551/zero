@@ -21,6 +21,7 @@ export interface ToolResultBlock {
   toolUseId: string
   content: string
   isError?: boolean
+  outputSummary?: string
 }
 
 export interface ImageBlock {

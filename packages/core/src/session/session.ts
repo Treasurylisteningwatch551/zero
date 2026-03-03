@@ -9,6 +9,7 @@ import type {
 import { generateSessionId, generateId, now, Mutex } from '@zero-os/shared'
 import type { ModelRouter } from '@zero-os/model'
 import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
+import { buildSystemPrompt } from '../agent/prompt'
 import type { ToolRegistry } from '../tool/registry'
 import type { JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
 import type { MemoryRetriever } from '@zero-os/memory'
@@ -23,6 +24,9 @@ export interface SessionDeps {
   secretFilter?: SecretFilter
   memoryRetriever?: MemoryRetriever
   identityMemory?: string
+  memoContent?: string
+  globalIdentity?: string
+  agentIdentity?: string
   bus?: {
     emit(topic: string, data: Record<string, unknown>): void
   }
@@ -149,20 +153,50 @@ export class Session {
 
   private async processMessage(content: string): Promise<Message[]> {
     // Retrieve relevant memories
+    const currentModel = this.modelRouter.getCurrentModel()
+    const tools = this.toolRegistry.getDefinitions()
+
+    let systemPrompt: string
     let retrievedMemories: string[] = []
-    if (this.deps.memoryRetriever) {
-      const memories = await this.deps.memoryRetriever.retrieve(content, { topN: 5 })
-      retrievedMemories = memories.map(
-        (m) => `[${m.type}] ${m.title}\n${m.content}`
-      )
+
+    if (this.deps.globalIdentity || this.deps.agentIdentity || this.deps.memoContent) {
+      // Use structured XML prompt builder
+      let memories: import('@zero-os/shared').Memory[] = []
+      if (this.deps.memoryRetriever) {
+        memories = await this.deps.memoryRetriever.retrieve(content, { topN: 5 })
+        retrievedMemories = memories.map(
+          (m) => `[${m.type}] ${m.title}\n${m.content}`
+        )
+      }
+      systemPrompt = buildSystemPrompt({
+        agentName: 'zero',
+        agentDescription: '擅长 TypeScript 全栈开发，使用 Bun 运行时。',
+        tools,
+        globalIdentity: this.deps.globalIdentity ?? '',
+        agentIdentity: this.deps.agentIdentity ?? '',
+        memo: this.deps.memoContent ?? '',
+        retrievedMemories: memories,
+        currentTime: new Date().toISOString(),
+      })
+    } else {
+      // Backward compatible: simple prompt
+      systemPrompt = 'You are ZeRo OS, an AI agent system running on macOS.'
+      if (this.deps.memoryRetriever) {
+        const memories = await this.deps.memoryRetriever.retrieve(content, { topN: 5 })
+        retrievedMemories = memories.map(
+          (m) => `[${m.type}] ${m.title}\n${m.content}`
+        )
+      }
     }
 
     const context: AgentContext = {
-      systemPrompt: 'You are ZeRo OS, an AI agent system running on macOS.',
+      systemPrompt,
       identityMemory: this.deps.identityMemory,
       retrievedMemories,
       conversationHistory: this.messages,
-      tools: this.toolRegistry.getDefinitions(),
+      tools,
+      maxContext: currentModel?.modelConfig.maxContext,
+      maxOutput: currentModel?.modelConfig.maxOutput,
     }
 
     // Push messages to session in real-time so getMessages() reflects in-progress state

@@ -1,0 +1,75 @@
+import { describe, test, expect } from 'bun:test'
+import { allocateBudget, shouldCompress, enforceFixedBudget } from '../budget'
+
+describe('allocateBudget', () => {
+  test('returns correct fixed limits', () => {
+    const budget = allocateBudget(100_000, 4_000)
+
+    expect(budget.role).toBe(500)
+    expect(budget.toolRules).toBe(800)
+    expect(budget.constraints).toBe(300)
+    expect(budget.identity).toBe(3000)
+    expect(budget.memo).toBe(1500)
+    expect(budget.retrievedMemory).toBe(2000)
+  })
+
+  test('calculates conversation budget correctly (maxContext - maxOutput - fixedTotal)', () => {
+    const maxContext = 100_000
+    const maxOutput = 4_000
+    const fixedTotal = 500 + 800 + 300 + 3000 + 1500 + 2000 // 8100
+
+    const budget = allocateBudget(maxContext, maxOutput)
+
+    expect(budget.reserved).toBe(maxOutput)
+    expect(budget.conversation).toBe(maxContext - maxOutput - fixedTotal)
+    expect(budget.conversation).toBe(87_900)
+  })
+})
+
+describe('shouldCompress', () => {
+  test('returns false below 85% threshold', () => {
+    const budget = 10_000
+    const tokens = 8_000 // 80%
+
+    expect(shouldCompress(tokens, budget)).toBe(false)
+  })
+
+  test('returns true at 85% threshold', () => {
+    const budget = 10_000
+    const tokens = 8_500 // exactly 85%
+
+    expect(shouldCompress(tokens, budget)).toBe(true)
+  })
+
+  test('returns true above 85% threshold', () => {
+    const budget = 10_000
+    const tokens = 9_500 // 95%
+
+    expect(shouldCompress(tokens, budget)).toBe(true)
+  })
+})
+
+describe('enforceFixedBudget', () => {
+  test('returns original content when within limit', () => {
+    const content = 'Short content'
+    const result = enforceFixedBudget(content, 1000, 'Test')
+
+    expect(result).toBe(content)
+  })
+
+  test('truncates and adds label when exceeding limit', () => {
+    // estimateTokens uses Math.ceil(text.length / 3.5)
+    // To exceed a limit of 10 tokens, we need text > 10 * 3.5 = 35 chars
+    const content = 'A'.repeat(200) // ~57 tokens, well over limit of 10
+    const limit = 10
+    const label = 'Identity'
+
+    const result = enforceFixedBudget(content, limit, label)
+
+    expect(result).not.toBe(content)
+    expect(result).toContain(`[${label} 内容过长，已截断。`)
+    expect(result).toContain(`限制 ${limit} tokens。]`)
+    // The truncated part should be shorter than the original
+    expect(result.length).toBeLessThan(content.length + 200)
+  })
+})

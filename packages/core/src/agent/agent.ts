@@ -14,6 +14,9 @@ import { computeCost } from '@zero-os/model'
 import type { BaseTool } from '../tool/base'
 import type { ToolRegistry } from '../tool/registry'
 import type { JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
+import { truncateToolOutput } from './truncate'
+import { prepareConversationHistory, estimateConversationTokens } from './context'
+import { allocateBudget, shouldCompress } from './budget'
 
 export interface AgentConfig {
   name: string
@@ -28,6 +31,8 @@ export interface AgentContext {
   retrievedMemories?: string[]
   conversationHistory: Message[]
   tools: ToolDefinition[]
+  maxContext?: number
+  maxOutput?: number
 }
 
 /**
@@ -76,7 +81,7 @@ export class Agent {
    */
   async run(context: AgentContext, userMessage: string, onNewMessage?: (msg: Message) => void, shouldInterrupt?: () => boolean): Promise<Message[]> {
     const maxLoops = this.config.maxToolLoops ?? 10
-    const messages: Message[] = [...context.conversationHistory]
+    const messages: Message[] = [...prepareConversationHistory(context.conversationHistory)]
     const newMessages: Message[] = []
 
     // Start root trace span
@@ -205,11 +210,13 @@ export class Agent {
           outputSummary: result.outputSummary,
         })
 
+        const truncatedOutput = truncateToolOutput(block.name, result.output)
         toolResultBlocks.push({
           type: 'tool_result',
           toolUseId: block.id,
-          content: result.output,
+          content: truncatedOutput,
           isError: !result.success,
+          outputSummary: result.outputSummary,
         })
       }
 
@@ -228,8 +235,55 @@ export class Agent {
         onNewMessage?.(toolResultMsg)
       }
 
+      // Budget check + compression
+      if (context.maxContext && context.maxOutput) {
+        const budget = allocateBudget(context.maxContext, context.maxOutput)
+        if (shouldCompress(estimateConversationTokens(messages), budget.conversation)) {
+          const { compressConversation } = await import('./compress')
+          const result = await compressConversation(messages, budget.conversation, this.adapter, this.toolContext.sessionId)
+          messages.length = 0
+          messages.push(...result.retainedMessages)
+          this.obs.logger?.logOperation?.({
+            level: 'info',
+            sessionId: this.toolContext.sessionId,
+            event: 'context_compression',
+            tool: 'agent',
+            input: `${result.stats.messagesBefore} messages, ${result.stats.tokensBefore} tokens`,
+            outputSummary: `${result.stats.messagesAfter} messages, ${result.stats.tokensAfter} tokens`,
+            durationMs: 0,
+          })
+        }
+      }
+
       // Yield to pending message if one arrived during tool execution
-      if (shouldInterrupt?.()) break
+      // But first let model process tool results — call without tools to force text response
+      if (shouldInterrupt?.()) {
+        const finalRequest: CompletionRequest = {
+          messages,
+          system,
+          stream: false,
+          maxTokens: 4096,
+        }
+        const finalStart = Date.now()
+        const finalResponse = await this.adapter.complete(finalRequest)
+        const finalDurationMs = Date.now() - finalStart
+        this.logLLMRequest(finalResponse, userMessage, finalDurationMs)
+
+        const finalContent = this.filterContent(finalResponse.content)
+        const finalMsg: Message = {
+          id: generateId(),
+          sessionId: this.toolContext.sessionId,
+          role: 'assistant',
+          messageType: 'message',
+          content: finalContent,
+          model: finalResponse.model,
+          createdAt: now(),
+        }
+        messages.push(finalMsg)
+        newMessages.push(finalMsg)
+        onNewMessage?.(finalMsg)
+        break
+      }
     }
 
     // End root trace span

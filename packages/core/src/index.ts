@@ -24,3 +24,10 @@ export { SessionManager } from './session/manager'
 // Task
 export { TaskOrchestrator } from './task/orchestrator'
 export type { TaskNode, TaskResult } from './task/orchestrator'
+
+// Context Engineering
+export { buildSystemPrompt } from './agent/prompt'
+export { allocateBudget, shouldCompress } from './agent/budget'
+export { truncateToolOutput } from './agent/truncate'
+export { prepareConversationHistory, estimateConversationTokens } from './agent/context'
+export { compressConversation } from './agent/compress'
