@@ -107,6 +107,8 @@ export async function startZeroOS(): Promise<ZeroOS> {
   // 9.5 Load identity for context engineering
   const globalPref = memoryStore.list('preference').find(m => m.id === 'pref_global')
   const globalIdentity = globalPref?.content ?? ''
+  const agentPref = memoryStore.list('preference').find(m => m.tags?.includes('agent'))
+  const agentIdentity = agentPref?.content ?? ''
 
   // 10. Session Manager — pass observability deps, memory, bus, secret filter, identity, memo
   const sessionManager = new SessionManager(modelRouter, toolRegistry, {
@@ -116,6 +118,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
     secretFilter,
     memoryRetriever,
     globalIdentity,
+    agentIdentity,
     memoReader: () => memoManager.read(),
     bus: globalBus,
   })

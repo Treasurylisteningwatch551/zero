@@ -106,12 +106,9 @@ export class Agent {
     newMessages.push(userMsg)
     onNewMessage?.(userMsg)
 
-    // Build system prompt
+    // Build system prompt (retrieved memories are already in XML System Prompt if using structured builder)
     const systemParts: string[] = [context.systemPrompt]
     if (context.identityMemory) systemParts.push(context.identityMemory)
-    if (context.retrievedMemories?.length) {
-      systemParts.push('## Relevant Memories\n' + context.retrievedMemories.join('\n---\n'))
-    }
     const system = systemParts.join('\n\n')
 
     let hadQueuedMessages = false
@@ -264,15 +261,14 @@ export class Agent {
           const result = await compressConversation(messages, budget.conversation, this.adapter, this.toolContext.sessionId)
           messages.length = 0
           messages.push(...result.retainedMessages)
-          this.obs.logger?.logOperation?.({
-            level: 'info',
+          const { buildSnapshot } = await import('./snapshot')
+          this.obs.logger?.logSnapshot?.(buildSnapshot({
             sessionId: this.toolContext.sessionId,
-            event: 'context_compression',
-            tool: 'agent',
-            input: `${result.stats.messagesBefore} messages, ${result.stats.tokensBefore} tokens`,
-            outputSummary: `${result.stats.messagesAfter} messages, ${result.stats.tokensAfter} tokens`,
-            durationMs: 0,
-          })
+            trigger: 'context_compression',
+            compressedSummary: result.summary,
+            messagesBefore: result.stats.messagesBefore,
+            messagesAfter: result.stats.messagesAfter,
+          }))
         }
       }
 

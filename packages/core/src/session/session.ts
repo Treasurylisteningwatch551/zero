@@ -13,9 +13,11 @@ import { buildSystemPrompt } from '../agent/prompt'
 import { allocateBudget } from '../agent/budget'
 import { estimateConversationTokens } from '../agent/context'
 import type { QueuedMessage } from '../agent/queue'
+import { buildSnapshot } from '../agent/snapshot'
 import type { ToolRegistry } from '../tool/registry'
 import type { JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
 import type { MemoryRetriever } from '@zero-os/memory'
+import { buildRetrievalDecisionPrompt, parseRetrievalDecision } from '@zero-os/memory'
 
 /**
  * Dependencies injected into Session for observability, memory, and eventing.
@@ -83,6 +85,13 @@ export class Session {
       source,
       model: this.data.currentModel,
     })
+
+    // Log session start snapshot
+    this.deps.logger?.logSnapshot?.(buildSnapshot({
+      sessionId: this.data.id,
+      trigger: 'session_start',
+      tools: this.toolRegistry.getDefinitions().map(t => t.name),
+    }))
   }
 
   /**
@@ -169,15 +178,45 @@ export class Session {
     // Hot-reload memo content on each call
     const memoContent = this.deps.memoReader?.() ?? this.deps.memoContent ?? ''
 
+    // Retrieval decision: determine if we need to search memories
+    let memories: import('@zero-os/shared').Memory[] = []
+    if (this.deps.memoryRetriever) {
+      const adapter = this.modelRouter.getAdapter()
+      const decisionPrompt = buildRetrievalDecisionPrompt(content, this.deps.globalIdentity ?? '')
+      try {
+        const decisionResp = await adapter.complete({
+          messages: [{ id: generateId(), sessionId: this.data.id, role: 'user', messageType: 'message',
+            content: [{ type: 'text', text: decisionPrompt }], createdAt: now() }],
+          system: '你是一个检索决策助手。分析用户消息判断是否需要检索记忆库。返回 JSON。',
+          stream: false, maxTokens: 256,
+        })
+        const decisionText = decisionResp.content
+          .filter(b => b.type === 'text')
+          .map(b => (b as { type: 'text'; text: string }).text)
+          .join('')
+        const decision = parseRetrievalDecision(decisionText)
+
+        if (decision.need && decision.queries) {
+          for (const query of decision.queries) {
+            const results = await this.deps.memoryRetriever.retrieve(query, { topN: 3 })
+            memories.push(...results)
+          }
+          // Deduplicate by ID
+          const seen = new Set<string>()
+          memories = memories.filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true })
+          memories = memories.slice(0, 5)
+        }
+      } catch {
+        // Fallback: direct retrieval if decision call fails
+        memories = await this.deps.memoryRetriever.retrieve(content, { topN: 5 })
+      }
+      retrievedMemories = memories.map(
+        (m) => `[${m.type}] ${m.title}\n${m.content}`
+      )
+    }
+
     if (this.deps.globalIdentity || this.deps.agentIdentity || memoContent) {
       // Use structured XML prompt builder
-      let memories: import('@zero-os/shared').Memory[] = []
-      if (this.deps.memoryRetriever) {
-        memories = await this.deps.memoryRetriever.retrieve(content, { topN: 5 })
-        retrievedMemories = memories.map(
-          (m) => `[${m.type}] ${m.title}\n${m.content}`
-        )
-      }
       systemPrompt = buildSystemPrompt({
         agentName: 'zero',
         agentDescription: '擅长 TypeScript 全栈开发，使用 Bun 运行时。',
@@ -191,12 +230,6 @@ export class Session {
     } else {
       // Backward compatible: simple prompt
       systemPrompt = 'You are ZeRo OS, an AI agent system running on macOS.'
-      if (this.deps.memoryRetriever) {
-        const memories = await this.deps.memoryRetriever.retrieve(content, { topN: 5 })
-        retrievedMemories = memories.map(
-          (m) => `[${m.type}] ${m.title}\n${m.content}`
-        )
-      }
     }
 
     const context: AgentContext = {
@@ -259,6 +292,13 @@ export class Session {
             from: oldModel,
             to: result.model.modelName,
           })
+
+          // Log model switch snapshot
+          this.deps.logger?.logSnapshot?.(buildSnapshot({
+            sessionId: this.data.id,
+            trigger: 'model_switch',
+            tools: this.toolRegistry.getDefinitions().map(t => t.name),
+          }))
 
           // Context migration: check if conversation exceeds new model's budget
           if (this.messages.length > 0 && result.model.modelConfig) {
