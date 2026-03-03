@@ -18,7 +18,7 @@ export type { AgentConfig, AgentContext } from './agent/agent'
 
 // Session
 export { Session } from './session/session'
-export type { SessionDeps } from './session/session'
+export type { SessionDeps, HandleMessageOptions } from './session/session'
 export { SessionManager } from './session/manager'
 
 // Task

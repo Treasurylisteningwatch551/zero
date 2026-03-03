@@ -40,6 +40,14 @@ export interface SessionDeps {
 }
 
 /**
+ * Options for Session.handleMessage().
+ */
+export interface HandleMessageOptions {
+  /** Called synchronously for every new Message (user, assistant, tool_result). */
+  onProgress?: (msg: Message) => void
+}
+
+/**
  * Session — manages the lifecycle of a single conversation.
  */
 export class Session {
@@ -141,7 +149,7 @@ export class Session {
   /**
    * Handle a user message.
    */
-  async handleMessage(content: string): Promise<Message[]> {
+  async handleMessage(content: string, options?: HandleMessageOptions): Promise<Message[]> {
     // Check for commands
     if (content.startsWith('/')) {
       return await this.handleCommand(content)
@@ -163,13 +171,13 @@ export class Session {
     this.interruptFlag = false
 
     try {
-      return await this.processMessage(content)
+      return await this.processMessage(content, options)
     } finally {
       this.mutex.release(lockId)
     }
   }
 
-  private async processMessage(content: string): Promise<Message[]> {
+  private async processMessage(content: string, options?: HandleMessageOptions): Promise<Message[]> {
     // Retrieve relevant memories
     const currentModel = this.modelRouter.getCurrentModel()
     const tools = this.toolRegistry.getDefinitions()
@@ -248,6 +256,7 @@ export class Session {
     const onNewMessage = (msg: Message) => {
       this.messages.push(msg)
       this.data.updatedAt = now()
+      options?.onProgress?.(msg)
     }
 
     const shouldInterrupt = () => this.interruptFlag

@@ -186,6 +186,16 @@ export async function startZeroOS(): Promise<ZeroOS> {
     return notification
   }
 
+  // Helper: extract text from an assistant Message
+  function extractAssistantText(msg: import('@zero-os/shared').Message): string {
+    if (msg.role !== 'assistant') return ''
+    return msg.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { type: 'text'; text: string }).text)
+      .join('\n')
+      .trim()
+  }
+
   // 15. Channel registry
   const channels = new Map<string, Channel>()
 
@@ -215,17 +225,42 @@ export async function startZeroOS(): Promise<ZeroOS> {
             systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
           })
         }
-        const replies = await session.handleMessage(msg.content)
-        const replyText = replies
-          .filter((m) => m.role === 'assistant')
-          .flatMap((m) => m.content)
-          .filter((b) => b.type === 'text')
-          .map((b) => (b as { type: 'text'; text: string }).text)
-          .join('\n')
-        if (replyText && messageId) {
-          await feishuChannel.reply(messageId, replyText)
-        } else if (replyText) {
-          await feishuChannel.send(chatId, replyText)
+
+        // Progressive messaging: send each assistant text to IM as it arrives
+        let firstReply = true
+        let lastSentMsgId: string | null = null
+
+        const replies = await session.handleMessage(msg.content, {
+          onProgress: (newMsg) => {
+            const text = extractAssistantText(newMsg)
+            if (!text) return
+
+            lastSentMsgId = newMsg.id
+
+            if (firstReply && messageId) {
+              firstReply = false
+              feishuChannel.reply(messageId, text).catch((err) =>
+                console.error('[ZeRo OS] Feishu progressive send error:', err))
+            } else {
+              feishuChannel.send(chatId, text).catch((err) =>
+                console.error('[ZeRo OS] Feishu progressive send error:', err))
+            }
+          },
+        })
+
+        // Fallback: if onProgress sent nothing (e.g. command response), use old path
+        if (!lastSentMsgId) {
+          const replyText = replies
+            .filter((m) => m.role === 'assistant')
+            .flatMap((m) => m.content)
+            .filter((b) => b.type === 'text')
+            .map((b) => (b as { type: 'text'; text: string }).text)
+            .join('\n')
+          if (replyText && messageId) {
+            await feishuChannel.reply(messageId, replyText)
+          } else if (replyText) {
+            await feishuChannel.send(chatId, replyText)
+          }
         }
       } catch (err) {
         console.error('[ZeRo OS] Feishu message handler error:', err)
@@ -260,14 +295,32 @@ export async function startZeroOS(): Promise<ZeroOS> {
           systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
         })
       }
-      const replies = await session.handleMessage(msg.content)
-      const replyText = replies
-        .filter((m) => m.role === 'assistant')
-        .flatMap((m) => m.content)
-        .filter((b) => b.type === 'text')
-        .map((b) => (b as { type: 'text'; text: string }).text)
-        .join('\n')
-      await telegramChannel.send(chatId, replyText)
+
+      // Progressive messaging: send each assistant text to IM as it arrives
+      let lastSentMsgId: string | null = null
+
+      const replies = await session.handleMessage(msg.content, {
+        onProgress: (newMsg) => {
+          const text = extractAssistantText(newMsg)
+          if (!text) return
+          lastSentMsgId = newMsg.id
+          telegramChannel.send(chatId, text).catch((err) =>
+            console.error('[ZeRo OS] Telegram progressive send error:', err))
+        },
+      })
+
+      // Fallback: if onProgress sent nothing, use old path
+      if (!lastSentMsgId) {
+        const replyText = replies
+          .filter((m) => m.role === 'assistant')
+          .flatMap((m) => m.content)
+          .filter((b) => b.type === 'text')
+          .map((b) => (b as { type: 'text'; text: string }).text)
+          .join('\n')
+        if (replyText) {
+          await telegramChannel.send(chatId, replyText)
+        }
+      }
     })
     await telegramChannel.start()
     channels.set('telegram', telegramChannel)
