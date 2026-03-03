@@ -7,6 +7,8 @@ import type {
   SecretFilter,
 } from '@zero-os/shared'
 import { generateSessionId, generateId, now, Mutex } from '@zero-os/shared'
+import { join } from 'node:path'
+import { mkdirSync, existsSync } from 'node:fs'
 import type { ModelRouter } from '@zero-os/model'
 import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
 import { buildSystemPrompt } from '../agent/prompt'
@@ -15,7 +17,7 @@ import { estimateConversationTokens } from '../agent/context'
 import type { QueuedMessage } from '../agent/queue'
 import { buildSnapshot } from '../agent/snapshot'
 import type { ToolRegistry } from '../tool/registry'
-import type { JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
+import type { JsonlLogger, MetricsDB, Tracer, SessionDB } from '@zero-os/observe'
 import type { MemoryRetriever } from '@zero-os/memory'
 import { buildRetrievalDecisionPrompt, parseRetrievalDecision } from '@zero-os/memory'
 
@@ -29,14 +31,17 @@ export interface SessionDeps {
   secretFilter?: SecretFilter
   secretResolver?: (ref: string) => string | undefined
   memoryRetriever?: MemoryRetriever
+  memoryStore?: import('@zero-os/shared').ToolContext['memoryStore']
   identityMemory?: string
   memoContent?: string
   globalIdentity?: string
   agentIdentity?: string
   memoReader?: () => string
+  identityReader?: (agentName: string) => { global: string; agent: string }
   bus?: {
     emit(topic: string, data: Record<string, unknown>): void
   }
+  sessionDb?: SessionDB
 }
 
 /**
@@ -60,6 +65,7 @@ export class Session {
   private mutex = new Mutex()
   private interruptFlag = false
   private messageQueue: QueuedMessage[] = []
+  private lastAgentConfig: AgentConfig | null = null
 
   constructor(
     source: SessionSource,
@@ -101,14 +107,24 @@ export class Session {
       trigger: 'session_start',
       tools: this.toolRegistry.getDefinitions().map(t => t.name),
     }))
+
+    // Persist session metadata to DB
+    this.deps.sessionDb?.saveSession(this.data)
   }
 
   /**
    * Initialize the agent for this session.
    */
   initAgent(config: AgentConfig): void {
+    this.lastAgentConfig = config
     const adapter = this.modelRouter.getAdapter()
     const resolved = this.modelRouter.getCurrentModel()
+
+    const projectRoot = process.cwd()
+    const workspacePath = join(projectRoot, '.zero', 'workspace', config.name)
+    if (!existsSync(workspacePath)) {
+      mkdirSync(workspacePath, { recursive: true })
+    }
 
     const observabilityHandle = this.deps.logger && this.deps.metrics
       ? {
@@ -119,7 +135,8 @@ export class Session {
 
     const toolContext = {
       sessionId: this.data.id,
-      workDir: process.cwd(),
+      workDir: workspacePath,
+      projectRoot,
       logger: {
         info: (event: string, data?: Record<string, unknown>) =>
           console.log(`[${this.data.id}] ${event}`, data ?? ''),
@@ -131,6 +148,7 @@ export class Session {
       secretFilter: this.deps.secretFilter,
       observability: observabilityHandle,
       secretResolver: this.deps.secretResolver,
+      memoryStore: this.deps.memoryStore,
     }
 
     const agentObs: AgentObservability = {
@@ -144,6 +162,9 @@ export class Session {
     }
 
     this.agent = new Agent(config, adapter, this.toolRegistry, toolContext, agentObs)
+
+    // Persist session with agent config
+    this.deps.sessionDb?.saveSession(this.data, JSON.stringify(config))
   }
 
   /**
@@ -174,6 +195,8 @@ export class Session {
       return await this.processMessage(content, options)
     } finally {
       this.mutex.release(lockId)
+      // Persist messages after processing completes
+      this.deps.sessionDb?.saveMessages(this.data.id, this.messages)
     }
   }
 
@@ -188,11 +211,17 @@ export class Session {
     // Hot-reload memo content on each call
     const memoContent = this.deps.memoReader?.() ?? this.deps.memoContent ?? ''
 
+    // Hot-reload identity on each call
+    const agentName = this.lastAgentConfig?.name ?? 'zero'
+    const identity = this.deps.identityReader?.(agentName)
+    const globalIdentity = identity?.global ?? this.deps.globalIdentity ?? ''
+    const agentIdentity = identity?.agent ?? this.deps.agentIdentity ?? ''
+
     // Retrieval decision: determine if we need to search memories
     let memories: import('@zero-os/shared').Memory[] = []
     if (this.deps.memoryRetriever) {
       const adapter = this.modelRouter.getAdapter()
-      const decisionPrompt = buildRetrievalDecisionPrompt(content, this.deps.globalIdentity ?? '')
+      const decisionPrompt = buildRetrievalDecisionPrompt(content, globalIdentity)
       try {
         const decisionResp = await adapter.complete({
           messages: [{ id: generateId(), sessionId: this.data.id, role: 'user', messageType: 'message',
@@ -225,17 +254,22 @@ export class Session {
       )
     }
 
-    if (this.deps.globalIdentity || this.deps.agentIdentity || memoContent) {
+    const projectRoot = process.cwd()
+    const workspacePath = join(projectRoot, '.zero', 'workspace', agentName)
+
+    if (globalIdentity || agentIdentity || memoContent) {
       // Use structured XML prompt builder
       systemPrompt = buildSystemPrompt({
-        agentName: 'zero',
+        agentName,
         agentDescription: '擅长 TypeScript 全栈开发，使用 Bun 运行时。',
         tools,
-        globalIdentity: this.deps.globalIdentity ?? '',
-        agentIdentity: this.deps.agentIdentity ?? '',
+        globalIdentity,
+        agentIdentity,
         memo: memoContent,
         retrievedMemories: memories,
         currentTime: new Date().toISOString(),
+        workspacePath,
+        projectRoot,
       })
     } else {
       // Backward compatible: simple prompt
@@ -374,6 +408,34 @@ export class Session {
     }
   }
 
+  /**
+   * Restore a session from persisted data (bypasses constructor side-effects).
+   */
+  static restore(
+    data: SessionData,
+    messages: Message[],
+    modelRouter: ModelRouter,
+    toolRegistry: ToolRegistry,
+    deps: SessionDeps = {}
+  ): Session {
+    const session = Object.create(Session.prototype) as Session
+    ;(session as any).data = data
+    ;(session as any).messages = messages
+    ;(session as any).modelRouter = modelRouter
+    ;(session as any).toolRegistry = toolRegistry
+    ;(session as any).deps = deps
+    ;(session as any).mutex = new Mutex()
+    ;(session as any).interruptFlag = false
+    ;(session as any).messageQueue = []
+    ;(session as any).agent = null
+    ;(session as any).lastAgentConfig = null
+    return session
+  }
+
+  getAgentConfig(): AgentConfig | null {
+    return this.lastAgentConfig
+  }
+
   getMessages(): Message[] {
     return [...this.messages]
   }
@@ -385,6 +447,8 @@ export class Session {
   setStatus(status: SessionStatus): void {
     this.data.status = status
     this.data.updatedAt = now()
+    // Persist status change
+    this.deps.sessionDb?.updateStatus(this.data.id, status, this.data.updatedAt)
     // Emit session:end when status transitions to completed
     if (status === 'completed' || status === 'error') {
       this.deps.bus?.emit('session:end', {

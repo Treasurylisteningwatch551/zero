@@ -34,7 +34,7 @@ export class MemoryRetriever {
     if (status) {
       allMemories = allMemories.filter((m) => status.includes(m.status))
     } else {
-      allMemories = allMemories.filter((m) => m.status === 'verified' || m.status === 'draft')
+      allMemories = allMemories.filter((m) => m.status === 'verified')
     }
 
     // Filter by confidence threshold

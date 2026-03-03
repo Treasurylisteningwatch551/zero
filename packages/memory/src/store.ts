@@ -124,6 +124,17 @@ export class MemoryStore {
     return true
   }
 
+  /**
+   * Read an agent-specific preference from preferences/agents/{agentName}.md.
+   * Returns only the content (no frontmatter), or empty string if not found.
+   */
+  getAgentPreference(agentName: string): string {
+    const filePath = join(this.typeDir('preference'), 'agents', `${agentName}.md`)
+    if (!existsSync(filePath)) return ''
+    const parsed = this.parseFile(filePath)
+    return parsed?.content ?? ''
+  }
+
   private typeDir(type: MemoryType): string {
     const dirMap: Record<MemoryType, string> = {
       session: 'sessions',

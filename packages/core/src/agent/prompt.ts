@@ -7,7 +7,7 @@ import { CONTEXT_PARAMS } from './params'
 export function buildSystemPrompt(components: PromptComponents): string {
   const sections: string[] = []
 
-  sections.push(buildRoleBlock(components.agentName, components.agentDescription, components.currentTime))
+  sections.push(buildRoleBlock(components.agentName, components.agentDescription, components.currentTime, components.workspacePath, components.projectRoot))
   sections.push(buildRulesBlock())
   sections.push(buildToolRulesBlock(components.tools))
   sections.push(buildConstraintsBlock())
@@ -21,11 +21,18 @@ export function buildSystemPrompt(components: PromptComponents): string {
   return sections.join('\n\n')
 }
 
-export function buildRoleBlock(agentName: string, agentDescription: string, currentTime: string): string {
-  const content = `你是 ZeRo OS 的 ${agentName}，一个在 macOS 上自主执行任务的 AI Agent。
-${agentDescription}
-当前时间：${currentTime}`
-  return enforceFixedBudget(`<role>\n${content}\n</role>`, 500, 'Role')
+export function buildRoleBlock(agentName: string, agentDescription: string, currentTime: string, workspacePath?: string, projectRoot?: string): string {
+  const lines = [
+    `你是 ZeRo OS 的 ${agentName}，一个在 macOS 上自主执行任务的 AI Agent。`,
+    agentDescription,
+  ]
+  if (workspacePath && projectRoot) {
+    lines.push(`你的工作目录是 ${workspacePath}，下载和临时文件放在此目录。最终产出物放到 ${projectRoot}/.zero/workspace/shared/。`)
+    lines.push(`项目根目录是 ${projectRoot}，源代码在此目录下。`)
+  }
+  lines.push(`当前时间：${currentTime}`)
+  const content = lines.join('\n')
+  return enforceFixedBudget(`<role>\n${content}\n</role>`, 600, 'Role')
 }
 
 export function buildRulesBlock(): string {
@@ -41,10 +48,11 @@ export function buildRulesBlock(): string {
 export function buildToolRulesBlock(tools: ToolDefinition[]): string {
   const toolRuleMap: Record<string, string> = {
     read: 'Read：优先使用 Read 查看文件内容，不要用 Bash cat。',
-    write: 'Write：写入文件前先确认路径正确。写入其他路径前必须确认。',
+    write: 'Write：写入文件前先确认路径正确。临时文件和下载内容写入工作目录，修改源代码使用项目根目录的绝对路径。',
     edit: 'Edit：修改文件前先 Read 确认当前内容，避免基于过期认知做编辑。',
-    bash: 'Bash：命令执行前检查是否命中熔断名单。长时间运行的命令加 timeout。',
+    bash: 'Bash：命令在工作目录中执行，操作项目源码时使用绝对路径。命令执行前检查是否命中熔断名单。长时间运行的命令加 timeout。',
     fetch: 'Fetch：用于读取网页内容、调用 API、下载文件。HTML 自动通过 readability 提取正文转为 Markdown。需要 JavaScript 渲染或交互操作时，通过 Bash 调用 agent-browser。',
+    memory: 'Memory：当用户要求"记住"某事时，用 create action + note 类型。用户偏好用 preference 类型。架构决策用 decision 类型。',
     task: 'Task：拆分 SubAgent 时明确每个子任务的输入、输出和依赖关系。不要把含糊的大任务直接丢给 SubAgent。',
   }
 
@@ -86,7 +94,8 @@ export function buildMemoBlock(memo: string): string {
 
 export function buildRetrievedMemoryBlock(memories: Memory[]): string {
   const memoryEntries = memories.map(m => {
-    return `  <memory type="${m.type}" confidence="${m.confidence}" id="${m.id}" updated="${m.updatedAt}">\n  标题：${m.title}\n  内容：\n${m.content}\n  </memory>`
+    const content = truncateToTokens(m.content, CONTEXT_PARAMS.retrieval.perMemoryMaxTokens)
+    return `  <memory type="${m.type}" confidence="${m.confidence}" id="${m.id}" updated="${m.updatedAt}">\n  标题：${m.title}\n  内容：\n${content}\n  </memory>`
   })
   const content = memoryEntries.join('\n\n')
   return enforceFixedBudget(`<retrieved_memories>\n${content}\n</retrieved_memories>`, 2000, 'Retrieved Memories')

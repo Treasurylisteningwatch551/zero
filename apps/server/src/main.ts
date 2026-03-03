@@ -2,11 +2,11 @@ import { existsSync, mkdirSync, appendFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadConfig, loadFuseList } from '@zero-os/core'
 import { ModelRouter } from '@zero-os/model'
-import { ToolRegistry, ReadTool, WriteTool, EditTool, BashTool, FetchTool, TaskTool } from '@zero-os/core'
+import { ToolRegistry, ReadTool, WriteTool, EditTool, BashTool, FetchTool, TaskTool, MemoryTool } from '@zero-os/core'
 import { SessionManager } from '@zero-os/core'
 import { Vault, generateMasterKey, setMasterKey, getMasterKey } from '@zero-os/secrets'
 import { OutputSecretFilter } from '@zero-os/secrets'
-import { JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
+import { JsonlLogger, MetricsDB, Tracer, SessionDB } from '@zero-os/observe'
 import { MemoryStore, MemoManager, MemoryRetriever } from '@zero-os/memory'
 import { RepairEngine } from '@zero-os/supervisor'
 import { HeartbeatWriter } from '@zero-os/supervisor'
@@ -24,6 +24,7 @@ export interface ZeroOS {
   secretFilter: OutputSecretFilter
   logger: JsonlLogger
   metrics: MetricsDB
+  sessionDb: SessionDB
   modelRouter: ModelRouter
   toolRegistry: ToolRegistry
   sessionManager: SessionManager
@@ -74,10 +75,11 @@ export async function startZeroOS(): Promise<ZeroOS> {
   const config = loadConfig(configPath)
   console.log(`[ZeRo OS] Config loaded (${Object.keys(config.providers).length} providers)`)
 
-  // 6. Initialize logger and metrics
+  // 6. Initialize logger, metrics, and session DB
   const logsDir = join(ZERO_DIR, 'logs')
   const logger = new JsonlLogger(logsDir)
   const metrics = new MetricsDB(join(logsDir, 'metrics.db'))
+  const sessionDb = new SessionDB(join(logsDir, 'sessions.db'))
   const tracer = new Tracer()
   console.log('[ZeRo OS] Logging initialized')
 
@@ -95,6 +97,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
   toolRegistry.register(new EditTool())
   toolRegistry.register(new BashTool(fuseRules))
   toolRegistry.register(new FetchTool())
+  toolRegistry.register(new MemoryTool())
   toolRegistry.register(new TaskTool(modelRouter, toolRegistry))
   console.log(`[ZeRo OS] ${toolRegistry.list().length} tools registered`)
 
@@ -104,11 +107,14 @@ export async function startZeroOS(): Promise<ZeroOS> {
   const memoManager = new MemoManager(join(memoryDir, 'memo.md'))
   const memoryRetriever = new MemoryRetriever(memoryStore)
 
-  // 9.5 Load identity for context engineering
-  const globalPref = memoryStore.list('preference').find(m => m.id === 'pref_global')
-  const globalIdentity = globalPref?.content ?? ''
-  const agentPref = memoryStore.list('preference').find(m => m.tags?.includes('agent'))
-  const agentIdentity = agentPref?.content ?? ''
+  // 9.5 Identity reader — hot-reloads identity on each turn per agent name
+  const identityReader = (agentName: string) => {
+    const globalPref = memoryStore.list('preference').find(m => m.id === 'pref_global')
+    return {
+      global: globalPref?.content ?? '',
+      agent: memoryStore.getAgentPreference(agentName),
+    }
+  }
 
   // 10. Session Manager — pass observability deps, memory, bus, secret filter, identity, memo
   const secretResolver = (ref: string) => vault.get(ref) ?? undefined
@@ -119,11 +125,18 @@ export async function startZeroOS(): Promise<ZeroOS> {
     secretFilter,
     secretResolver,
     memoryRetriever,
-    globalIdentity,
-    agentIdentity,
+    memoryStore,
+    identityReader,
     memoReader: () => memoManager.read(),
     bus: globalBus,
-  })
+    sessionDb,
+  }, sessionDb)
+
+  // 10.5. Restore active sessions from DB
+  const restoredCount = sessionManager.restoreFromDB()
+  if (restoredCount > 0) {
+    console.log(`[ZeRo OS] Restored ${restoredCount} sessions from DB`)
+  }
 
   // 11. Repair Engine
   const repairEngine = new RepairEngine()
@@ -371,6 +384,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
     secretFilter,
     logger,
     metrics,
+    sessionDb,
     modelRouter,
     toolRegistry,
     sessionManager,

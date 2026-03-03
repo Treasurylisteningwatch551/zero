@@ -32,8 +32,10 @@ describe('Memory Pipeline: Store → Lifecycle → Retrieval', () => {
     expect(results[0].content).toContain('Deployed API gateway')
   })
 
-  test('lifecycle creates incident → retriever finds by tag', async () => {
-    lifecycle.createIncident('Database timeout', 'Connection pool exhausted', 'sess-002', ['database', 'timeout'])
+  test('lifecycle creates incident → retriever finds by tag after verification', async () => {
+    const mem = lifecycle.createIncident('Database timeout', 'Connection pool exhausted', 'sess-002', ['database', 'timeout'])
+    // Incidents start as draft; verify before retrieval (only verified memories are retrievable)
+    lifecycle.verify('incident', mem.id)
 
     const results = await retriever.retrieve('database', { tags: ['incident'] })
     expect(results.length).toBeGreaterThan(0)
@@ -70,7 +72,7 @@ describe('Memory Pipeline: Store → Lifecycle → Retrieval', () => {
     expect(ids).not.toContain(m2.id)
   })
 
-  test('verified memories rank higher than drafts', async () => {
+  test('only verified memories are returned by default (drafts excluded)', async () => {
     store.create('note', 'Draft ranking note', 'Some ranking content', {
       tags: ['ranking'], status: 'draft', confidence: 0.7,
     })
@@ -79,8 +81,8 @@ describe('Memory Pipeline: Store → Lifecycle → Retrieval', () => {
     })
 
     const results = await retriever.retrieve('ranking', { tags: ['ranking'], topN: 5 })
-    expect(results.length).toBe(2)
-    // Verified with higher confidence should be first
+    // Only verified memory should be returned; draft is excluded
+    expect(results.length).toBe(1)
     expect(results[0].status).toBe('verified')
     expect(results[0].confidence).toBe(0.9)
   })

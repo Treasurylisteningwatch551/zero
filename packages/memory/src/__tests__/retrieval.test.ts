@@ -26,7 +26,7 @@ describe('MemoryRetriever', () => {
     })
     store.create('note', 'Setup guide for Redis', 'Install and configure Redis for caching', {
       tags: ['redis', 'setup', 'cache'],
-      status: 'draft',
+      status: 'verified',
       confidence: 0.7,
     })
     store.create('session', 'Old archived session', 'This was archived', {
@@ -36,7 +36,7 @@ describe('MemoryRetriever', () => {
     })
     store.create('note', 'Low confidence note', 'Some uncertain information', {
       tags: ['uncertain'],
-      status: 'draft',
+      status: 'verified',
       confidence: 0.3,
     })
 
