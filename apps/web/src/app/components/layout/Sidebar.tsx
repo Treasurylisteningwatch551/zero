@@ -1,6 +1,8 @@
-import { ChatCircle, Gauge, ClockCounterClockwise, Brain, ClipboardText, Terminal, Gear, ChartBar, Wrench, List } from '@phosphor-icons/react'
+import { useState, useEffect, useRef } from 'react'
+import { ChatCircle, Gauge, ClockCounterClockwise, Brain, ClipboardText, Terminal, Gear, ChartBar, Wrench, List, CaretDown } from '@phosphor-icons/react'
 import { useUIStore } from '../../stores/ui'
 import { useNavigate, useLocation } from '@tanstack/react-router'
+import { apiFetch, apiPost } from '../../lib/api'
 
 const navItems = [
   { name: 'Dashboard', icon: Gauge, path: '/' },
@@ -18,12 +20,46 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed = false }: SidebarProps) {
-  const { toggleChatDrawer, toggleSidebar, sidebarCollapsed } = useUIStore()
+  const { toggleChatDrawer, toggleSidebar, sidebarCollapsed, addToast } = useUIStore()
   const navigate = useNavigate()
   const location = useLocation()
+  const [currentModel, setCurrentModel] = useState('gpt-5.3-codex-medium')
+  const [models, setModels] = useState<string[]>([])
+  const [showModelPicker, setShowModelPicker] = useState(false)
+  const pickerRef = useRef<HTMLDivElement>(null)
 
   const isCollapsed = collapsed || sidebarCollapsed
   const width = isCollapsed ? 44 : 220
+
+  useEffect(() => {
+    apiFetch<{ models: { name: string }[] }>('/api/models')
+      .then((res) => setModels(res.models.map((m) => m.name)))
+      .catch(() => {})
+    apiFetch<{ model: string }>('/api/status')
+      .then((res) => { if (res.model) setCurrentModel(res.model) })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowModelPicker(false)
+      }
+    }
+    if (showModelPicker) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showModelPicker])
+
+  async function switchModel(name: string) {
+    try {
+      await apiPost('/api/chat/model', { model: name })
+      setCurrentModel(name)
+      setShowModelPicker(false)
+      addToast('success', `模型已切换至 ${name}`)
+    } catch {
+      // Error toast handled by api layer
+    }
+  }
 
   return (
     <aside
@@ -72,13 +108,37 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
       {/* Bottom section: status + chat button */}
       <div className={`${isCollapsed ? 'px-1' : 'px-4'} py-4 space-y-3 border-t border-[var(--color-border)]`}>
         {!isCollapsed && (
-          <div className="space-y-1">
+          <div className="space-y-1 relative" ref={pickerRef}>
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-[var(--color-success)] pulse-active" />
               <span className="text-[11px] text-[var(--color-text-secondary)]">Running</span>
             </div>
-            <p className="text-[11px] font-mono text-[var(--color-text-muted)]">gpt-5.3-codex-medium</p>
+            <button
+              onClick={() => setShowModelPicker((v) => !v)}
+              className="flex items-center gap-1 text-[11px] font-mono text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors w-full text-left"
+            >
+              <span className="truncate flex-1">{currentModel}</span>
+              <CaretDown size={10} className={`shrink-0 transition-transform ${showModelPicker ? 'rotate-180' : ''}`} />
+            </button>
             <p className="text-[11px] font-mono text-[var(--color-text-disabled)]">v0.1 stable</p>
+
+            {showModelPicker && models.length > 0 && (
+              <div className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-float)] shadow-lg overflow-hidden z-50 animate-fade-up max-h-[200px] overflow-y-auto">
+                {models.map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => switchModel(m)}
+                    className={`w-full text-left px-3 py-1.5 text-[11px] font-mono transition-colors ${
+                      m === currentModel
+                        ? 'text-[var(--color-accent)] bg-[var(--color-accent-glow)]'
+                        : 'text-[var(--color-text-secondary)] hover:bg-white/[0.04]'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

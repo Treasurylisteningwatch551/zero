@@ -1,3 +1,5 @@
+import type { GitOps } from './git-ops'
+
 export type RepairStatus = 'idle' | 'diagnosing' | 'repairing' | 'verifying' | 'success' | 'failed'
 
 export interface RepairAttempt {
@@ -15,9 +17,11 @@ export class RepairEngine {
   private maxAttempts: number
   private attempts: RepairAttempt[] = []
   private status: RepairStatus = 'idle'
+  private gitOps?: GitOps
 
-  constructor(maxAttempts: number = 5) {
+  constructor(maxAttempts: number = 5, gitOps?: GitOps) {
     this.maxAttempts = maxAttempts
+    this.gitOps = gitOps
   }
 
   getStatus(): RepairStatus {
@@ -79,6 +83,27 @@ export class RepairEngine {
 
     this.attempts.push(attempt)
     this.status = success ? 'success' : 'failed'
+
+    // After successful repair, commit and tag via git
+    if (success && this.gitOps) {
+      try {
+        await this.gitOps.commitAndTag(`repair: ${diagnosis}`)
+      } catch {
+        // Git commit failure is non-fatal for the repair cycle
+      }
+    }
+
+    // If fuse threshold reached, rollback to last stable tag
+    if (this.shouldFuse() && this.gitOps) {
+      try {
+        const lastStable = await this.gitOps.getLastStableTag()
+        if (lastStable) {
+          await this.gitOps.rollbackToTag(lastStable)
+        }
+      } catch {
+        // Rollback failure is non-fatal
+      }
+    }
 
     return attempt
   }

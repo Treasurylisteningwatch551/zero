@@ -1,3 +1,5 @@
 export { HeartbeatWriter, HeartbeatChecker } from './heartbeat'
+export type { HealthStatus, HealthMetrics, HeartbeatData, HeartbeatCheckResult } from './heartbeat'
 export { RepairEngine } from './repair'
 export type { RepairStatus, RepairAttempt } from './repair'
+export { GitOps } from './git-ops'

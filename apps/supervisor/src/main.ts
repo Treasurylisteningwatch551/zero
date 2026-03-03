@@ -17,8 +17,11 @@ setInterval(async () => {
   const result = checker.check()
 
   if (result.alive) {
+    const healthInfo = result.health
+      ? ` | health: ${result.health.status}, mem: ${result.health.memoryUsageMB}MB, errors: ${result.health.errorCount}`
+      : ''
     console.log(
-      `[Supervisor] Main process alive (PID: ${result.pid}, last beat: ${result.elapsedMs}ms ago)`
+      `[Supervisor] Main process alive (PID: ${result.pid}, last beat: ${result.elapsedMs}ms ago${healthInfo})`
     )
   } else {
     console.warn('[Supervisor] Main process appears dead!')

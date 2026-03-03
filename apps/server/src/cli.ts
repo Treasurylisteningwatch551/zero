@@ -84,12 +84,42 @@ async function start() {
   const web = startWebServer(zero)
   console.log(`[ZeRo OS] Web UI: http://localhost:${web.port}`)
 
-  // Keep process alive
-  process.on('SIGINT', () => {
+  // Graceful shutdown
+  let shuttingDown = false
+  const shutdown = async () => {
+    if (shuttingDown) return
+    shuttingDown = true
+
     console.log('\n[ZeRo OS] Shutting down...')
+
+    // 1. Stop scheduler
+    zero.scheduler.stop()
+    console.log('[ZeRo OS] Scheduler stopped')
+
+    // 2. Stop heartbeat writer
+    zero.heartbeat.stop()
+    console.log('[ZeRo OS] Heartbeat stopped')
+
+    // 3. Close channels
+    for (const [name, ch] of zero.channels) {
+      try {
+        await ch.stop()
+      } catch {
+        // Channel may already be stopped
+      }
+    }
+    console.log('[ZeRo OS] Channels closed')
+
+    // 4. Close metrics DB
     zero.metrics.close()
+    console.log('[ZeRo OS] Metrics DB closed')
+
+    console.log('[ZeRo OS] Shutdown complete.')
     process.exit(0)
-  })
+  }
+
+  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', shutdown)
 }
 
 async function secret() {

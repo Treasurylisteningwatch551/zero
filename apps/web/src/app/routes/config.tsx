@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Eye, EyeSlash, Plus, Trash } from '@phosphor-icons/react'
 import { Skeleton, SkeletonCard } from '../components/shared/Skeleton'
-import { apiFetch } from '../lib/api'
+import { ConfirmDialog } from '../components/shared/ConfirmDialog'
+import { apiFetch, apiPost } from '../lib/api'
+import { useUIStore } from '../stores/ui'
 
 interface ConfigData {
   providers: Record<string, {
@@ -48,15 +50,84 @@ export function ConfigPage() {
   const [tab, setTab] = useState<Tab>('models')
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set())
 
-  useEffect(() => {
+  // Secrets add form state
+  const [showAddSecret, setShowAddSecret] = useState(false)
+  const [newSecretKey, setNewSecretKey] = useState('')
+  const [newSecretValue, setNewSecretValue] = useState('')
+  const [secretSaving, setSecretSaving] = useState(false)
+
+  // Rollback state
+  const [lastStableTag, setLastStableTag] = useState<string | null>(null)
+  const [rollbackLoading, setRollbackLoading] = useState(false)
+  const [rollbackResult, setRollbackResult] = useState<string | null>(null)
+
+  // Confirm dialogs
+  const [deleteSecretKey, setDeleteSecretKey] = useState<string | null>(null)
+  const [showRollbackConfirm, setShowRollbackConfirm] = useState(false)
+  const { addToast } = useUIStore()
+
+  function loadConfig() {
     const p1 = apiFetch<ConfigData>('/api/config')
       .then(setConfig)
       .catch(() => {})
     const p2 = apiFetch<{ channels: ChannelConfig[] }>('/api/channels/config')
       .then((res) => setChannels(res.channels))
       .catch(() => {})
-    Promise.all([p1, p2]).finally(() => setLoading(false))
+    return Promise.all([p1, p2])
+  }
+
+  useEffect(() => {
+    loadConfig().finally(() => setLoading(false))
+    apiFetch<{ tag: string | null }>('/api/config/last-stable-tag')
+      .then((res) => setLastStableTag(res.tag))
+      .catch(() => {})
   }, [])
+
+  async function handleAddSecret() {
+    if (!newSecretKey.trim() || !newSecretValue.trim()) return
+    setSecretSaving(true)
+    try {
+      await apiPost('/api/config/secrets', { key: newSecretKey.trim(), value: newSecretValue.trim() })
+      setNewSecretKey('')
+      setNewSecretValue('')
+      setShowAddSecret(false)
+      await loadConfig()
+    } catch {
+      // Silently handle — the form stays open so the user can retry
+    } finally {
+      setSecretSaving(false)
+    }
+  }
+
+  async function handleDeleteSecret(key: string) {
+    try {
+      await apiPost('/api/config/secrets/delete', { key })
+      setConfig((prev) => {
+        if (!prev) return prev
+        return { ...prev, secrets: prev.secrets?.filter((s) => s.key !== key) }
+      })
+      addToast('success', `Secret "${key}" 已删除`)
+      setDeleteSecretKey(null)
+    } catch {
+      // Error toast handled by api layer
+    }
+  }
+
+  async function handleRollback() {
+    if (!lastStableTag) return
+    setRollbackLoading(true)
+    setRollbackResult(null)
+    try {
+      const res = await apiPost<{ ok: boolean; rolledBackTo: string }>('/api/config/rollback', {})
+      setRollbackResult(`Rolled back to ${res.rolledBackTo}`)
+      addToast('success', `已回滚至 ${res.rolledBackTo}`)
+    } catch {
+      setRollbackResult('Rollback failed')
+    } finally {
+      setRollbackLoading(false)
+      setShowRollbackConfirm(false)
+    }
+  }
 
   function toggleReveal(key: string) {
     setRevealedKeys((prev) => {
@@ -217,11 +288,45 @@ export function ConfigPage() {
             <div className="card p-5 animate-fade-up">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-[14px] font-semibold text-[var(--color-text-secondary)]">Secrets</h3>
-                <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-border-hover)] transition-colors">
+                <button
+                  onClick={() => setShowAddSecret((v) => !v)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-border-hover)] transition-colors"
+                >
                   <Plus size={14} />
                   Add Secret
                 </button>
               </div>
+              {showAddSecret && (
+                <div className="flex items-center gap-2 mb-3 p-3 rounded-lg border border-[var(--color-border)] bg-white/[0.02]">
+                  <input
+                    type="text"
+                    placeholder="Key"
+                    value={newSecretKey}
+                    onChange={(e) => setNewSecretKey(e.target.value)}
+                    className="flex-1 px-2 py-1.5 rounded-md text-[12px] bg-[var(--color-bg-secondary)] border border-[var(--color-border)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-disabled)] focus:outline-none focus:border-[var(--color-accent)]"
+                  />
+                  <input
+                    type="password"
+                    placeholder="Value"
+                    value={newSecretValue}
+                    onChange={(e) => setNewSecretValue(e.target.value)}
+                    className="flex-1 px-2 py-1.5 rounded-md text-[12px] bg-[var(--color-bg-secondary)] border border-[var(--color-border)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-disabled)] focus:outline-none focus:border-[var(--color-accent)]"
+                  />
+                  <button
+                    onClick={handleAddSecret}
+                    disabled={secretSaving || !newSecretKey.trim() || !newSecretValue.trim()}
+                    className="px-3 py-1.5 rounded-md text-[12px] bg-[var(--color-accent)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
+                  >
+                    {secretSaving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={() => { setShowAddSecret(false); setNewSecretKey(''); setNewSecretValue('') }}
+                    className="px-2 py-1.5 rounded-md text-[12px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
               {config?.secrets && config.secrets.length > 0 ? (
                 <div className="space-y-2">
                   {config.secrets.map((s) => (
@@ -240,7 +345,10 @@ export function ConfigPage() {
                         >
                           {revealedKeys.has(s.key) ? <EyeSlash size={14} /> : <Eye size={14} />}
                         </button>
-                        <button className="p-1.5 rounded-md hover:bg-red-400/10 text-[var(--color-text-muted)] hover:text-red-400">
+                        <button
+                          onClick={() => setDeleteSecretKey(s.key)}
+                          className="p-1.5 rounded-md hover:bg-red-400/10 text-[var(--color-text-muted)] hover:text-red-400"
+                        >
                           <Trash size={14} />
                         </button>
                       </div>
@@ -356,15 +464,59 @@ export function ConfigPage() {
                 </div>
                 <div className="flex items-center justify-between py-2">
                   <span className="text-[13px] text-[var(--color-text-muted)]">Rollback</span>
-                  <span className="text-[11px] px-2 py-0.5 rounded-md bg-white/[0.05] text-[var(--color-text-disabled)]">
-                    Coming soon
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {lastStableTag ? (
+                      <>
+                        <span className="text-[11px] font-mono text-[var(--color-text-disabled)]">{lastStableTag}</span>
+                        <button
+                          onClick={() => setShowRollbackConfirm(true)}
+                          disabled={rollbackLoading}
+                          className="text-[11px] px-2 py-0.5 rounded-md bg-red-400/10 text-red-400 hover:bg-red-400/20 transition-colors disabled:opacity-40"
+                        >
+                          {rollbackLoading ? 'Rolling back...' : 'Rollback'}
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-[11px] px-2 py-0.5 rounded-md bg-white/[0.05] text-[var(--color-text-disabled)]">
+                        No stable tag
+                      </span>
+                    )}
+                    {rollbackResult && (
+                      <span className={`text-[11px] px-2 py-0.5 rounded-md ${
+                        rollbackResult.startsWith('Rolled back')
+                          ? 'bg-emerald-400/10 text-emerald-400'
+                          : 'bg-red-400/10 text-red-400'
+                      }`}>
+                        {rollbackResult}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
           )}
         </>
       )}
+
+      <ConfirmDialog
+        open={deleteSecretKey !== null}
+        title={`删除 Secret "${deleteSecretKey}"？`}
+        description="删除后该密钥将从 Vault 中永久移除，关联的 Channel 可能无法正常工作。"
+        confirmText="删除"
+        danger
+        onConfirm={() => { if (deleteSecretKey) handleDeleteSecret(deleteSecretKey) }}
+        onCancel={() => setDeleteSecretKey(null)}
+      />
+
+      <ConfirmDialog
+        open={showRollbackConfirm}
+        title={`回滚至 ${lastStableTag}？`}
+        description="此操作将重置工作目录到上一个稳定标签的状态，当前未提交的更改可能丢失。"
+        confirmText="确认回滚"
+        danger
+        onConfirm={handleRollback}
+        onCancel={() => setShowRollbackConfirm(false)}
+      />
     </div>
   )
 }

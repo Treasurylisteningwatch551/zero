@@ -417,7 +417,7 @@ const sessions = await client.api.sessions.$get()
 | Markdown 编辑 | CodeMirror 6 | Memo 页面 + Memory 编辑模式 |
 | Markdown 渲染 | `react-markdown` + `remark-gfm` | Memory 详情面板的内容渲染 |
 | 字体 | Geist + Geist Mono | UI/UX 文档指定 |
-| 图标 | Lucide React | 线条风格，和 Calm Futurism 调性匹配 |
+| 图标 | Phosphor Icons (`@phosphor-icons/react`) | 线条风格，和 Calm Futurism 调性匹配 |
 | 虚拟列表 | TanStack Virtual | Memory 列表、Logs 表格的大量数据渲染 |
 
 ### 前端目录结构
@@ -475,6 +475,7 @@ apps/web/src/app/
 │   ├── memory.tsx
 │   ├── memo.tsx
 │   ├── logs.tsx
+│   ├── tools.tsx
 │   ├── config.tsx
 │   └── metrics.tsx
 ├── stores/
@@ -1172,7 +1173,7 @@ zustand                    # 状态管理
 @tanstack/react-virtual    # 虚拟列表
 react-markdown             # Markdown 渲染
 remark-gfm
-lucide-react               # 图标
+@phosphor-icons/react      # 图标
 
 # 网页内容提取（Fetch 工具）
 @mozilla/readability       # HTML 正文提取

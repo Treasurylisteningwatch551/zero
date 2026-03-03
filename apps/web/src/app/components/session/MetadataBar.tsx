@@ -1,6 +1,9 @@
+import { useState } from 'react'
 import { Archive, Clock, CurrencyDollar } from '@phosphor-icons/react'
 import { formatModelHistory, formatTimeRange, formatNumber, formatCost } from '../../lib/format'
 import { apiPost } from '../../lib/api'
+import { useUIStore } from '../../stores/ui'
+import { ConfirmDialog } from '../shared/ConfirmDialog'
 
 interface ModelHistoryEntry {
   model: string
@@ -37,9 +40,13 @@ export function MetadataBar({
   totalCost,
   onArchived,
 }: Props) {
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false)
+  const { addToast } = useUIStore()
+
   async function handleArchive() {
-    if (!confirm('Archive this session?')) return
     await apiPost(`/api/sessions/${sessionId}/archive`, {})
+    addToast('success', 'Session 已归档')
+    setShowArchiveConfirm(false)
     onArchived?.()
   }
 
@@ -60,7 +67,7 @@ export function MetadataBar({
           </p>
         </div>
         <button
-          onClick={handleArchive}
+          onClick={() => setShowArchiveConfirm(true)}
           className="px-3 py-1.5 rounded-md text-[11px] text-[var(--color-text-muted)] border border-[var(--color-border)] hover:text-red-400 hover:border-red-400/30 transition-colors flex items-center gap-1.5"
         >
           <Archive size={14} />
@@ -86,6 +93,16 @@ export function MetadataBar({
           {formatCost(totalCost)}
         </span>
       </div>
+
+      <ConfirmDialog
+        open={showArchiveConfirm}
+        title="归档此 Session？"
+        description="归档后 Session 将从活跃列表中移除，历史数据仍可查看。"
+        confirmText="归档"
+        danger
+        onConfirm={handleArchive}
+        onCancel={() => setShowArchiveConfirm(false)}
+      />
     </div>
   )
 }

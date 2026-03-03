@@ -1,13 +1,22 @@
 import { hc } from 'hono/client'
 import type { AppType } from '../../api/routes'
+import { useUIStore } from '../stores/ui'
 
 export const client = hc<AppType>('/')
 
 const API_BASE = ''
 
+function showErrorToast(message: string) {
+  useUIStore.getState().addToast('error', message)
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init)
-  if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`)
+  if (!res.ok) {
+    const message = `请求失败: ${res.status} ${res.statusText}`
+    showErrorToast(message)
+    throw new Error(message)
+  }
   return res.json() as Promise<T>
 }
 
@@ -26,3 +35,5 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   })
 }
+
+export { useUIStore } from '../stores/ui'

@@ -3,6 +3,7 @@ import { Sidebar } from './components/layout/Sidebar'
 import { ChatDrawer } from './components/layout/ChatDrawer'
 import { TabBar } from './components/layout/TabBar'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
+import { ToastContainer } from './components/shared/Toast'
 import { useUIStore } from './stores/ui'
 
 export function RootLayout() {
@@ -35,6 +36,9 @@ export function RootLayout() {
 
       {/* Mobile bottom tab bar */}
       {isMobile && <TabBar />}
+
+      {/* Toast notifications */}
+      <ToastContainer />
     </>
   )
 }

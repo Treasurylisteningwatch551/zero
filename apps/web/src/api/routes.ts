@@ -3,6 +3,7 @@ import { cors } from 'hono/cors'
 import type { ZeroOS } from '../../../server/src/main'
 import { MemoryRetriever } from '@zero-os/memory'
 import type { MemoryType } from '@zero-os/shared'
+import { GitOps } from '@zero-os/supervisor'
 
 export function createRoutes(zero: ZeroOS) {
   const retriever = new MemoryRetriever(zero.memoryStore)
@@ -404,6 +405,43 @@ export function createRoutes(zero: ZeroOS) {
         parameters: t.parameters,
       }))
       return c.json({ tools })
+    })
+
+    // Secrets management
+    .post('/api/config/secrets', async (c) => {
+      const body = await c.req.json<{ key: string; value: string }>()
+      if (!body.key || !body.value) {
+        return c.json({ error: 'key and value are required' }, 400)
+      }
+      zero.vault.set(body.key, body.value)
+      return c.json({ ok: true, key: body.key })
+    })
+
+    .post('/api/config/secrets/delete', async (c) => {
+      const body = await c.req.json<{ key: string }>()
+      if (!body.key) {
+        return c.json({ error: 'key is required' }, 400)
+      }
+      zero.vault.delete(body.key)
+      return c.json({ ok: true, key: body.key })
+    })
+
+    // Git rollback
+    .post('/api/config/rollback', async (c) => {
+      const gitOps = new GitOps(process.cwd())
+      const lastTag = await gitOps.getLastStableTag()
+      if (!lastTag) {
+        return c.json({ error: 'No stable tag found to rollback to' }, 404)
+      }
+      await gitOps.rollbackToTag(lastTag)
+      return c.json({ ok: true, rolledBackTo: lastTag })
+    })
+
+    // Git last stable tag
+    .get('/api/config/last-stable-tag', async (c) => {
+      const gitOps = new GitOps(process.cwd())
+      const tag = await gitOps.getLastStableTag()
+      return c.json({ tag })
     })
 
   return app

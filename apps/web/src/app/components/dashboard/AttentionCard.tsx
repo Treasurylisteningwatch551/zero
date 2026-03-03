@@ -129,7 +129,7 @@ export function AttentionCard() {
                     onClick={() => handleAction(n)}
                     className="text-[11px] px-2 py-0.5 rounded bg-cyan-400 text-[var(--color-deep-bg)] font-medium hover:bg-cyan-300 transition-colors"
                   >
-                    去处理
+                    处理
                   </button>
                 )}
                 {n.sessionId && !n.actionable && (
@@ -137,7 +137,7 @@ export function AttentionCard() {
                     className="text-[11px] text-[var(--color-accent)] cursor-pointer hover:underline"
                     onClick={() => handleAction(n)}
                   >
-                    查看详情
+                    详情
                   </span>
                 )}
                 {n.id && (
