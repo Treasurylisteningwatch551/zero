@@ -38,7 +38,11 @@ export class BashTool extends BaseTool {
       cwd: ctx.workDir,
       stdout: 'pipe',
       stderr: 'pipe',
-      env: { ...process.env },
+      env: {
+        ...process.env,
+        ZERO_WORKSPACE: ctx.workDir,
+        ZERO_PROJECT_ROOT: ctx.projectRoot ?? process.cwd(),
+      },
     })
 
     const timeoutId = setTimeout(() => {
@@ -63,7 +67,7 @@ export class BashTool extends BaseTool {
 
     return {
       success: true,
-      output,
+      output: output || '(no output)',
       outputSummary: `Executed: ${command.slice(0, 80)}`,
     }
   }
