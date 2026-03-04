@@ -83,20 +83,26 @@ export class FeishuChannel implements Channel {
               // parsePostContent collects image_keys as { mediaType: '__pending__', data: image_key }
               const pendingImages: ImageAttachment[] = []
               content = this.parsePostContent(parsed, pendingImages)
-              // Download pending images in parallel
-              if (this.client) {
+              // Download pending images via messageResource API (post images need message_id)
+              if (this.client && messageId) {
                 const downloads = pendingImages
                   .filter(p => p.mediaType === '__pending__')
                   .map(async (p) => {
                     try {
-                      const imgResp = await this.client!.im.image.get({
-                        path: { image_key: p.data },
-                        params: { image_type: 'message' },
+                      const resp = await this.client!.im.messageResource.get({
+                        path: { message_id: messageId, file_key: p.data },
+                        params: { type: 'image' },
                       })
-                      const buf = Buffer.from(imgResp as ArrayBuffer)
+                      const stream = resp.getReadableStream()
+                      const chunks: Buffer[] = []
+                      for await (const chunk of stream) {
+                        chunks.push(Buffer.from(chunk))
+                      }
+                      const buf = Buffer.concat(chunks)
                       images.push({ mediaType: 'image/png', data: buf.toString('base64') })
-                    } catch (imgErr) {
-                      console.error('[FeishuChannel] Failed to download image:', p.data, imgErr)
+                    } catch (imgErr: any) {
+                      console.error('[FeishuChannel] Failed to download image:', p.data,
+                        `HTTP ${imgErr?.response?.status ?? '?'}:`, imgErr?.message ?? imgErr)
                     }
                   })
                 await Promise.all(downloads)
@@ -118,8 +124,9 @@ export class FeishuChannel implements Channel {
                 images.push({ mediaType: 'image/png', data: buf.toString('base64') })
                 content = '[图片]'
               }
-            } catch (imgErr) {
-              console.error('[FeishuChannel] Failed to download image message:', imgErr)
+            } catch (imgErr: any) {
+              console.error('[FeishuChannel] Failed to download image message:',
+                `HTTP ${imgErr?.response?.status ?? '?'}:`, imgErr?.message ?? imgErr)
               content = '[图片]'
             }
           } else {
@@ -181,12 +188,11 @@ export class FeishuChannel implements Channel {
   async send(sessionId: string, content: string): Promise<void> {
     if (!this.client) return
 
-    // Send as interactive card for rich notifications, or text for simple replies
     const isNotification = content.startsWith('[notification]')
     const cleanContent = isNotification ? content.replace('[notification]', '').trim() : content
 
     if (isNotification) {
-      // Send as Feishu interactive card
+      // Send as Feishu interactive card with header
       await this.client.im.message.create({
         data: {
           receive_id: sessionId,
@@ -205,15 +211,27 @@ export class FeishuChannel implements Channel {
         params: { receive_id_type: 'chat_id' },
       })
     } else {
-      // Send as plain text
-      await this.client.im.message.create({
-        data: {
-          receive_id: sessionId,
-          msg_type: 'text',
-          content: JSON.stringify({ text: cleanContent }),
-        },
-        params: { receive_id_type: 'chat_id' },
-      })
+      // Send as interactive markdown, fallback to text
+      try {
+        await this.client.im.message.create({
+          data: {
+            receive_id: sessionId,
+            msg_type: 'interactive',
+            content: this.buildMarkdownCard(cleanContent),
+          },
+          params: { receive_id_type: 'chat_id' },
+        })
+      } catch (interactiveErr) {
+        console.warn('[FeishuChannel] interactive send failed, fallback to text:', interactiveErr)
+        await this.client.im.message.create({
+          data: {
+            receive_id: sessionId,
+            msg_type: 'text',
+            content: JSON.stringify({ text: cleanContent }),
+          },
+          params: { receive_id_type: 'chat_id' },
+        })
+      }
     }
   }
 
@@ -230,12 +248,35 @@ export class FeishuChannel implements Channel {
    */
   async reply(messageId: string, content: string): Promise<void> {
     if (!this.client) return
-    await this.client.im.message.reply({
-      path: { message_id: messageId },
-      data: {
-        content: JSON.stringify({ text: content }),
-        msg_type: 'text',
-      },
+    try {
+      await this.client.im.message.reply({
+        path: { message_id: messageId },
+        data: {
+          content: this.buildMarkdownCard(content),
+          msg_type: 'interactive',
+        },
+      })
+    } catch (interactiveErr) {
+      console.warn('[FeishuChannel] interactive reply failed, fallback to text:', interactiveErr)
+      try {
+        await this.client.im.message.reply({
+          path: { message_id: messageId },
+          data: {
+            content: JSON.stringify({ text: content }),
+            msg_type: 'text',
+          },
+        })
+      } catch (textErr) {
+        console.error('[FeishuChannel] text reply fallback failed:', textErr)
+        throw textErr
+      }
+    }
+  }
+
+  /** Build interactive card JSON with markdown content. */
+  private buildMarkdownCard(content: string): string {
+    return JSON.stringify({
+      elements: [{ tag: 'markdown', content }],
     })
   }
 
