@@ -196,8 +196,16 @@ export class Session {
       return await this.processMessage(content, options)
     } finally {
       this.mutex.release(lockId)
-      // Persist messages after processing completes
+      // Persist messages and system prompt after processing completes
       this.deps.sessionDb?.saveMessages(this.data.id, this.messages)
+      if (this.lastSystemPrompt) {
+        const agentConfig = this.lastAgentConfig
+        this.deps.sessionDb?.saveSession(
+          this.data,
+          agentConfig ? JSON.stringify(agentConfig) : undefined,
+          this.lastSystemPrompt
+        )
+      }
     }
   }
 
@@ -419,7 +427,8 @@ export class Session {
     messages: Message[],
     modelRouter: ModelRouter,
     toolRegistry: ToolRegistry,
-    deps: SessionDeps = {}
+    deps: SessionDeps = {},
+    systemPrompt?: string
   ): Session {
     const session = Object.create(Session.prototype) as Session
     ;(session as any).data = data
@@ -432,7 +441,7 @@ export class Session {
     ;(session as any).messageQueue = []
     ;(session as any).agent = null
     ;(session as any).lastAgentConfig = null
-    ;(session as any).lastSystemPrompt = ''
+    ;(session as any).lastSystemPrompt = systemPrompt ?? ''
     return session
   }
 

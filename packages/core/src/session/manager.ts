@@ -116,7 +116,7 @@ export class SessionManager {
       }
 
       const messages = this.sessionDb.loadSessionMessages(row.id)
-      const session = Session.restore(data, messages, this.modelRouter, this.toolRegistry, this.deps)
+      const session = Session.restore(data, messages, this.modelRouter, this.toolRegistry, this.deps, row.systemPrompt)
 
       // Re-initialize agent if config was saved
       if (row.agentConfigJson) {
