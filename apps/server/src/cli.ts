@@ -110,7 +110,15 @@ async function start() {
     }
     console.log('[ZeRo OS] Channels closed')
 
-    // 4. Close metrics DB
+    // 4. Flush all session state to DB
+    zero.sessionManager.flushAll()
+    console.log('[ZeRo OS] Sessions flushed to DB')
+
+    // 5. Close session DB
+    zero.sessionDb.close()
+    console.log('[ZeRo OS] Session DB closed')
+
+    // 6. Close metrics DB
     zero.metrics.close()
     console.log('[ZeRo OS] Metrics DB closed')
 

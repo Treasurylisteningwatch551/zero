@@ -110,6 +110,131 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
     })
   })
 
+  test('buildInput: empty tool_result output falls back to outputSummary', () => {
+    const toolCallId = `call_${generateId()}`
+    const messages: Message[] = [
+      makeMessage('user', 'Run command'),
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'assistant',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_use',
+            id: toolCallId,
+            name: 'bash',
+            input: { command: 'find . -name AGENTS.md' },
+          },
+        ],
+        createdAt: now(),
+      },
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'user',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_result',
+            toolUseId: toolCallId,
+            content: '',
+            outputSummary: 'Executed: find . -name AGENTS.md',
+          },
+        ],
+        createdAt: now(),
+      },
+    ]
+
+    const input = (adapter as any).buildInput({ messages, stream: false } as CompletionRequest)
+
+    expect(input[2]).toEqual({
+      type: 'function_call_output',
+      call_id: toolCallId,
+      output: 'Executed: find . -name AGENTS.md',
+    })
+  })
+
+  test('buildInput: only paired tool_use and tool_result are serialized', () => {
+    const pairedId = `call_${generateId()}`
+    const danglingToolUseId = `call_${generateId()}`
+    const orphanToolResultId = `call_${generateId()}`
+
+    const messages: Message[] = [
+      makeMessage('user', 'Start'),
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'assistant',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_use',
+            id: pairedId,
+            name: 'read',
+            input: { path: '/tmp/a.txt' },
+          },
+        ],
+        createdAt: now(),
+      },
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'user',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_result',
+            toolUseId: pairedId,
+            content: 'ok',
+          },
+        ],
+        createdAt: now(),
+      },
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'assistant',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_use',
+            id: danglingToolUseId,
+            name: 'bash',
+            input: { command: 'echo hi' },
+          },
+        ],
+        createdAt: now(),
+      },
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'user',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_result',
+            toolUseId: orphanToolResultId,
+            content: 'orphan-result',
+          },
+        ],
+        createdAt: now(),
+      },
+      makeMessage('user', 'Continue'),
+    ]
+
+    const input = (adapter as any).buildInput({ messages, stream: false } as CompletionRequest)
+    const functionCalls = input.filter((i: any) => i.type === 'function_call')
+    const functionCallOutputs = input.filter((i: any) => i.type === 'function_call_output')
+
+    expect(functionCalls.length).toBe(1)
+    expect(functionCalls[0].call_id).toBe(pairedId)
+
+    expect(functionCallOutputs.length).toBe(1)
+    expect(functionCallOutputs[0].call_id).toBe(pairedId)
+    expect(functionCallOutputs[0].output).toBe('ok')
+  })
+
   test('convertTools: maps to function type with parameters', () => {
     const tools = [
       {

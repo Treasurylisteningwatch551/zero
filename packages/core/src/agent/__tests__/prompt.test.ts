@@ -73,7 +73,7 @@ describe('buildToolRulesBlock', () => {
     expect(result).toContain('<tool_rules>')
     expect(result).toContain('</tool_rules>')
     expect(result).toContain('Read：优先使用 Read 查看文件内容')
-    expect(result).toContain('Bash：命令执行前检查是否命中熔断名单')
+    expect(result).toContain('Bash：命令在工作目录中执行')
     // Should not contain rules for tools not in the list
     expect(result).not.toContain('Write：')
     expect(result).not.toContain('Edit：')

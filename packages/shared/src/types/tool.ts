@@ -26,10 +26,18 @@ export interface ObservabilityHandle {
 export interface ToolContext {
   sessionId: string
   workDir: string
+  projectRoot?: string
   logger: ToolLogger
   secretFilter?: SecretFilter
   observability?: ObservabilityHandle
   secretResolver?: (ref: string) => string | undefined
+  memoryStore?: {
+    create(type: string, title: string, content: string, options?: Record<string, unknown>): { id: string; type: string; title: string }
+    update(type: string, id: string, updates: Record<string, unknown>): { id: string } | undefined
+    delete(type: string, id: string): boolean
+    list(type: string): Array<{ id: string; type: string; title: string; content: string; tags: string[]; status: string }>
+    get(type: string, id: string): { id: string; type: string; title: string; content: string } | undefined
+  }
 }
 
 export interface ToolLogger {
