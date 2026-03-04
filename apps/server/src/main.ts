@@ -296,13 +296,16 @@ export async function startZeroOS(): Promise<ZeroOS> {
         // Progressive messaging: send each assistant text to IM as it arrives
         let firstReply = true
         let lastSentMsgId: string | null = null
+        let lastProgressText: string | null = null
 
         const replies = await session.handleMessage(msg.content, {
           images: msg.images,
           onProgress: (newMsg) => {
             const text = extractAssistantText(newMsg)
             if (!text) return
+            if (lastProgressText === text) return
 
+            lastProgressText = text
             lastSentMsgId = newMsg.id
 
             if (firstReply && messageId) {

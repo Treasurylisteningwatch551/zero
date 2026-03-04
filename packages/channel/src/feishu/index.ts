@@ -9,6 +9,11 @@ export interface FeishuChannelConfig {
   verificationToken?: string
 }
 
+interface FeishuCardOptions {
+  title?: string
+  template?: string
+}
+
 /**
  * Feishu (Lark) channel — sends and receives messages via Feishu bot.
  */
@@ -23,6 +28,8 @@ export class FeishuChannel implements Channel {
   private connected = false
   private config: FeishuChannelConfig
   private processedMessageIds: Set<string> = new Set()
+  private static readonly MAX_TEXT_MESSAGE_BYTES = 150 * 1024
+  private static readonly MAX_RICH_MESSAGE_BYTES = 30 * 1024
 
   constructor(config: FeishuChannelConfig) {
     this.config = config
@@ -192,48 +199,14 @@ export class FeishuChannel implements Channel {
     const rendered = renderMarkdownForFeishu(content)
     const isNotification = content.startsWith('[notification]')
     const cleanContent = isNotification ? rendered.replace('[notification]', '').trim() : rendered
+    const options = isNotification
+      ? { title: 'ZeRo OS Notification', template: 'orange' }
+      : undefined
+    const chunks = this.chunkRichContent(cleanContent, options)
 
-    if (isNotification) {
-      // Send as Feishu interactive card with header
-      await this.client.im.message.create({
-        data: {
-          receive_id: sessionId,
-          msg_type: 'interactive',
-          content: JSON.stringify({
-            config: { wide_screen_mode: true },
-            header: {
-              title: { tag: 'plain_text', content: 'ZeRo OS Notification' },
-              template: 'orange',
-            },
-            elements: [
-              { tag: 'markdown', content: cleanContent },
-            ],
-          }),
-        },
-        params: { receive_id_type: 'chat_id' },
-      })
-    } else {
-      // Send as interactive markdown, fallback to text
-      try {
-        await this.client.im.message.create({
-          data: {
-            receive_id: sessionId,
-            msg_type: 'interactive',
-            content: this.buildMarkdownCard(cleanContent),
-          },
-          params: { receive_id_type: 'chat_id' },
-        })
-      } catch (interactiveErr) {
-        console.warn('[FeishuChannel] interactive send failed, fallback to text:', interactiveErr)
-        await this.client.im.message.create({
-          data: {
-            receive_id: sessionId,
-            msg_type: 'text',
-            content: JSON.stringify({ text: cleanContent }),
-          },
-          params: { receive_id_type: 'chat_id' },
-        })
-      }
+    for (let i = 0; i < chunks.length; i++) {
+      const chunkOptions = i === 0 ? options : undefined
+      await this.sendCreateWithFallback(sessionId, chunks[i], chunkOptions)
     }
   }
 
@@ -251,36 +224,276 @@ export class FeishuChannel implements Channel {
   async reply(messageId: string, content: string): Promise<void> {
     if (!this.client) return
     const rendered = renderMarkdownForFeishu(content)
-    try {
-      await this.client.im.message.reply({
-        path: { message_id: messageId },
+    const chunks = this.chunkRichContent(rendered)
+    for (const chunk of chunks) {
+      await this.sendReplyWithFallback(messageId, chunk)
+    }
+  }
+
+  /** Build JSON 2.0 interactive card payload. */
+  private buildMarkdownCardV2(content: string, options?: FeishuCardOptions): string {
+    const card: Record<string, unknown> = {
+      schema: '2.0',
+      body: {
+        direction: 'vertical',
+        elements: [{ tag: 'markdown', content }],
+      },
+    }
+
+    if (options?.title) {
+      card.header = {
+        title: { tag: 'plain_text', content: options.title },
+        ...(options.template ? { template: options.template } : {}),
+      }
+    }
+
+    return JSON.stringify(card)
+  }
+
+  /** Build post payload with md tag for fallback. */
+  private buildPostContent(content: string, options?: FeishuCardOptions): string {
+    const zhCn: Record<string, unknown> = {
+      content: [[{ tag: 'md', text: content }]],
+    }
+    if (options?.title) {
+      zhCn.title = options.title
+    }
+    return JSON.stringify({ zh_cn: zhCn })
+  }
+
+  /** Build text payload as last fallback. */
+  private buildTextContent(content: string, options?: FeishuCardOptions): string {
+    if (!options?.title) {
+      return JSON.stringify({ text: content })
+    }
+
+    const text = content ? `${options.title}\n\n${content}` : options.title
+    return JSON.stringify({ text })
+  }
+
+  /**
+   * Split message by line with byte-size guard for rich payloads.
+   * This avoids hitting Feishu's 30KB post/interactive limit.
+   */
+  private chunkRichContent(content: string, options?: FeishuCardOptions): string[] {
+    const chunks = this.splitByLinePreserveLimit(
+      content,
+      FeishuChannel.MAX_RICH_MESSAGE_BYTES,
+      (chunk) => this.buildMarkdownCardV2(chunk),
+    )
+
+    if (options?.title && chunks.length > 0) {
+      const firstPayload = this.buildMarkdownCardV2(chunks[0], options)
+      if (this.byteLength(firstPayload) > FeishuChannel.MAX_RICH_MESSAGE_BYTES) {
+        const firstChunks = this.splitByLinePreserveLimit(
+          chunks[0],
+          FeishuChannel.MAX_RICH_MESSAGE_BYTES,
+          (chunk) => this.buildMarkdownCardV2(chunk, options),
+        )
+        chunks.splice(0, 1, ...firstChunks)
+      }
+    }
+
+    return chunks
+  }
+
+  private splitByLinePreserveLimit(
+    content: string,
+    maxBytes: number,
+    payloadBuilder: (chunk: string) => string
+  ): string[] {
+    if (this.byteLength(payloadBuilder(content)) <= maxBytes) {
+      return [content]
+    }
+
+    const lines = content.split('\n')
+    const chunks: string[] = []
+    let current = ''
+
+    for (const line of lines) {
+      const candidate = current ? `${current}\n${line}` : line
+      if (current && this.byteLength(payloadBuilder(candidate)) > maxBytes) {
+        chunks.push(current)
+        current = ''
+      }
+
+      if (this.byteLength(payloadBuilder(line)) <= maxBytes) {
+        current = current ? `${current}\n${line}` : line
+        continue
+      }
+
+      if (current) {
+        chunks.push(current)
+        current = ''
+      }
+
+      let remaining = line
+      while (remaining.length > 0) {
+        const prefix = this.takeLargestPrefix(remaining, maxBytes, payloadBuilder)
+        if (!prefix) {
+          chunks.push(remaining)
+          remaining = ''
+          continue
+        }
+        chunks.push(prefix)
+        remaining = remaining.slice(prefix.length)
+      }
+    }
+
+    if (current) {
+      chunks.push(current)
+    }
+
+    return chunks.length > 0 ? chunks : [content]
+  }
+
+  private takeLargestPrefix(
+    content: string,
+    maxBytes: number,
+    payloadBuilder: (chunk: string) => string
+  ): string {
+    let lo = 1
+    let hi = content.length
+    let best = 0
+
+    while (lo <= hi) {
+      const mid = Math.floor((lo + hi) / 2)
+      const sample = content.slice(0, mid)
+      if (this.byteLength(payloadBuilder(sample)) <= maxBytes) {
+        best = mid
+        lo = mid + 1
+      } else {
+        hi = mid - 1
+      }
+    }
+
+    return best > 0 ? content.slice(0, best) : ''
+  }
+
+  private byteLength(value: string): number {
+    return Buffer.byteLength(value, 'utf8')
+  }
+
+  private async sendCreateWithFallback(
+    sessionId: string,
+    content: string,
+    options?: FeishuCardOptions
+  ): Promise<void> {
+    if (!this.client) return
+
+    const interactiveContent = this.buildMarkdownCardV2(content, options)
+    if (this.byteLength(interactiveContent) <= FeishuChannel.MAX_RICH_MESSAGE_BYTES) {
+      try {
+        await this.client.im.message.create({
+          data: {
+            receive_id: sessionId,
+            msg_type: 'interactive',
+            content: interactiveContent,
+          },
+          params: { receive_id_type: 'chat_id' },
+        })
+        return
+      } catch (interactiveErr) {
+        console.warn('[FeishuChannel] interactive send failed, fallback to post:', interactiveErr)
+      }
+    } else {
+      console.warn('[FeishuChannel] interactive payload exceeds size limit, fallback to post')
+    }
+
+    const postContent = this.buildPostContent(content, options)
+    if (this.byteLength(postContent) <= FeishuChannel.MAX_RICH_MESSAGE_BYTES) {
+      try {
+        await this.client.im.message.create({
+          data: {
+            receive_id: sessionId,
+            msg_type: 'post',
+            content: postContent,
+          },
+          params: { receive_id_type: 'chat_id' },
+        })
+        return
+      } catch (postErr) {
+        console.warn('[FeishuChannel] post send failed, fallback to text:', postErr)
+      }
+    } else {
+      console.warn('[FeishuChannel] post payload exceeds size limit, fallback to text')
+    }
+
+    const textChunks = this.splitByLinePreserveLimit(
+      content,
+      FeishuChannel.MAX_TEXT_MESSAGE_BYTES,
+      (chunk) => this.buildTextContent(chunk, options),
+    )
+    for (let i = 0; i < textChunks.length; i++) {
+      await this.client.im.message.create({
         data: {
-          content: this.buildMarkdownCard(rendered),
-          msg_type: 'interactive',
+          receive_id: sessionId,
+          msg_type: 'text',
+          content: this.buildTextContent(textChunks[i], i === 0 ? options : undefined),
         },
+        params: { receive_id_type: 'chat_id' },
       })
-    } catch (interactiveErr) {
-      console.warn('[FeishuChannel] interactive reply failed, fallback to text:', interactiveErr)
+    }
+  }
+
+  private async sendReplyWithFallback(messageId: string, content: string): Promise<void> {
+    if (!this.client) return
+
+    const interactiveContent = this.buildMarkdownCardV2(content)
+    if (this.byteLength(interactiveContent) <= FeishuChannel.MAX_RICH_MESSAGE_BYTES) {
       try {
         await this.client.im.message.reply({
           path: { message_id: messageId },
           data: {
-            content: JSON.stringify({ text: rendered }),
+            content: interactiveContent,
+            msg_type: 'interactive',
+          },
+        })
+        return
+      } catch (interactiveErr) {
+        console.warn('[FeishuChannel] interactive reply failed, fallback to post:', interactiveErr)
+      }
+    } else {
+      console.warn('[FeishuChannel] interactive reply payload exceeds size limit, fallback to post')
+    }
+
+    const postContent = this.buildPostContent(content)
+    if (this.byteLength(postContent) <= FeishuChannel.MAX_RICH_MESSAGE_BYTES) {
+      try {
+        await this.client.im.message.reply({
+          path: { message_id: messageId },
+          data: {
+            content: postContent,
+            msg_type: 'post',
+          },
+        })
+        return
+      } catch (postErr) {
+        console.warn('[FeishuChannel] post reply failed, fallback to text:', postErr)
+      }
+    } else {
+      console.warn('[FeishuChannel] post reply payload exceeds size limit, fallback to text')
+    }
+
+    try {
+      const textChunks = this.splitByLinePreserveLimit(
+        content,
+        FeishuChannel.MAX_TEXT_MESSAGE_BYTES,
+        (chunk) => this.buildTextContent(chunk),
+      )
+      for (const textChunk of textChunks) {
+        await this.client.im.message.reply({
+          path: { message_id: messageId },
+          data: {
+            content: this.buildTextContent(textChunk),
             msg_type: 'text',
           },
         })
-      } catch (textErr) {
-        console.error('[FeishuChannel] text reply fallback failed:', textErr)
-        throw textErr
       }
+    } catch (textErr) {
+      console.error('[FeishuChannel] text reply fallback failed:', textErr)
+      throw textErr
     }
-  }
-
-  /** Build interactive card JSON with markdown content. */
-  private buildMarkdownCard(content: string): string {
-    return JSON.stringify({
-      elements: [{ tag: 'markdown', content }],
-    })
   }
 
   /**

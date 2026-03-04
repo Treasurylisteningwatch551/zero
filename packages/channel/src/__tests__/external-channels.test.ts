@@ -123,6 +123,60 @@ describe('FeishuChannel contract', () => {
     expect(channel.isConnected()).toBe(false)
   })
 
+  test('send uses interactive JSON 2.0 card first', async () => {
+    const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
+    const calls: any[] = []
+
+    ;(channel as any).client = {
+      im: {
+        message: {
+          create: async (payload: any) => {
+            calls.push(payload)
+          },
+        },
+      },
+    }
+
+    await channel.send('chat-1', 'hello')
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].params).toEqual({ receive_id_type: 'chat_id' })
+    expect(calls[0].data.receive_id).toBe('chat-1')
+    expect(calls[0].data.msg_type).toBe('interactive')
+    expect(JSON.parse(calls[0].data.content)).toEqual({
+      schema: '2.0',
+      body: {
+        direction: 'vertical',
+        elements: [{ tag: 'markdown', content: 'hello' }],
+      },
+    })
+  })
+
+  test('send falls back to text when interactive and post sends fail', async () => {
+    const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
+    const calls: any[] = []
+
+    ;(channel as any).client = {
+      im: {
+        message: {
+          create: async (payload: any) => {
+            calls.push(payload)
+            if (payload?.data?.msg_type === 'interactive' || payload?.data?.msg_type === 'post') {
+              throw new Error('rich failed')
+            }
+          },
+        },
+      },
+    }
+
+    await channel.send('chat-2', 'fallback')
+
+    expect(calls).toHaveLength(3)
+    expect(calls[0].data.msg_type).toBe('interactive')
+    expect(calls[1].data.msg_type).toBe('post')
+    expect(calls[2].data.msg_type).toBe('text')
+  })
+
   test('reply sends interactive markdown first', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
     const calls: any[] = []
@@ -140,20 +194,18 @@ describe('FeishuChannel contract', () => {
     await channel.reply('msg-1', 'hello')
 
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toEqual({
-      path: { message_id: 'msg-1' },
-      data: {
-        content: JSON.stringify({
-          elements: [
-            { tag: 'markdown', content: 'hello' },
-          ],
-        }),
-        msg_type: 'interactive',
+    expect(calls[0].path).toEqual({ message_id: 'msg-1' })
+    expect(calls[0].data.msg_type).toBe('interactive')
+    expect(JSON.parse(calls[0].data.content)).toEqual({
+      schema: '2.0',
+      body: {
+        direction: 'vertical',
+        elements: [{ tag: 'markdown', content: 'hello' }],
       },
     })
   })
 
-  test('reply falls back to text when interactive reply fails', async () => {
+  test('reply falls back to post when interactive reply fails', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
     const calls: any[] = []
 
@@ -177,13 +229,17 @@ describe('FeishuChannel contract', () => {
     expect(calls[1]).toEqual({
       path: { message_id: 'msg-2' },
       data: {
-        content: JSON.stringify({ text: 'fallback' }),
-        msg_type: 'text',
+        content: JSON.stringify({
+          zh_cn: {
+            content: [[{ tag: 'md', text: 'fallback' }]],
+          },
+        }),
+        msg_type: 'post',
       },
     })
   })
 
-  test('reply throws when both interactive and text replies fail', async () => {
+  test('reply falls back to text when interactive and post replies fail', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
     const calls: any[] = []
 
@@ -192,23 +248,48 @@ describe('FeishuChannel contract', () => {
         message: {
           reply: async (payload: any) => {
             calls.push(payload)
-            if (payload?.data?.msg_type === 'interactive') {
+            if (payload?.data?.msg_type === 'interactive' || payload?.data?.msg_type === 'post') {
               throw new Error('interactive failed')
             }
-            throw new Error('text failed')
           },
         },
       },
     }
 
-    await expect(channel.reply('msg-3', 'fail-all')).rejects.toThrow('text failed')
-    expect(calls).toHaveLength(2)
+    await channel.reply('msg-3', 'fail-all')
+    expect(calls).toHaveLength(3)
     expect(calls[0].data.msg_type).toBe('interactive')
-    expect(calls[1].data.msg_type).toBe('text')
+    expect(calls[1].data.msg_type).toBe('post')
+    expect(calls[2].data.msg_type).toBe('text')
+  })
+
+  test('reply throws when interactive, post and text replies all fail', async () => {
+    const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
+    const calls: any[] = []
+
+    ;(channel as any).client = {
+      im: {
+        message: {
+          reply: async (payload: any) => {
+            calls.push(payload)
+            if (payload?.data?.msg_type === 'text') {
+              throw new Error('text failed')
+            }
+            throw new Error('rich failed')
+          },
+        },
+      },
+    }
+
+    await expect(channel.reply('msg-4', 'fail-all')).rejects.toThrow('text failed')
+    expect(calls).toHaveLength(3)
+    expect(calls[0].data.msg_type).toBe('interactive')
+    expect(calls[1].data.msg_type).toBe('post')
+    expect(calls[2].data.msg_type).toBe('text')
   })
 
   test('reply returns early when client is null', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
-    await expect(channel.reply('msg-4', 'no-client')).resolves.toBeUndefined()
+    await expect(channel.reply('msg-5', 'no-client')).resolves.toBeUndefined()
   })
 })
