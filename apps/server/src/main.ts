@@ -363,53 +363,84 @@ export async function startZeroOS(): Promise<ZeroOS> {
     const telegramChannel = new TelegramChannel({ botToken: telegramToken })
     telegramChannel.setMessageHandler(async (msg) => {
       const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
-      const newCommand = parseNewSessionCommand(msg.content)
-      if (newCommand) {
-        const modelResult = newCommand.modelArg
-          ? modelRouter.switchModel(newCommand.modelArg)
-          : undefined
-        const { session } = sessionManager.startNewForChannel('telegram', chatId)
-        session.initAgent({
-          name: 'zero-telegram',
-          systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
-        })
-        const replyText = buildNewSessionReply(session.data.currentModel, modelResult)
-        await telegramChannel.send(chatId, replyText)
-        return
-      }
-
-      const { session, isNew } = sessionManager.getOrCreateForChannel('telegram', chatId)
-      if (isNew) {
-        session.initAgent({
-          name: 'zero-telegram',
-          systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
-        })
-      }
-
-      // Progressive messaging: send each assistant text to IM as it arrives
-      let lastSentMsgId: string | null = null
-
-      const replies = await session.handleMessage(msg.content, {
-        onProgress: (newMsg) => {
-          const text = extractAssistantText(newMsg)
-          if (!text) return
-          lastSentMsgId = newMsg.id
-          telegramChannel.send(chatId, text).catch((err) =>
-            console.error('[ZeRo OS] Telegram progressive send error:', err))
-        },
-      })
-
-      // Fallback: if onProgress sent nothing, use old path
-      if (!lastSentMsgId) {
-        const replyText = replies
-          .filter((m) => m.role === 'assistant')
-          .flatMap((m) => m.content)
-          .filter((b) => b.type === 'text')
-          .map((b) => (b as { type: 'text'; text: string }).text)
-          .join('\n')
-        if (replyText) {
-          await telegramChannel.send(chatId, replyText)
+      const messageId = msg.metadata?.messageId as number | undefined
+      try {
+        const newCommand = parseNewSessionCommand(msg.content)
+        if (newCommand) {
+          const modelResult = newCommand.modelArg
+            ? modelRouter.switchModel(newCommand.modelArg)
+            : undefined
+          const { session } = sessionManager.startNewForChannel('telegram', chatId)
+          session.initAgent({
+            name: 'zero-telegram',
+            systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+          })
+          const replyText = buildNewSessionReply(session.data.currentModel, modelResult)
+          if (messageId) {
+            await telegramChannel.reply(chatId, messageId, replyText)
+          } else {
+            await telegramChannel.send(chatId, replyText)
+          }
+          return
         }
+
+        // Quick ACK to improve UX before long-running processing starts.
+        telegramChannel.sendTyping(chatId).catch(() => {})
+        if (messageId) {
+          telegramChannel.react(chatId, messageId, '👀').catch(() => {})
+        }
+
+        const { session, isNew } = sessionManager.getOrCreateForChannel('telegram', chatId)
+        if (isNew) {
+          session.initAgent({
+            name: 'zero-telegram',
+            systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+          })
+        }
+
+        // Progressive messaging: send each assistant text to IM as it arrives
+        let firstReply = true
+        let lastSentMsgId: string | null = null
+
+        const replies = await session.handleMessage(msg.content, {
+          onProgress: (newMsg) => {
+            const text = extractAssistantText(newMsg)
+            if (!text) return
+            lastSentMsgId = newMsg.id
+            if (firstReply && messageId) {
+              firstReply = false
+              telegramChannel.reply(chatId, messageId, text).catch((err) =>
+                console.error('[ZeRo OS] Telegram progressive send error:', err))
+            } else {
+              telegramChannel.send(chatId, text).catch((err) =>
+                console.error('[ZeRo OS] Telegram progressive send error:', err))
+            }
+          },
+        })
+
+        // Fallback: if onProgress sent nothing, use old path
+        if (!lastSentMsgId) {
+          const replyText = replies
+            .filter((m) => m.role === 'assistant')
+            .flatMap((m) => m.content)
+            .filter((b) => b.type === 'text')
+            .map((b) => (b as { type: 'text'; text: string }).text)
+            .join('\n')
+          if (replyText && messageId) {
+            await telegramChannel.reply(chatId, messageId, replyText)
+          } else if (replyText) {
+            await telegramChannel.send(chatId, replyText)
+          }
+        }
+      } catch (err) {
+        console.error('[ZeRo OS] Telegram message handler error:', err)
+        try {
+          if (messageId) {
+            await telegramChannel.reply(chatId, messageId, 'An error occurred processing your message.')
+          } else {
+            await telegramChannel.send(chatId, 'An error occurred processing your message.')
+          }
+        } catch {}
       }
     })
     await telegramChannel.start()

@@ -23,6 +23,9 @@ export class TelegramChannel implements Channel {
 
   async start(): Promise<void> {
     this.bot = new Telegraf(this.config.botToken)
+    this.bot.catch((err, ctx) => {
+      console.error('[TelegramChannel] Middleware error:', err, 'update_id:', ctx.update?.update_id)
+    })
 
     // Handle text messages
     this.bot.on('text', async (ctx) => {
@@ -42,7 +45,10 @@ export class TelegramChannel implements Channel {
         },
       }
 
-      await this.messageHandler(incoming)
+      // Fire-and-forget so long-running agent work does not block Telegraf update handling.
+      this.messageHandler(incoming).catch((err) => {
+        console.error('[TelegramChannel] Async text handler error:', err)
+      })
     })
 
     // Handle other message types
@@ -61,7 +67,10 @@ export class TelegramChannel implements Channel {
         },
       }
 
-      await this.messageHandler(incoming)
+      // Fire-and-forget so long-running agent work does not block Telegraf update handling.
+      this.messageHandler(incoming).catch((err) => {
+        console.error('[TelegramChannel] Async message handler error:', err)
+      })
     })
 
     // Launch in polling mode (non-blocking)
@@ -87,6 +96,42 @@ export class TelegramChannel implements Channel {
     await this.bot.telegram.sendMessage(chatId, content, {
       parse_mode: 'Markdown',
     })
+  }
+
+  async reply(sessionId: string, messageId: number, content: string): Promise<void> {
+    if (!this.bot) return
+
+    const chatId = Number(sessionId)
+    if (isNaN(chatId)) return
+
+    await this.bot.telegram.sendMessage(chatId, content, {
+      parse_mode: 'Markdown',
+      reply_parameters: {
+        message_id: messageId,
+      },
+    })
+  }
+
+  async sendTyping(sessionId: string): Promise<void> {
+    if (!this.bot) return
+
+    const chatId = Number(sessionId)
+    if (isNaN(chatId)) return
+
+    await this.bot.telegram.sendChatAction(chatId, 'typing')
+  }
+
+  async react(sessionId: string, messageId: number, emoji = '👀'): Promise<void> {
+    if (!this.bot) return
+
+    const chatId = Number(sessionId)
+    if (isNaN(chatId)) return
+
+    await this.bot.telegram.setMessageReaction(
+      chatId,
+      messageId,
+      [{ type: 'emoji', emoji } as any],
+    )
   }
 
   isConnected(): boolean {

@@ -13,6 +13,75 @@ describe('TelegramChannel contract', () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
     expect(channel.isConnected()).toBe(false)
   })
+
+  test('reply sends message with reply_parameters', async () => {
+    const channel = new TelegramChannel({ botToken: 'test-token' })
+    const calls: any[] = []
+
+    ;(channel as any).bot = {
+      telegram: {
+        sendMessage: async (...args: any[]) => {
+          calls.push(args)
+        },
+      },
+    }
+
+    await channel.reply('123', 456, '👀')
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toEqual([
+      123,
+      '👀',
+      {
+        parse_mode: 'Markdown',
+        reply_parameters: {
+          message_id: 456,
+        },
+      },
+    ])
+  })
+
+  test('sendTyping sends typing chat action', async () => {
+    const channel = new TelegramChannel({ botToken: 'test-token' })
+    const calls: any[] = []
+
+    ;(channel as any).bot = {
+      telegram: {
+        sendChatAction: async (...args: any[]) => {
+          calls.push(args)
+          return true
+        },
+      },
+    }
+
+    await channel.sendTyping('123')
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toEqual([123, 'typing'])
+  })
+
+  test('react sends message reaction', async () => {
+    const channel = new TelegramChannel({ botToken: 'test-token' })
+    const calls: any[] = []
+
+    ;(channel as any).bot = {
+      telegram: {
+        setMessageReaction: async (...args: any[]) => {
+          calls.push(args)
+          return true
+        },
+      },
+    }
+
+    await channel.react('123', 456, '👀')
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toEqual([
+      123,
+      456,
+      [{ type: 'emoji', emoji: '👀' }],
+    ])
+  })
 })
 
 describe('FeishuChannel contract', () => {
