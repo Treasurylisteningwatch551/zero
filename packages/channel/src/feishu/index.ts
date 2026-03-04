@@ -1,5 +1,6 @@
 import * as lark from '@larksuiteoapi/node-sdk'
 import type { Channel, IncomingMessage, ImageAttachment, MessageHandler } from '../base'
+import { renderMarkdownForFeishu } from '../richtext/feishu'
 
 export interface FeishuChannelConfig {
   appId: string
@@ -188,8 +189,9 @@ export class FeishuChannel implements Channel {
   async send(sessionId: string, content: string): Promise<void> {
     if (!this.client) return
 
+    const rendered = renderMarkdownForFeishu(content)
     const isNotification = content.startsWith('[notification]')
-    const cleanContent = isNotification ? content.replace('[notification]', '').trim() : content
+    const cleanContent = isNotification ? rendered.replace('[notification]', '').trim() : rendered
 
     if (isNotification) {
       // Send as Feishu interactive card with header
@@ -248,11 +250,12 @@ export class FeishuChannel implements Channel {
    */
   async reply(messageId: string, content: string): Promise<void> {
     if (!this.client) return
+    const rendered = renderMarkdownForFeishu(content)
     try {
       await this.client.im.message.reply({
         path: { message_id: messageId },
         data: {
-          content: this.buildMarkdownCard(content),
+          content: this.buildMarkdownCard(rendered),
           msg_type: 'interactive',
         },
       })
@@ -262,7 +265,7 @@ export class FeishuChannel implements Channel {
         await this.client.im.message.reply({
           path: { message_id: messageId },
           data: {
-            content: JSON.stringify({ text: content }),
+            content: JSON.stringify({ text: rendered }),
             msg_type: 'text',
           },
         })

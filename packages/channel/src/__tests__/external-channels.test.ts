@@ -33,10 +33,37 @@ describe('TelegramChannel contract', () => {
       123,
       '👀',
       {
-        parse_mode: 'Markdown',
+        entities: [],
         reply_parameters: {
           message_id: 456,
         },
+      },
+    ])
+  })
+
+  test('editRich edits existing message with entities', async () => {
+    const channel = new TelegramChannel({ botToken: 'test-token' })
+    const calls: any[] = []
+
+    ;(channel as any).bot = {
+      telegram: {
+        editMessageText: async (...args: any[]) => {
+          calls.push(args)
+          return true
+        },
+      },
+    }
+
+    await channel.editRich('123', 9, '**bold**')
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toEqual([
+      123,
+      9,
+      undefined,
+      'bold',
+      {
+        entities: [{ type: 'bold', offset: 0, length: 4 }],
       },
     ])
   })

@@ -81,7 +81,15 @@ export class Agent {
   /**
    * Run the agent's tool-use loop until completion or max loops reached.
    */
-  async run(context: AgentContext, userMessage: string, userImages?: Array<{ mediaType: string; data: string }>, onNewMessage?: (msg: Message) => void, shouldInterrupt?: () => boolean, getQueuedMessages?: () => QueuedMessage[]): Promise<Message[]> {
+  async run(
+    context: AgentContext,
+    userMessage: string,
+    userImages?: Array<{ mediaType: string; data: string }>,
+    onNewMessage?: (msg: Message) => void,
+    onTextDelta?: (delta: string, meta: { role: 'assistant'; turnId: string }) => void,
+    shouldInterrupt?: () => boolean,
+    getQueuedMessages?: () => QueuedMessage[]
+  ): Promise<Message[]> {
     let continuationCount = 0
     const messages: Message[] = [...prepareConversationHistory(context.conversationHistory)]
     const newMessages: Message[] = []
@@ -123,12 +131,12 @@ export class Agent {
         messages,
         tools: context.tools,
         system,
-        stream: false,
+        stream: true,
         maxTokens: 4096,
       }
 
       const llmStart = Date.now()
-      const response = await this.adapter.complete(request)
+      const response = await this.completeWithStreamFallback(request, onTextDelta)
       const llmDurationMs = Date.now() - llmStart
 
       // Log LLM request to observability
@@ -303,11 +311,11 @@ export class Agent {
         const finalRequest: CompletionRequest = {
           messages,
           system,
-          stream: false,
+          stream: true,
           maxTokens: 4096,
         }
         const finalStart = Date.now()
-        const finalResponse = await this.adapter.complete(finalRequest)
+        const finalResponse = await this.completeWithStreamFallback(finalRequest, onTextDelta)
         const finalDurationMs = Date.now() - finalStart
         this.logLLMRequest(finalResponse, userMessage, finalDurationMs)
 
@@ -336,6 +344,183 @@ export class Agent {
     }
 
     return newMessages
+  }
+
+  private async completeWithStreamFallback(
+    request: CompletionRequest,
+    onTextDelta?: (delta: string, meta: { role: 'assistant'; turnId: string }) => void
+  ): Promise<CompletionResponse> {
+    try {
+      const streamed = await this.completeFromStream(request, onTextDelta)
+      if (streamed.content.length === 0) {
+        throw new Error('stream returned empty content')
+      }
+      return streamed
+    } catch (streamErr) {
+      this.toolContext.logger.warn('llm_stream_fallback_to_complete', {
+        sessionId: this.toolContext.sessionId,
+        error: streamErr instanceof Error ? streamErr.message : String(streamErr),
+      })
+      return await this.adapter.complete({ ...request, stream: false })
+    }
+  }
+
+  private async completeFromStream(
+    request: CompletionRequest,
+    onTextDelta?: (delta: string, meta: { role: 'assistant'; turnId: string }) => void
+  ): Promise<CompletionResponse> {
+    const stream = this.adapter.stream({ ...request, stream: true })
+    const turnId = generatePrefixedId('turn_')
+    const responseId = generatePrefixedId('resp_')
+
+    const textParts: string[] = []
+    const toolCalls = new Map<string, { id: string; name: string; args: string }>()
+
+    let currentToolId: string | null = null
+    let stopReason: CompletionResponse['stopReason'] = 'end_turn'
+    let usage: TokenUsage | undefined
+    let model = request.model ?? 'unknown'
+
+    for await (const event of stream) {
+      if (event.type === 'text_delta') {
+        const data = this.toRecord(event.data)
+        const delta = typeof data.text === 'string' ? data.text : ''
+        if (!delta) continue
+        textParts.push(delta)
+        onTextDelta?.(delta, { role: 'assistant', turnId })
+        continue
+      }
+
+      if (event.type === 'tool_use_start') {
+        const data = this.toRecord(event.data)
+        const id = typeof data.id === 'string' ? data.id : generatePrefixedId('toolu_')
+        const name = typeof data.name === 'string' ? data.name : 'unknown_tool'
+        currentToolId = id
+        toolCalls.set(id, { id, name, args: '' })
+        continue
+      }
+
+      if (event.type === 'tool_use_delta') {
+        const data = this.toRecord(event.data)
+        const chunk = typeof data.arguments === 'string' ? data.arguments : ''
+        if (!chunk) continue
+
+        const explicitId = typeof data.id === 'string' ? data.id : null
+        const targetId = explicitId ?? currentToolId
+
+        if (!targetId) continue
+        if (!toolCalls.has(targetId)) {
+          toolCalls.set(targetId, { id: targetId, name: 'unknown_tool', args: '' })
+        }
+        const existing = toolCalls.get(targetId)
+        if (existing) {
+          existing.args += chunk
+        }
+        continue
+      }
+
+      if (event.type === 'tool_use_end') {
+        const data = this.toRecord(event.data)
+        const endedId = typeof data.id === 'string' ? data.id : currentToolId
+        if (endedId) currentToolId = endedId === currentToolId ? null : currentToolId
+        continue
+      }
+
+      if (event.type === 'done') {
+        const data = this.toRecord(event.data)
+        stopReason = this.mapFinishReason(
+          typeof data.finishReason === 'string' ? data.finishReason : undefined
+        )
+        usage = this.extractUsage(data.usage)
+        if (typeof data.model === 'string') {
+          model = data.model
+        }
+        continue
+      }
+
+      if (event.type === 'error') {
+        const data = this.toRecord(event.data)
+        throw new Error(
+          typeof data.message === 'string'
+            ? data.message
+            : 'Unknown streaming error'
+        )
+      }
+    }
+
+    const content: ContentBlock[] = []
+    if (textParts.length > 0) {
+      content.push({ type: 'text', text: textParts.join('') })
+    }
+
+    for (const tc of toolCalls.values()) {
+      content.push({
+        type: 'tool_use',
+        id: tc.id,
+        name: tc.name,
+        input: this.safeParseToolInput(tc.args),
+      })
+    }
+
+    if (!usage) {
+      usage = { input: 0, output: 0 }
+    }
+
+    if (content.some((b) => b.type === 'tool_use')) {
+      stopReason = 'tool_use'
+    }
+
+    return {
+      id: responseId,
+      content,
+      stopReason,
+      usage,
+      model,
+    }
+  }
+
+  private mapFinishReason(reason?: string): CompletionResponse['stopReason'] {
+    if (!reason) return 'end_turn'
+    if (reason === 'tool_use' || reason === 'tool_calls') return 'tool_use'
+    if (reason === 'max_tokens' || reason === 'length') return 'max_tokens'
+    return 'end_turn'
+  }
+
+  private safeParseToolInput(raw: string): Record<string, unknown> {
+    if (!raw.trim()) return {}
+    try {
+      const parsed = JSON.parse(raw)
+      return parsed && typeof parsed === 'object'
+        ? parsed as Record<string, unknown>
+        : {}
+    } catch {
+      return { _raw: raw }
+    }
+  }
+
+  private extractUsage(value: unknown): TokenUsage | undefined {
+    if (!value || typeof value !== 'object') return undefined
+    const data = value as Record<string, unknown>
+    const input = this.toNumber(data.input) ?? this.toNumber(data.input_tokens)
+    const output = this.toNumber(data.output) ?? this.toNumber(data.output_tokens)
+    if (input === undefined && output === undefined) return undefined
+    return {
+      input: input ?? 0,
+      output: output ?? 0,
+      cacheWrite: this.toNumber(data.cacheWrite) ?? this.toNumber(data.cache_creation_input_tokens),
+      cacheRead: this.toNumber(data.cacheRead) ?? this.toNumber(data.cache_read_input_tokens),
+      reasoning: this.toNumber(data.reasoning) ?? this.toNumber(data.reasoning_tokens),
+    }
+  }
+
+  private toNumber(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+  }
+
+  private toRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object'
+      ? value as Record<string, unknown>
+      : {}
   }
 
   /**

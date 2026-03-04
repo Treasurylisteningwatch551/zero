@@ -209,6 +209,16 @@ export async function startZeroOS(): Promise<ZeroOS> {
       .trim()
   }
 
+  function collectAssistantReply(messages: import('@zero-os/shared').Message[]): string {
+    return messages
+      .filter((m) => m.role === 'assistant')
+      .flatMap((m) => m.content)
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { type: 'text'; text: string }).text)
+      .join('\n')
+      .trim()
+  }
+
   function parseNewSessionCommand(content: string): { modelArg?: string } | null {
     const trimmed = content.trim()
     const match = trimmed.match(/^\/new(?:\s+(.+))?$/i)
@@ -308,12 +318,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
 
         // Fallback: if onProgress sent nothing (e.g. command response), use old path
         if (!lastSentMsgId) {
-          const replyText = replies
-            .filter((m) => m.role === 'assistant')
-            .flatMap((m) => m.content)
-            .filter((b) => b.type === 'text')
-            .map((b) => (b as { type: 'text'; text: string }).text)
-            .join('\n')
+          const replyText = collectAssistantReply(replies)
           if (replyText && messageId) {
             await feishuChannel.reply(messageId, replyText)
           } else if (replyText) {
@@ -377,9 +382,9 @@ export async function startZeroOS(): Promise<ZeroOS> {
           })
           const replyText = buildNewSessionReply(session.data.currentModel, modelResult)
           if (messageId) {
-            await telegramChannel.reply(chatId, messageId, replyText)
+            await telegramChannel.replyRich(chatId, messageId, replyText)
           } else {
-            await telegramChannel.send(chatId, replyText)
+            await telegramChannel.sendRich(chatId, replyText)
           }
           return
         }
@@ -398,47 +403,95 @@ export async function startZeroOS(): Promise<ZeroOS> {
           })
         }
 
-        // Progressive messaging: send each assistant text to IM as it arrives
-        let firstReply = true
-        let lastSentMsgId: string | null = null
+        // Telegram streaming UX: first message + editMessageText at 350ms cadence.
+        let streamText = ''
+        let seenDelta = false
+        let lastTurnId: string | null = null
+        let lastFlushedText = ''
+        let lastFlushAt = 0
+        let flushInFlight = false
+        let flushAgain = false
+        let editedMessageId: number | null = null
+
+        const minIntervalMs = 350
+
+        const flushStreaming = async (force = false): Promise<void> => {
+          if (flushInFlight) {
+            flushAgain = true
+            return
+          }
+          if (!streamText) return
+
+          const nowMs = Date.now()
+          if (!force && nowMs - lastFlushAt < minIntervalMs) return
+          if (!force && streamText === lastFlushedText) return
+
+          flushInFlight = true
+          try {
+            if (!editedMessageId) {
+              const sent = messageId
+                ? await telegramChannel.replyRich(chatId, messageId, streamText)
+                : await telegramChannel.sendRich(chatId, streamText)
+              editedMessageId = sent?.message_id ?? null
+            } else {
+              await telegramChannel.editRich(chatId, editedMessageId, streamText)
+            }
+
+            lastFlushAt = Date.now()
+            lastFlushedText = streamText
+          } finally {
+            flushInFlight = false
+            if (flushAgain) {
+              flushAgain = false
+              // Respect cadence even when more deltas arrived during an in-flight request.
+              await flushStreaming(false)
+            }
+          }
+        }
 
         const replies = await session.handleMessage(msg.content, {
+          onTextDelta: (delta, meta) => {
+            if (!delta) return
+            seenDelta = true
+            if (lastTurnId && lastTurnId !== meta.turnId && streamText) {
+              streamText += '\n'
+            }
+            lastTurnId = meta.turnId
+            streamText += delta
+            telegramChannel.sendTyping(chatId).catch(() => {})
+            flushStreaming(false).catch((err) =>
+              console.error('[ZeRo OS] Telegram streaming flush error:', err))
+          },
           onProgress: (newMsg) => {
             const text = extractAssistantText(newMsg)
             if (!text) return
-            lastSentMsgId = newMsg.id
-            if (firstReply && messageId) {
-              firstReply = false
-              telegramChannel.reply(chatId, messageId, text).catch((err) =>
-                console.error('[ZeRo OS] Telegram progressive send error:', err))
-            } else {
-              telegramChannel.send(chatId, text).catch((err) =>
-                console.error('[ZeRo OS] Telegram progressive send error:', err))
+            if (!seenDelta) {
+              streamText = streamText ? `${streamText}\n${text}` : text
             }
           },
         })
 
-        // Fallback: if onProgress sent nothing, use old path
-        if (!lastSentMsgId) {
-          const replyText = replies
-            .filter((m) => m.role === 'assistant')
-            .flatMap((m) => m.content)
-            .filter((b) => b.type === 'text')
-            .map((b) => (b as { type: 'text'; text: string }).text)
-            .join('\n')
-          if (replyText && messageId) {
-            await telegramChannel.reply(chatId, messageId, replyText)
-          } else if (replyText) {
-            await telegramChannel.send(chatId, replyText)
+        const finalReply = collectAssistantReply(replies)
+        if (finalReply.length > streamText.length) {
+          streamText = finalReply
+        }
+
+        if (streamText) {
+          await flushStreaming(true)
+        } else if (finalReply) {
+          if (messageId) {
+            await telegramChannel.replyRich(chatId, messageId, finalReply)
+          } else {
+            await telegramChannel.sendRich(chatId, finalReply)
           }
         }
       } catch (err) {
         console.error('[ZeRo OS] Telegram message handler error:', err)
         try {
           if (messageId) {
-            await telegramChannel.reply(chatId, messageId, 'An error occurred processing your message.')
+            await telegramChannel.replyRich(chatId, messageId, 'An error occurred processing your message.')
           } else {
-            await telegramChannel.send(chatId, 'An error occurred processing your message.')
+            await telegramChannel.sendRich(chatId, 'An error occurred processing your message.')
           }
         } catch {}
       }

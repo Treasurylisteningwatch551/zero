@@ -1,8 +1,13 @@
 import { Telegraf } from 'telegraf'
 import type { Channel, IncomingMessage, MessageHandler } from '../base'
+import { chunkTelegramRichText, markdownToTelegramRichText, type TelegramRichText } from '../richtext'
 
 export interface TelegramChannelConfig {
   botToken: string
+}
+
+interface TelegramSentMessage {
+  message_id: number
 }
 
 /**
@@ -64,6 +69,9 @@ export class TelegramChannel implements Channel {
         metadata: {
           chatId: ctx.chat.id,
           messageId: ctx.message.message_id,
+          chatType: ctx.chat.type,
+          username: ctx.from.username,
+          firstName: ctx.from.first_name,
         },
       }
 
@@ -87,36 +95,73 @@ export class TelegramChannel implements Channel {
   }
 
   async send(sessionId: string, content: string): Promise<void> {
-    if (!this.bot) return
-
-    const chatId = Number(sessionId)
-    if (isNaN(chatId)) return
-
-    // Send with Markdown formatting
-    await this.bot.telegram.sendMessage(chatId, content, {
-      parse_mode: 'Markdown',
-    })
+    await this.sendRich(sessionId, content)
   }
 
   async reply(sessionId: string, messageId: number, content: string): Promise<void> {
+    await this.replyRich(sessionId, messageId, content)
+  }
+
+  async sendRich(sessionId: string, content: string): Promise<TelegramSentMessage | null> {
+    if (!this.bot) return null
+
+    const chatId = this.parseChatId(sessionId)
+    if (chatId === null) return null
+
+    const rendered = markdownToTelegramRichText(content)
+    return await this.sendRendered(chatId, rendered)
+  }
+
+  async replyRich(
+    sessionId: string,
+    messageId: number,
+    content: string
+  ): Promise<TelegramSentMessage | null> {
+    if (!this.bot) return null
+
+    const chatId = this.parseChatId(sessionId)
+    if (chatId === null) return null
+
+    const rendered = markdownToTelegramRichText(content)
+    return await this.sendRendered(chatId, rendered, messageId)
+  }
+
+  async editRich(sessionId: string, messageId: number, content: string): Promise<void> {
     if (!this.bot) return
 
-    const chatId = Number(sessionId)
-    if (isNaN(chatId)) return
+    const chatId = this.parseChatId(sessionId)
+    if (chatId === null) return
 
-    await this.bot.telegram.sendMessage(chatId, content, {
-      parse_mode: 'Markdown',
-      reply_parameters: {
-        message_id: messageId,
-      },
-    })
+    const rendered = markdownToTelegramRichText(content)
+    const chunks = chunkTelegramRichText(rendered)
+    if (chunks.length === 0) return
+
+    const first = chunks[0]
+
+    try {
+      await this.bot.telegram.editMessageText(chatId, messageId, undefined, first.text || ' ', {
+        entities: first.entities as any,
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      // Ignore no-op edits during throttled streaming updates.
+      if (!message.includes('message is not modified')) {
+        throw err
+      }
+    }
+
+    for (let i = 1; i < chunks.length; i++) {
+      await this.bot.telegram.sendMessage(chatId, chunks[i].text || ' ', {
+        entities: chunks[i].entities as any,
+      })
+    }
   }
 
   async sendTyping(sessionId: string): Promise<void> {
     if (!this.bot) return
 
-    const chatId = Number(sessionId)
-    if (isNaN(chatId)) return
+    const chatId = this.parseChatId(sessionId)
+    if (chatId === null) return
 
     await this.bot.telegram.sendChatAction(chatId, 'typing')
   }
@@ -124,8 +169,8 @@ export class TelegramChannel implements Channel {
   async react(sessionId: string, messageId: number, emoji = '👀'): Promise<void> {
     if (!this.bot) return
 
-    const chatId = Number(sessionId)
-    if (isNaN(chatId)) return
+    const chatId = this.parseChatId(sessionId)
+    if (chatId === null) return
 
     await this.bot.telegram.setMessageReaction(
       chatId,
@@ -140,5 +185,43 @@ export class TelegramChannel implements Channel {
 
   setMessageHandler(handler: MessageHandler): void {
     this.messageHandler = handler
+  }
+
+  private parseChatId(sessionId: string): number | null {
+    const chatId = Number(sessionId)
+    return Number.isFinite(chatId) ? chatId : null
+  }
+
+  private async sendRendered(
+    chatId: number,
+    rendered: TelegramRichText,
+    replyToMessageId?: number
+  ): Promise<TelegramSentMessage | null> {
+    if (!this.bot) return null
+
+    const chunks = chunkTelegramRichText(rendered)
+    if (chunks.length === 0) return null
+
+    let firstMessage: TelegramSentMessage | null = null
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i]
+      const sent = await this.bot.telegram.sendMessage(chatId, chunk.text || ' ', {
+        entities: chunk.entities as any,
+        ...(i === 0 && replyToMessageId
+          ? {
+              reply_parameters: {
+                message_id: replyToMessageId,
+              },
+            }
+          : {}),
+      })
+
+      if (!firstMessage) {
+        firstMessage = sent as TelegramSentMessage
+      }
+    }
+
+    return firstMessage
   }
 }

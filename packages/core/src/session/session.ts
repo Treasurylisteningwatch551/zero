@@ -51,6 +51,8 @@ export interface SessionDeps {
 export interface HandleMessageOptions {
   /** Called synchronously for every new Message (user, assistant, tool_result). */
   onProgress?: (msg: Message) => void
+  /** Called for every assistant text delta when the model supports streaming. */
+  onTextDelta?: (delta: string, meta: { role: 'assistant'; turnId: string }) => void
   /** Image attachments (base64) to send alongside the text message. */
   images?: Array<{ mediaType: string; data: string }>
 }
@@ -317,7 +319,15 @@ export class Session {
       this.messageQueue.length = 0
       return msgs
     }
-    const newMessages = await this.agent!.run(context, content, options?.images, onNewMessage, shouldInterrupt, getQueuedMessages)
+    const newMessages = await this.agent!.run(
+      context,
+      content,
+      options?.images,
+      onNewMessage,
+      options?.onTextDelta,
+      shouldInterrupt,
+      getQueuedMessages
+    )
 
     // Emit session:update
     this.deps.bus?.emit('session:update', {
