@@ -12,6 +12,7 @@ import { RepairEngine } from '@zero-os/supervisor'
 import { HeartbeatWriter } from '@zero-os/supervisor'
 import { CronScheduler } from '@zero-os/scheduler'
 import { globalBus } from './bus'
+import { createTelegramStreamFlusher, reconcileTelegramFinalText } from './telegram-streaming'
 import type { Channel } from '@zero-os/channel'
 import { WebChannel, FeishuChannel, TelegramChannel } from '@zero-os/channel'
 import type { Notification } from '@zero-os/shared'
@@ -439,47 +440,21 @@ export async function startZeroOS(): Promise<ZeroOS> {
         let streamText = ''
         let seenDelta = false
         let lastTurnId: string | null = null
-        let lastFlushedText = ''
-        let lastFlushAt = 0
-        let flushInFlight = false
-        let flushAgain = false
-        let editedMessageId: number | null = null
 
         const minIntervalMs = 350
-
-        const flushStreaming = async (force = false): Promise<void> => {
-          if (flushInFlight) {
-            flushAgain = true
-            return
-          }
-          if (!streamText) return
-
-          const nowMs = Date.now()
-          if (!force && nowMs - lastFlushAt < minIntervalMs) return
-          if (!force && streamText === lastFlushedText) return
-
-          flushInFlight = true
-          try {
-            if (!editedMessageId) {
-              const sent = messageId
-                ? await telegramChannel.replyRich(chatId, messageId, streamText)
-                : await telegramChannel.sendRich(chatId, streamText)
-              editedMessageId = sent?.message_id ?? null
-            } else {
-              await telegramChannel.editRich(chatId, editedMessageId, streamText)
-            }
-
-            lastFlushAt = Date.now()
-            lastFlushedText = streamText
-          } finally {
-            flushInFlight = false
-            if (flushAgain) {
-              flushAgain = false
-              // Respect cadence even when more deltas arrived during an in-flight request.
-              await flushStreaming(false)
-            }
-          }
-        }
+        const streamFlusher = createTelegramStreamFlusher({
+          minIntervalMs,
+          getText: () => streamText,
+          sendInitial: async (text) => {
+            const sent = messageId
+              ? await telegramChannel.replyRich(chatId, messageId, text)
+              : await telegramChannel.sendRich(chatId, text)
+            return sent?.message_id ?? null
+          },
+          edit: async (sentMessageId, text) => {
+            await telegramChannel.editRich(chatId, sentMessageId, text)
+          },
+        })
 
         const replies = await session.handleMessage(msg.content, {
           onTextDelta: (delta, meta) => {
@@ -491,7 +466,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
             lastTurnId = meta.turnId
             streamText += delta
             telegramChannel.sendTyping(chatId).catch(() => {})
-            flushStreaming(false).catch((err) =>
+            streamFlusher.flush(false).catch((err) =>
               console.error('[ZeRo OS] Telegram streaming flush error:', err))
           },
           onProgress: (newMsg) => {
@@ -504,12 +479,20 @@ export async function startZeroOS(): Promise<ZeroOS> {
         })
 
         const finalReply = collectAssistantReply(replies)
-        if (finalReply.length > streamText.length) {
-          streamText = finalReply
-        }
+        streamText = reconcileTelegramFinalText(streamText, finalReply)
 
         if (streamText) {
-          await flushStreaming(true)
+          try {
+            await streamFlusher.flush(true)
+          } catch (err) {
+            console.error('[ZeRo OS] Telegram final flush failed, fallback to sendRich:', {
+              sessionId: session.data.id,
+              chatId,
+              messageId: messageId ?? null,
+              error: err instanceof Error ? err.message : String(err),
+            })
+            await telegramChannel.sendRich(chatId, streamText)
+          }
         } else if (finalReply) {
           if (messageId) {
             await telegramChannel.replyRich(chatId, messageId, finalReply)
