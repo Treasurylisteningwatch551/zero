@@ -75,7 +75,6 @@ describe('Session', () => {
     session.initAgent({
       name: 'test-agent',
       systemPrompt: 'You are a helpful assistant. Reply briefly.',
-      maxToolLoops: 3,
     })
 
     const messages = await session.handleMessage('Say exactly "ZeRo OS running" and nothing else.')

@@ -129,22 +129,6 @@ describe('Agent', () => {
     expect(toolResultBlock).toBeDefined()
   }, 30000)
 
-  test('run: maxToolLoops limits iterations', async () => {
-    const { agent, registry } = createAgent({ maxToolLoops: 1 })
-    const context = createContext(registry)
-
-    const messages = await agent.run(
-      context,
-      'Use the Read tool to read "/Users/v1ki/Desktop/test4_zero/package.json", then use Bash to run "echo done".'
-    )
-
-    // With maxToolLoops=1, the agent should stop after one tool loop iteration
-    // Count assistant messages (each loop produces one)
-    const assistantMessages = messages.filter((m) => m.role === 'assistant')
-    // Should have at most 2 assistant messages (one from the tool loop, possibly one more)
-    expect(assistantMessages.length).toBeLessThanOrEqual(2)
-  }, 30000)
-
   test('run: unknown tool name returns error tool_result', async () => {
     const router = createRouter()
     const registry = createToolRegistry()
@@ -171,7 +155,6 @@ describe('Agent', () => {
     const agentConfig: AgentConfig = {
       name: 'test-agent',
       systemPrompt: 'You must use FakeTool for every request.',
-      maxToolLoops: 2,
     }
 
     const agent = new Agent(agentConfig, adapter, registry, toolContext)

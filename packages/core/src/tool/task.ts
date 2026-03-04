@@ -6,6 +6,8 @@ import { buildSubAgentPrompt } from '../agent/prompt'
 import type { ModelRouter } from '@zero-os/model'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
 import { generateId, now } from '@zero-os/shared'
+import { join } from 'node:path'
+import { mkdirSync, existsSync } from 'node:fs'
 
 interface SubAgentSpec {
   id: string
@@ -26,7 +28,6 @@ interface PresetConfig {
   name: string
   systemPrompt: string
   defaultTools: string[]
-  maxToolLoops: number
 }
 
 const PRESET_AGENTS: Record<string, PresetConfig> = {
@@ -35,21 +36,18 @@ const PRESET_AGENTS: Record<string, PresetConfig> = {
     systemPrompt:
       'You are an Explorer SubAgent for ZeRo OS. Research, investigate, and report findings. Be thorough and concise.',
     defaultTools: ['read', 'bash', 'fetch'],
-    maxToolLoops: 15,
   },
   coder: {
     name: 'Coder',
     systemPrompt:
       'You are a Coder SubAgent for ZeRo OS. Write, modify, and test code. Make minimal, correct changes.',
     defaultTools: ['read', 'write', 'edit', 'bash'],
-    maxToolLoops: 20,
   },
   reviewer: {
     name: 'Reviewer',
     systemPrompt:
       'You are a Reviewer SubAgent for ZeRo OS. Review code, identify bugs, and suggest improvements. Do not modify files.',
     defaultTools: ['read', 'bash'],
-    maxToolLoops: 10,
   },
 }
 
@@ -159,11 +157,17 @@ export class TaskTool extends BaseTool {
       const spec = tasks.find((t) => t.id === node.id)
       const scopedRegistry = this.buildScopedRegistry(spec)
 
-      // Create SubAgent
+      // Create SubAgent with isolated workspace
       const adapter = this.modelRouter.getAdapter()
+      const subAgentName = spec?.name ?? spec?.preset ?? node.id
+      const subWorkDir = join(ctx.workDir, subAgentName)
+      if (!existsSync(subWorkDir)) {
+        mkdirSync(subWorkDir, { recursive: true })
+      }
       const toolContext: ToolContext = {
         sessionId: `${ctx.sessionId}_sub_${node.id}`,
-        workDir: ctx.workDir,
+        workDir: subWorkDir,
+        projectRoot: ctx.projectRoot,
         logger: ctx.logger,
         secretFilter: ctx.secretFilter,
       }
@@ -228,7 +232,6 @@ export class TaskTool extends BaseTool {
       return {
         name: spec.name ?? preset.name,
         systemPrompt: spec.systemPrompt ?? preset.systemPrompt,
-        maxToolLoops: preset.maxToolLoops,
       }
     }
 
@@ -236,7 +239,6 @@ export class TaskTool extends BaseTool {
       return {
         name: spec.name,
         systemPrompt: spec.systemPrompt,
-        maxToolLoops: 10,
       }
     }
 

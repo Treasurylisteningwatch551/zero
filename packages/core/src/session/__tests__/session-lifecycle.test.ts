@@ -58,7 +58,6 @@ describe('Session Lifecycle', () => {
     session.initAgent({
       name: 'lifecycle-test',
       systemPrompt: 'You are a helpful assistant. Reply briefly.',
-      maxToolLoops: 2,
     })
 
     const messages = await session.handleMessage('Say exactly "lifecycle test" and nothing else.')
