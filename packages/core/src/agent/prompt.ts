@@ -1,4 +1,4 @@
-import type { PromptComponents } from '@zero-os/shared'
+import type { PromptComponents, SkillDefinition } from '@zero-os/shared'
 import type { ToolDefinition, Memory } from '@zero-os/shared'
 import { truncateToTokens } from '@zero-os/shared'
 import { enforceFixedBudget } from './budget'
@@ -10,6 +10,9 @@ export function buildSystemPrompt(components: PromptComponents): string {
   sections.push(buildRoleBlock(components.agentName, components.agentDescription, components.currentTime, components.workspacePath, components.projectRoot))
   sections.push(buildRulesBlock())
   sections.push(buildToolRulesBlock(components.tools))
+  if (components.skills && components.skills.length > 0) {
+    sections.push(buildSkillsBlock(components.skills))
+  }
   sections.push(buildConstraintsBlock())
   sections.push(buildIdentityBlock(components.globalIdentity, components.agentIdentity, components.agentName))
   sections.push(buildMemoBlock(components.memo))
@@ -99,6 +102,14 @@ export function buildRetrievedMemoryBlock(memories: Memory[]): string {
   })
   const content = memoryEntries.join('\n\n')
   return enforceFixedBudget(`<retrieved_memories>\n${content}\n</retrieved_memories>`, 2000, 'Retrieved Memories')
+}
+
+export function buildSkillsBlock(skills: SkillDefinition[]): string {
+  const entries = skills.map(s => {
+    const attrs = `name="${s.name}" allowed-tools="${s.allowedTools.join(', ')}"`
+    return `  <skill ${attrs}>\n${s.content}\n  </skill>`
+  })
+  return `<skills>\n${entries.join('\n\n')}\n</skills>`
 }
 
 /**

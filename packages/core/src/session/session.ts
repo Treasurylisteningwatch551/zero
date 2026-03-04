@@ -12,6 +12,7 @@ import { mkdirSync, existsSync } from 'node:fs'
 import type { ModelRouter } from '@zero-os/model'
 import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
 import { buildSystemPrompt } from '../agent/prompt'
+import { loadSkills } from '../skill/loader'
 import { allocateBudget } from '../agent/budget'
 import { estimateConversationTokens } from '../agent/context'
 import type { QueuedMessage } from '../agent/queue'
@@ -266,12 +267,16 @@ export class Session {
     const projectRoot = process.cwd()
     const workspacePath = join(projectRoot, '.zero', 'workspace', agentName)
 
+    // Hot-reload skills on each call
+    const skills = loadSkills(join(projectRoot, '.zero', 'skills'))
+
     if (globalIdentity || agentIdentity || memoContent) {
       // Use structured XML prompt builder
       systemPrompt = buildSystemPrompt({
         agentName,
         agentDescription: '擅长 TypeScript 全栈开发，使用 Bun 运行时。',
         tools,
+        skills,
         globalIdentity,
         agentIdentity,
         memo: memoContent,

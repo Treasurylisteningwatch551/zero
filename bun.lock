@@ -90,6 +90,7 @@
         "@zero-os/observe": "workspace:*",
         "@zero-os/secrets": "workspace:*",
         "@zero-os/shared": "workspace:*",
+        "gray-matter": "^4.0.3",
         "linkedom": "^0.18.9",
         "proper-lockfile": "^4.1.2",
         "simple-git": "^3.27.0",

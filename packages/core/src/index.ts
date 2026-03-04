@@ -10,6 +10,7 @@ export { EditTool } from './tool/edit'
 export { BashTool } from './tool/bash'
 export { FetchTool } from './tool/fetch'
 export { TaskTool } from './tool/task'
+export { MemoryTool } from './tool/memory'
 export { ToolRegistry } from './tool/registry'
 
 // Agent
@@ -25,8 +26,11 @@ export { SessionManager } from './session/manager'
 export { TaskOrchestrator } from './task/orchestrator'
 export type { TaskNode, TaskResult } from './task/orchestrator'
 
+// Skill
+export { loadSkills } from './skill/loader'
+
 // Context Engineering
-export { buildSystemPrompt, buildSubAgentPrompt } from './agent/prompt'
+export { buildSystemPrompt, buildSubAgentPrompt, buildSkillsBlock } from './agent/prompt'
 export { allocateBudget, shouldCompress } from './agent/budget'
 export { truncateToolOutput } from './agent/truncate'
 export { prepareConversationHistory, estimateConversationTokens } from './agent/context'
