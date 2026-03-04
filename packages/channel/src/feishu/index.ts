@@ -80,55 +80,29 @@ export class FeishuChannel implements Channel {
           } else if (msg.message_type === 'post') {
             try {
               const parsed = JSON.parse(msg.content ?? '{}')
-              // post content is keyed by locale (zh_cn, en_us, etc.), pick first available
-              const locale = parsed.zh_cn ?? parsed.en_us ?? Object.values(parsed)[0] as any
-              if (locale?.content) {
-                const parts: string[] = []
-                if (locale.title) parts.push(`# ${locale.title}`)
-                for (const paragraph of locale.content) {
-                  const lineParts: string[] = []
-                  for (const el of paragraph as any[]) {
-                    switch (el.tag) {
-                      case 'text': {
-                        let t = el.text ?? ''
-                        const s = el.style as string[] | undefined
-                        if (s?.includes('bold')) t = `**${t}**`
-                        if (s?.includes('italic')) t = `*${t}*`
-                        if (s?.includes('lineThrough')) t = `~~${t}~~`
-                        if (s?.includes('underline')) t = `<u>${t}</u>`
-                        lineParts.push(t)
-                        break
-                      }
-                      case 'a':
-                        lineParts.push(el.href ? `[${el.text ?? ''}](${el.href})` : el.text ?? '')
-                        break
-                      case 'img':
-                        if (el.image_key && this.client) {
-                          try {
-                            const imgResp = await this.client.im.image.get({
-                              path: { image_key: el.image_key },
-                              params: { image_type: 'message' },
-                            })
-                            const buf = Buffer.from(imgResp as ArrayBuffer)
-                            images.push({ mediaType: 'image/png', data: buf.toString('base64') })
-                            lineParts.push('[图片]')
-                          } catch (imgErr) {
-                            console.error('[FeishuChannel] Failed to download image:', el.image_key, imgErr)
-                            lineParts.push('[图片]')
-                          }
-                        }
-                        break
-                      case 'at':
-                        lineParts.push(`@${el.user_name ?? el.user_id ?? 'user'}`)
-                        break
+              // parsePostContent collects image_keys as { mediaType: '__pending__', data: image_key }
+              const pendingImages: ImageAttachment[] = []
+              content = this.parsePostContent(parsed, pendingImages)
+              // Download pending images in parallel
+              if (this.client) {
+                const downloads = pendingImages
+                  .filter(p => p.mediaType === '__pending__')
+                  .map(async (p) => {
+                    try {
+                      const imgResp = await this.client!.im.image.get({
+                        path: { image_key: p.data },
+                        params: { image_type: 'message' },
+                      })
+                      const buf = Buffer.from(imgResp as ArrayBuffer)
+                      images.push({ mediaType: 'image/png', data: buf.toString('base64') })
+                    } catch (imgErr) {
+                      console.error('[FeishuChannel] Failed to download image:', p.data, imgErr)
                     }
-                  }
-                  parts.push(lineParts.join(''))
-                }
-                content = parts.join('\n\n')
+                  })
+                await Promise.all(downloads)
               }
             } catch (parseErr) {
-              console.error('[FeishuChannel] Failed to parse post content:', parseErr)
+              console.error('[FeishuChannel] Failed to parse post content:', parseErr, 'raw:', msg.content)
               content = msg.content ?? ''
             }
           } else if (msg.message_type === 'image') {
@@ -263,5 +237,114 @@ export class FeishuChannel implements Channel {
         msg_type: 'text',
       },
     })
+  }
+
+  /**
+   * Parse Feishu post (rich text) message into Markdown text + image attachments.
+   *
+   * Standard format: { "zh_cn": { "title": "...", "content": [[elements]] } }
+   * Also handles: top-level { "title", "content" } without locale wrapper.
+   */
+  private parsePostContent(parsed: any, images: ImageAttachment[]): string {
+    // Resolve locale wrapper: zh_cn > en_us > first locale-shaped value > top-level
+    let doc: { title?: string; content?: any[][] } | undefined
+    if (parsed.zh_cn?.content) {
+      doc = parsed.zh_cn
+    } else if (parsed.en_us?.content) {
+      doc = parsed.en_us
+    } else {
+      // Try each top-level value for a locale-shaped object { content: [[...]] }
+      for (const val of Object.values(parsed)) {
+        if (val && typeof val === 'object' && Array.isArray((val as any).content)) {
+          doc = val as any
+          break
+        }
+      }
+      // Fallback: top-level { content: [[...]] } without locale key
+      if (!doc && Array.isArray(parsed.content)) {
+        doc = parsed
+      }
+    }
+
+    if (!doc?.content || !Array.isArray(doc.content)) {
+      console.warn('[FeishuChannel] Unrecognized post structure:', JSON.stringify(parsed).slice(0, 200))
+      // Last resort: recursively extract all text values from the JSON
+      return this.extractTextFromJson(parsed)
+    }
+
+    const parts: string[] = []
+    if (doc.title) parts.push(`# ${doc.title}`)
+
+    for (const paragraph of doc.content) {
+      if (!Array.isArray(paragraph)) continue
+      const lineParts: string[] = []
+      for (const el of paragraph) {
+        lineParts.push(this.parsePostElement(el, images))
+      }
+      const line = lineParts.join('')
+      if (line) parts.push(line)
+    }
+
+    const result = parts.join('\n\n')
+    if (result.trim()) return result
+
+    // Parsing succeeded structurally but no text extracted — extract from raw JSON
+    console.warn('[FeishuChannel] Post parsed but empty, extracting raw text:', JSON.stringify(parsed).slice(0, 200))
+    return this.extractTextFromJson(parsed)
+  }
+
+  /**
+   * Convert a single post element to Markdown.
+   */
+  private parsePostElement(el: any, images: ImageAttachment[]): string {
+    if (!el || typeof el !== 'object') return ''
+    switch (el.tag) {
+      case 'text': {
+        let t = el.text ?? ''
+        const s = el.style as string[] | undefined
+        if (s?.includes('bold')) t = `**${t}**`
+        if (s?.includes('italic')) t = `*${t}*`
+        if (s?.includes('lineThrough')) t = `~~${t}~~`
+        if (s?.includes('underline')) t = `<u>${t}</u>`
+        return t
+      }
+      case 'a':
+        return el.href ? `[${el.text ?? ''}](${el.href})` : el.text ?? ''
+      case 'img':
+        // Image download is async — handled separately by caller if client is available
+        if (el.image_key) {
+          // Queue image for download (caller handles async download)
+          images.push({ mediaType: '__pending__', data: el.image_key })
+        }
+        return '[图片]'
+      case 'at':
+        return `@${el.user_name ?? el.user_id ?? 'user'}`
+      case 'media':
+        return `[${el.file_name ?? 'media'}]`
+      case 'emotion':
+        return el.emoji_type ? `:${el.emoji_type}:` : ''
+      default:
+        // Unknown tag — extract text if present
+        return el.text ?? ''
+    }
+  }
+
+  /**
+   * Recursively extract all text values from an arbitrary JSON structure.
+   * Used as last-resort when standard post parsing fails.
+   */
+  private extractTextFromJson(obj: unknown): string {
+    if (typeof obj === 'string') return obj
+    if (!obj || typeof obj !== 'object') return ''
+    const texts: string[] = []
+    for (const val of Object.values(obj)) {
+      if (typeof val === 'string' && val.trim()) {
+        texts.push(val)
+      } else if (typeof val === 'object' && val !== null) {
+        const nested = this.extractTextFromJson(val)
+        if (nested) texts.push(nested)
+      }
+    }
+    return texts.join(' ')
   }
 }
