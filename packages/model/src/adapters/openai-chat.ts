@@ -142,6 +142,7 @@ export class OpenAIChatAdapter implements ProviderAdapter {
 
   private convertMessages(req: CompletionRequest): OpenAI.ChatCompletionMessageParam[] {
     const messages: OpenAI.ChatCompletionMessageParam[] = []
+    const pairedCallIds = this.collectPairedToolCallIds(req)
 
     if (req.system) {
       messages.push({ role: 'system', content: req.system })
@@ -159,7 +160,9 @@ export class OpenAIChatAdapter implements ProviderAdapter {
         }
       } else if (msg.role === 'assistant') {
         const textParts = msg.content.filter((b) => b.type === 'text')
-        const toolUses = msg.content.filter((b) => b.type === 'tool_use')
+        const toolUses = msg.content
+          .filter((b) => b.type === 'tool_use')
+          .filter((b) => pairedCallIds.has((b as { id: string }).id))
 
         if (toolUses.length > 0) {
           messages.push({
@@ -185,11 +188,12 @@ export class OpenAIChatAdapter implements ProviderAdapter {
       // Handle tool results
       const toolResults = msg.content.filter((b) => b.type === 'tool_result')
       for (const tr of toolResults) {
-        const result = tr as { toolUseId: string; content: string; isError?: boolean }
+        const result = tr as { toolUseId: string; content: string; isError?: boolean; outputSummary?: string }
+        if (!pairedCallIds.has(result.toolUseId)) continue
         messages.push({
           role: 'tool',
           tool_call_id: result.toolUseId,
-          content: result.content,
+          content: this.normalizeToolOutput(result.content, result.outputSummary),
         })
       }
     }
@@ -241,6 +245,42 @@ export class OpenAIChatAdapter implements ProviderAdapter {
       default:
         return 'end_turn'
     }
+  }
+
+  /**
+   * Keep only tool calls that have a matching tool result in history.
+   * This prevents replaying dangling function calls after interrupted turns.
+   */
+  private collectPairedToolCallIds(req: CompletionRequest): Set<string> {
+    const toolUseIds = new Set<string>()
+    const toolResultIds = new Set<string>()
+
+    for (const msg of req.messages) {
+      for (const block of msg.content) {
+        if (block.type === 'tool_use') {
+          toolUseIds.add(block.id)
+        } else if (block.type === 'tool_result') {
+          toolResultIds.add(block.toolUseId)
+        }
+      }
+    }
+
+    const paired = new Set<string>()
+    for (const id of toolUseIds) {
+      if (toolResultIds.has(id)) {
+        paired.add(id)
+      }
+    }
+    return paired
+  }
+
+  /**
+   * OpenAI Chat Completions rejects empty tool content.
+   */
+  private normalizeToolOutput(output: string, outputSummary?: string): string {
+    if (output.trim().length > 0) return output
+    if (outputSummary && outputSummary.trim().length > 0) return outputSummary
+    return '[tool completed with empty output]'
   }
 
   private parseUsage(usage?: OpenAI.CompletionUsage | null): TokenUsage {

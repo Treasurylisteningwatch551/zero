@@ -203,3 +203,203 @@ describe('OpenAI Chat Completions Adapter (Real API)', () => {
     expect(text).toContain('391')
   }, 30000)
 })
+
+describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
+  test('convertMessages: empty tool_result content falls back to outputSummary', () => {
+    const toolCallId = `call_${generateId()}`
+    const messages: Message[] = [
+      makeMessage('user', 'Run command'),
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'assistant',
+        messageType: 'message',
+        content: [
+          { type: 'tool_use', id: toolCallId, name: 'bash', input: { command: 'find . -name AGENTS.md' } },
+        ],
+        createdAt: now(),
+      },
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'user',
+        messageType: 'message',
+        content: [
+          { type: 'tool_result', toolUseId: toolCallId, content: '', outputSummary: 'Executed: find . -name AGENTS.md' },
+        ],
+        createdAt: now(),
+      },
+    ]
+
+    const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
+    const toolMsg = converted.find((m: any) => m.role === 'tool')
+
+    expect(toolMsg).toBeDefined()
+    expect(toolMsg.content).toBe('Executed: find . -name AGENTS.md')
+  })
+
+  test('convertMessages: empty tool_result without outputSummary gets placeholder', () => {
+    const toolCallId = `call_${generateId()}`
+    const messages: Message[] = [
+      makeMessage('user', 'Run command'),
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'assistant',
+        messageType: 'message',
+        content: [
+          { type: 'tool_use', id: toolCallId, name: 'bash', input: { command: 'mkdir /tmp/test' } },
+        ],
+        createdAt: now(),
+      },
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'user',
+        messageType: 'message',
+        content: [
+          { type: 'tool_result', toolUseId: toolCallId, content: '' },
+        ],
+        createdAt: now(),
+      },
+    ]
+
+    const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
+    const toolMsg = converted.find((m: any) => m.role === 'tool')
+
+    expect(toolMsg).toBeDefined()
+    expect(toolMsg.content).toBe('[tool completed with empty output]')
+  })
+
+  test('convertMessages: whitespace-only tool_result content gets normalized', () => {
+    const toolCallId = `call_${generateId()}`
+    const messages: Message[] = [
+      makeMessage('user', 'Run command'),
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'assistant',
+        messageType: 'message',
+        content: [
+          { type: 'tool_use', id: toolCallId, name: 'bash', input: { command: 'echo' } },
+        ],
+        createdAt: now(),
+      },
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'user',
+        messageType: 'message',
+        content: [
+          { type: 'tool_result', toolUseId: toolCallId, content: '   \n  ', outputSummary: 'Ran echo' },
+        ],
+        createdAt: now(),
+      },
+    ]
+
+    const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
+    const toolMsg = converted.find((m: any) => m.role === 'tool')
+
+    expect(toolMsg).toBeDefined()
+    expect(toolMsg.content).toBe('Ran echo')
+  })
+
+  test('convertMessages: only paired tool_use/tool_result are serialized', () => {
+    const pairedId = `call_${generateId()}`
+    const danglingToolUseId = `call_${generateId()}`
+    const orphanToolResultId = `call_${generateId()}`
+
+    const messages: Message[] = [
+      makeMessage('user', 'Start'),
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'assistant',
+        messageType: 'message',
+        content: [
+          { type: 'tool_use', id: pairedId, name: 'read', input: { path: '/tmp/a.txt' } },
+        ],
+        createdAt: now(),
+      },
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'user',
+        messageType: 'message',
+        content: [
+          { type: 'tool_result', toolUseId: pairedId, content: 'ok' },
+        ],
+        createdAt: now(),
+      },
+      // Dangling tool_use — no matching tool_result
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'assistant',
+        messageType: 'message',
+        content: [
+          { type: 'tool_use', id: danglingToolUseId, name: 'bash', input: { command: 'echo hi' } },
+        ],
+        createdAt: now(),
+      },
+      // Orphan tool_result — no matching tool_use
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'user',
+        messageType: 'message',
+        content: [
+          { type: 'tool_result', toolUseId: orphanToolResultId, content: 'orphan-result' },
+        ],
+        createdAt: now(),
+      },
+      makeMessage('user', 'Continue'),
+    ]
+
+    const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
+
+    // Only the paired tool call should be serialized
+    const toolMsgs = converted.filter((m: any) => m.role === 'tool')
+    expect(toolMsgs.length).toBe(1)
+    expect(toolMsgs[0].tool_call_id).toBe(pairedId)
+    expect(toolMsgs[0].content).toBe('ok')
+
+    // Dangling tool_use should be excluded from assistant tool_calls
+    const assistantMsgs = converted.filter((m: any) => m.role === 'assistant')
+    const allToolCalls = assistantMsgs.flatMap((m: any) => m.tool_calls ?? [])
+    expect(allToolCalls.length).toBe(1)
+    expect(allToolCalls[0].id).toBe(pairedId)
+  })
+
+  test('convertMessages: non-empty tool_result content passes through unchanged', () => {
+    const toolCallId = `call_${generateId()}`
+    const messages: Message[] = [
+      makeMessage('user', 'Read file'),
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'assistant',
+        messageType: 'message',
+        content: [
+          { type: 'tool_use', id: toolCallId, name: 'read', input: { path: '/tmp/f.txt' } },
+        ],
+        createdAt: now(),
+      },
+      {
+        id: generateId(),
+        sessionId: 'test',
+        role: 'user',
+        messageType: 'message',
+        content: [
+          { type: 'tool_result', toolUseId: toolCallId, content: 'file contents here' },
+        ],
+        createdAt: now(),
+      },
+    ]
+
+    const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
+    const toolMsg = converted.find((m: any) => m.role === 'tool')
+
+    expect(toolMsg.content).toBe('file contents here')
+  })
+})

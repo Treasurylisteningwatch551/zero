@@ -230,8 +230,10 @@ export async function startZeroOS(): Promise<ZeroOS> {
     feishuChannel.setMessageHandler(async (msg) => {
       const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
       const messageId = msg.metadata?.messageId as string
+      let activeSessionId: string | null = null
       try {
         const { session, isNew } = sessionManager.getOrCreateForChannel('feishu', chatId)
+        activeSessionId = session.data.id
         if (isNew) {
           session.initAgent({
             name: 'zero-feishu',
@@ -277,11 +279,28 @@ export async function startZeroOS(): Promise<ZeroOS> {
         }
       } catch (err) {
         console.error('[ZeRo OS] Feishu message handler error:', err)
+        const errorMessage = err instanceof Error ? err.message : String(err)
+        let sessionWasArchived = false
+        if (
+          activeSessionId &&
+          errorMessage.includes('No tool output found for function call')
+        ) {
+          const poisonedSession = sessionManager.get(activeSessionId)
+          if (poisonedSession) {
+            poisonedSession.setStatus('archived')
+          }
+          sessionManager.remove(activeSessionId)
+          sessionWasArchived = true
+          console.warn('[ZeRo OS] Archived poisoned Feishu session after tool output mismatch:', activeSessionId)
+        }
+        const userReply = sessionWasArchived
+          ? 'Session corrupted and has been reset. Please resend your message.'
+          : 'An error occurred processing your message.'
         try {
           if (messageId) {
-            await feishuChannel.reply(messageId, 'An error occurred processing your message.')
+            await feishuChannel.reply(messageId, userReply)
           } else {
-            await feishuChannel.send(chatId, 'An error occurred processing your message.')
+            await feishuChannel.send(chatId, userReply)
           }
         } catch {}
       }
