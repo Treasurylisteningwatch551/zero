@@ -2,12 +2,15 @@ import { join } from 'node:path'
 import { HeartbeatChecker } from '@zero-os/supervisor'
 import { RepairEngine } from '@zero-os/supervisor'
 
-const ZERO_DIR = join(process.cwd(), '.zero')
+const PROJECT_ROOT = join(import.meta.dirname, '..', '..', '..')
+const ZERO_DIR = join(PROJECT_ROOT, '.zero')
 const HEARTBEAT_FILE = join(ZERO_DIR, 'heartbeat.json')
-const CHECK_INTERVAL = 20_000 // 20 seconds
+const CHECK_INTERVAL = 5_000 // 5 seconds
+const LOG_INTERVAL = 60_000 // log alive status every 60 seconds
 
 const checker = new HeartbeatChecker(HEARTBEAT_FILE)
 const repairEngine = new RepairEngine()
+let lastAliveLogAt = 0
 
 console.log('[Supervisor] Starting heartbeat monitor...')
 console.log(`[Supervisor] Checking: ${HEARTBEAT_FILE}`)
@@ -17,12 +20,16 @@ setInterval(async () => {
   const result = checker.check()
 
   if (result.alive) {
-    const healthInfo = result.health
-      ? ` | health: ${result.health.status}, mem: ${result.health.memoryUsageMB}MB, errors: ${result.health.errorCount}`
-      : ''
-    console.log(
-      `[Supervisor] Main process alive (PID: ${result.pid}, last beat: ${result.elapsedMs}ms ago${healthInfo})`
-    )
+    const now = Date.now()
+    if (now - lastAliveLogAt >= LOG_INTERVAL) {
+      lastAliveLogAt = now
+      const healthInfo = result.health
+        ? ` | health: ${result.health.status}, mem: ${result.health.memoryUsageMB}MB, errors: ${result.health.errorCount}`
+        : ''
+      console.log(
+        `[Supervisor] Main process alive (PID: ${result.pid}, last beat: ${result.elapsedMs}ms ago${healthInfo})`
+      )
+    }
   } else {
     console.warn('[Supervisor] Main process appears dead!')
     console.warn(`[Supervisor] Last heartbeat: ${result.lastBeat?.toISOString() ?? 'never'}`)
@@ -44,7 +51,8 @@ setInterval(async () => {
         // Repair: attempt to restart the main process
         console.log(`[Supervisor] Diagnosis: ${diagnosis}`)
         console.log('[Supervisor] Attempting restart via Bun...')
-        const proc = Bun.spawn(['bun', 'run', join(ZERO_DIR, '../apps/server/src/main.ts')], {
+        const proc = Bun.spawn(['bun', 'run', join(PROJECT_ROOT, 'apps/server/src/cli.ts'), 'start'], {
+          cwd: PROJECT_ROOT,
           stdout: 'inherit',
           stderr: 'inherit',
         })
@@ -52,7 +60,7 @@ setInterval(async () => {
       },
       async () => {
         // Verify: wait and check heartbeat again
-        await new Promise((resolve) => setTimeout(resolve, 15_000))
+        await new Promise((resolve) => setTimeout(resolve, 8_000))
         const verifyResult = checker.check()
         return verifyResult.alive
       }

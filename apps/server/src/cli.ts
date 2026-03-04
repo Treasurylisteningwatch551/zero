@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { generateMasterKey, setMasterKey, getMasterKey, Vault } from '@zero-os/secrets'
 import { startZeroOS } from './main'
 
@@ -20,6 +20,9 @@ switch (command) {
     break
   case 'status':
     await status()
+    break
+  case 'restart':
+    restart()
     break
   default:
     printHelp()
@@ -84,50 +87,8 @@ async function start() {
   const web = startWebServer(zero)
   console.log(`[ZeRo OS] Web UI: http://localhost:${web.port}`)
 
-  // Graceful shutdown
-  let shuttingDown = false
-  const shutdown = async () => {
-    if (shuttingDown) return
-    shuttingDown = true
-
-    console.log('\n[ZeRo OS] Shutting down...')
-
-    // 1. Stop scheduler
-    zero.scheduler.stop()
-    console.log('[ZeRo OS] Scheduler stopped')
-
-    // 2. Stop heartbeat writer
-    zero.heartbeat.stop()
-    console.log('[ZeRo OS] Heartbeat stopped')
-
-    // 3. Close channels
-    for (const [name, ch] of zero.channels) {
-      try {
-        await ch.stop()
-      } catch {
-        // Channel may already be stopped
-      }
-    }
-    console.log('[ZeRo OS] Channels closed')
-
-    // 4. Flush all session state to DB
-    zero.sessionManager.flushAll()
-    console.log('[ZeRo OS] Sessions flushed to DB')
-
-    // 5. Close session DB
-    zero.sessionDb.close()
-    console.log('[ZeRo OS] Session DB closed')
-
-    // 6. Close metrics DB
-    zero.metrics.close()
-    console.log('[ZeRo OS] Metrics DB closed')
-
-    console.log('[ZeRo OS] Shutdown complete.')
-    process.exit(0)
-  }
-
-  process.on('SIGINT', shutdown)
-  process.on('SIGTERM', shutdown)
+  process.on('SIGINT', () => zero.shutdown())
+  process.on('SIGTERM', () => zero.shutdown())
 }
 
 async function secret() {
@@ -228,6 +189,23 @@ async function status() {
   console.log(`  Web Build: ${webBuild ? '✓ built' : '○ not built (run bun run build:web)'}`)
 }
 
+function restart() {
+  const heartbeatPath = join(ZERO_DIR, 'heartbeat.json')
+  if (!existsSync(heartbeatPath)) {
+    console.error('[ZeRo OS] No heartbeat file found. Is the server running?')
+    process.exit(1)
+  }
+  try {
+    const data = JSON.parse(readFileSync(heartbeatPath, 'utf-8'))
+    const pid = data.pid as number
+    process.kill(pid, 'SIGTERM')
+    console.log(`[ZeRo OS] Sent SIGTERM to PID ${pid}. Supervisor will restart the process.`)
+  } catch (err) {
+    console.error('[ZeRo OS] Failed to restart:', err instanceof Error ? err.message : err)
+    process.exit(1)
+  }
+}
+
 function printHelp() {
   console.log(`
 ZeRo OS CLI
@@ -238,6 +216,7 @@ Usage:
 Commands:
   init [api-key]     Initialize ZeRo OS (Keychain, vault, directories)
   start              Start ZeRo OS (server + web UI)
+  restart            Graceful restart (requires Supervisor running)
   secret set <k> <v> Store a secret in the vault
   secret list        List all stored secret keys
   secret delete <k>  Delete a secret
@@ -246,6 +225,7 @@ Commands:
 Examples:
   bun zero init sk-your-api-key-here
   bun zero start
+  bun zero restart
   bun zero secret set openai_codex_api_key sk-xxx
   bun zero status
 `)

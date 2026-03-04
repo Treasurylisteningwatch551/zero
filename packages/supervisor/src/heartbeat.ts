@@ -1,8 +1,8 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-const HEARTBEAT_INTERVAL = 10_000 // 10 seconds
-const STALE_THRESHOLD = 50_000 // 50 seconds
+const HEARTBEAT_INTERVAL = 3_000 // 3 seconds
+const STALE_THRESHOLD = 10_000 // 10 seconds
 const ERROR_THRESHOLD_UNHEALTHY = 10
 const ERROR_THRESHOLD_DEGRADED = 3
 

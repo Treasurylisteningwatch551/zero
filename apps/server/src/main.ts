@@ -38,12 +38,14 @@ export interface ZeroOS {
   channels: Map<string, Channel>
   notifications: Notification[]
   addNotification(n: Omit<Notification, 'id' | 'createdAt'>): Notification
+  shutdown(): Promise<void>
 }
 
 /**
  * Initialize and start ZeRo OS.
  */
 export async function startZeroOS(): Promise<ZeroOS> {
+  const startedAt = Date.now()
   console.log('[ZeRo OS] Starting...')
 
   // 1. Ensure .zero/ directory structure exists
@@ -219,9 +221,14 @@ export async function startZeroOS(): Promise<ZeroOS> {
       .trim()
   }
 
+  function isRestartCommand(content: string): boolean {
+    if (Date.now() - startedAt < 15_000) return false // ignore during startup grace period
+    return /^\/restart(?:@\S+)?$/i.test(content.trim())
+  }
+
   function parseNewSessionCommand(content: string): { modelArg?: string } | null {
     const trimmed = content.trim()
-    const match = trimmed.match(/^\/new(?:\s+(.+))?$/i)
+    const match = trimmed.match(/^\/new(?:@\S+)?(?:\s+(.+))?$/i)
     if (!match) return null
     const modelArg = match[1]?.trim()
     return modelArg ? { modelArg } : {}
@@ -263,6 +270,17 @@ export async function startZeroOS(): Promise<ZeroOS> {
       const messageId = msg.metadata?.messageId as string
       let activeSessionId: string | null = null
       try {
+        if (isRestartCommand(msg.content)) {
+          const reply = 'Restarting ZeRo OS...'
+          if (messageId) {
+            await feishuChannel.reply(messageId, reply)
+          } else {
+            await feishuChannel.send(chatId, reply)
+          }
+          setTimeout(() => shutdown(), 500)
+          return
+        }
+
         const newCommand = parseNewSessionCommand(msg.content)
         if (newCommand) {
           const modelResult = newCommand.modelArg
@@ -373,6 +391,17 @@ export async function startZeroOS(): Promise<ZeroOS> {
       const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
       const messageId = msg.metadata?.messageId as number | undefined
       try {
+        if (isRestartCommand(msg.content)) {
+          const reply = 'Restarting ZeRo OS...'
+          if (messageId) {
+            await telegramChannel.replyRich(chatId, messageId, reply)
+          } else {
+            await telegramChannel.sendRich(chatId, reply)
+          }
+          setTimeout(() => shutdown(), 500)
+          return
+        }
+
         const newCommand = parseNewSessionCommand(msg.content)
         if (newCommand) {
           const modelResult = newCommand.modelArg
@@ -542,6 +571,29 @@ export async function startZeroOS(): Promise<ZeroOS> {
 
   globalBus.emit('session:create', { event: 'system_start' })
 
+  let shuttingDown = false
+  const shutdown = async () => {
+    if (shuttingDown) return
+    shuttingDown = true
+    console.log('\n[ZeRo OS] Shutting down...')
+    scheduler.stop()
+    console.log('[ZeRo OS] Scheduler stopped')
+    heartbeat.stop()
+    console.log('[ZeRo OS] Heartbeat stopped')
+    for (const [, ch] of channels) {
+      try { await ch.stop() } catch {}
+    }
+    console.log('[ZeRo OS] Channels closed')
+    sessionManager.flushAll()
+    console.log('[ZeRo OS] Sessions flushed to DB')
+    sessionDb.close()
+    console.log('[ZeRo OS] Session DB closed')
+    metrics.close()
+    console.log('[ZeRo OS] Metrics DB closed')
+    console.log('[ZeRo OS] Shutdown complete.')
+    process.exit(0)
+  }
+
   return {
     config,
     vault,
@@ -562,6 +614,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
     channels,
     notifications,
     addNotification,
+    shutdown,
   }
 }
 
