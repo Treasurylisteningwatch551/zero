@@ -209,6 +209,27 @@ export async function startZeroOS(): Promise<ZeroOS> {
       .trim()
   }
 
+  function parseNewSessionCommand(content: string): { modelArg?: string } | null {
+    const trimmed = content.trim()
+    const match = trimmed.match(/^\/new(?:\s+(.+))?$/i)
+    if (!match) return null
+    const modelArg = match[1]?.trim()
+    return modelArg ? { modelArg } : {}
+  }
+
+  function buildNewSessionReply(
+    currentModel: string,
+    modelResult?: { success: boolean; message: string }
+  ): string {
+    if (!modelResult) {
+      return 'New conversation started.'
+    }
+    if (modelResult.success) {
+      return `New conversation started with model: ${currentModel}`
+    }
+    return `New conversation started. ${modelResult.message}`
+  }
+
   // 15. Channel registry
   const channels = new Map<string, Channel>()
 
@@ -232,6 +253,27 @@ export async function startZeroOS(): Promise<ZeroOS> {
       const messageId = msg.metadata?.messageId as string
       let activeSessionId: string | null = null
       try {
+        const newCommand = parseNewSessionCommand(msg.content)
+        if (newCommand) {
+          const modelResult = newCommand.modelArg
+            ? modelRouter.switchModel(newCommand.modelArg)
+            : undefined
+          const { session } = sessionManager.startNewForChannel('feishu', chatId)
+          activeSessionId = session.data.id
+          session.initAgent({
+            name: 'zero-feishu',
+            systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+          })
+
+          const replyText = buildNewSessionReply(session.data.currentModel, modelResult)
+          if (messageId) {
+            await feishuChannel.reply(messageId, replyText)
+          } else {
+            await feishuChannel.send(chatId, replyText)
+          }
+          return
+        }
+
         const { session, isNew } = sessionManager.getOrCreateForChannel('feishu', chatId)
         activeSessionId = session.data.id
         if (isNew) {
@@ -321,6 +363,21 @@ export async function startZeroOS(): Promise<ZeroOS> {
     const telegramChannel = new TelegramChannel({ botToken: telegramToken })
     telegramChannel.setMessageHandler(async (msg) => {
       const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
+      const newCommand = parseNewSessionCommand(msg.content)
+      if (newCommand) {
+        const modelResult = newCommand.modelArg
+          ? modelRouter.switchModel(newCommand.modelArg)
+          : undefined
+        const { session } = sessionManager.startNewForChannel('telegram', chatId)
+        session.initAgent({
+          name: 'zero-telegram',
+          systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+        })
+        const replyText = buildNewSessionReply(session.data.currentModel, modelResult)
+        await telegramChannel.send(chatId, replyText)
+        return
+      }
+
       const { session, isNew } = sessionManager.getOrCreateForChannel('telegram', chatId)
       if (isNew) {
         session.initAgent({

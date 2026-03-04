@@ -136,6 +136,39 @@ describe('SessionManager', () => {
     expect(second.session.data.id).not.toBe(firstId)
   })
 
+  test('startNewForChannel: rotates mapping and completes previous active session', () => {
+    const manager = createManager()
+    const first = manager.getOrCreateForChannel('feishu', 'channel-rotate')
+    const firstId = first.session.data.id
+
+    const rotated = manager.startNewForChannel('feishu', 'channel-rotate')
+    const secondId = rotated.session.data.id
+
+    expect(rotated.previousSessionId).toBe(firstId)
+    expect(secondId).not.toBe(firstId)
+    expect(rotated.session.data.source).toBe('feishu')
+    expect(rotated.session.data.channelId).toBe('channel-rotate')
+    expect(manager.get(firstId)?.getStatus()).toBe('completed')
+
+    const current = manager.getOrCreateForChannel('feishu', 'channel-rotate')
+    expect(current.isNew).toBe(false)
+    expect(current.session.data.id).toBe(secondId)
+  })
+
+  test('startNewForChannel: supports archiving previous session', () => {
+    const manager = createManager()
+    const first = manager.getOrCreateForChannel('telegram', 'channel-archive')
+    const firstId = first.session.data.id
+
+    const rotated = manager.startNewForChannel('telegram', 'channel-archive', {
+      previousStatus: 'archived',
+    })
+
+    expect(rotated.previousSessionId).toBe(firstId)
+    expect(manager.get(firstId)?.getStatus()).toBe('archived')
+    expect(rotated.session.data.id).not.toBe(firstId)
+  })
+
   test('remove cleans up channel mapping', () => {
     const manager = createManager()
     const { session } = manager.getOrCreateForChannel('feishu', 'channel-4')

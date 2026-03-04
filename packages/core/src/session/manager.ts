@@ -76,6 +76,33 @@ export class SessionManager {
   }
 
   /**
+   * Force-create a new session for a channel conversation and rebind mapping.
+   * Keeps the previous session in memory/history and marks it completed by default.
+   */
+  startNewForChannel(
+    source: SessionSource,
+    channelId: string,
+    options?: { previousStatus?: 'completed' | 'archived' }
+  ): { session: Session; previousSessionId?: string } {
+    const key = `${source}:${channelId}`
+    const previousSessionId = this.channelSessions.get(key)
+    const previousStatus = options?.previousStatus ?? 'completed'
+
+    if (previousSessionId) {
+      const previous = this.sessions.get(previousSessionId)
+      const status = previous?.getStatus()
+      if (previous && (status === 'active' || status === 'idle')) {
+        previous.setStatus(previousStatus)
+      }
+    }
+
+    const session = this.create(source)
+    session.data.channelId = channelId
+    this.channelSessions.set(key, session.data.id)
+    return { session, previousSessionId }
+  }
+
+  /**
    * Remove a completed session from active tracking.
    */
   remove(id: string): void {
