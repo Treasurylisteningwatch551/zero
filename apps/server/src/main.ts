@@ -246,6 +246,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
         let lastSentMsgId: string | null = null
 
         const replies = await session.handleMessage(msg.content, {
+          images: msg.images,
           onProgress: (newMsg) => {
             const text = extractAssistantText(newMsg)
             if (!text) return

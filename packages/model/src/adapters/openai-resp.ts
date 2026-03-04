@@ -98,6 +98,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
 
   private buildInput(req: CompletionRequest): any[] {
     const input: any[] = []
+    const pairedCallIds = this.collectPairedToolCallIds(req)
 
     // System instruction
     if (req.system) {
@@ -114,22 +115,39 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
           .filter((b) => b.type === 'text')
           .map((b) => (b as { text: string }).text)
           .join('\n')
+        const imageParts = msg.content.filter((b) => b.type === 'image')
 
         // Handle tool results
         const toolResults = msg.content.filter((b) => b.type === 'tool_result')
         if (toolResults.length > 0) {
           for (const tr of toolResults) {
-            const result = tr as { toolUseId: string; content: string; isError?: boolean }
+            const result = tr as {
+              toolUseId: string
+              content: string
+              isError?: boolean
+              outputSummary?: string
+            }
+            if (!pairedCallIds.has(result.toolUseId)) continue
             input.push({
               type: 'function_call_output',
               call_id: result.toolUseId,
-              output: result.content,
+              output: this.normalizeToolOutput(result.content, result.outputSummary),
             })
           }
         }
 
-        if (textParts) {
-          input.push({ role: 'user', content: textParts })
+        if (textParts || imageParts.length > 0) {
+          if (imageParts.length > 0) {
+            const parts: Array<{ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string }> = []
+            if (textParts) parts.push({ type: 'input_text', text: textParts })
+            for (const img of imageParts) {
+              const { mediaType, data } = img as { mediaType: string; data: string }
+              parts.push({ type: 'input_image', image_url: `data:${mediaType};base64,${data}` })
+            }
+            input.push({ role: 'user', content: parts } as any)
+          } else {
+            input.push({ role: 'user', content: textParts })
+          }
         }
       } else if (msg.role === 'assistant') {
         const textParts = msg.content.filter((b) => b.type === 'text')
@@ -145,6 +163,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
         // Function calls are separate output items in Responses API
         for (const tu of toolUses) {
           const block = tu as { id: string; name: string; input: Record<string, unknown> }
+          if (!pairedCallIds.has(block.id)) continue
           input.push({
             type: 'function_call',
             id: block.id,
@@ -157,6 +176,42 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
     }
 
     return input
+  }
+
+  /**
+   * Keep only tool calls that have a matching tool result in history.
+   * This prevents replaying dangling function calls after interrupted turns.
+   */
+  private collectPairedToolCallIds(req: CompletionRequest): Set<string> {
+    const toolUseIds = new Set<string>()
+    const toolResultIds = new Set<string>()
+
+    for (const msg of req.messages) {
+      for (const block of msg.content) {
+        if (block.type === 'tool_use') {
+          toolUseIds.add(block.id)
+        } else if (block.type === 'tool_result') {
+          toolResultIds.add(block.toolUseId)
+        }
+      }
+    }
+
+    const paired = new Set<string>()
+    for (const id of toolUseIds) {
+      if (toolResultIds.has(id)) {
+        paired.add(id)
+      }
+    }
+    return paired
+  }
+
+  /**
+   * OpenAI Responses expects a non-empty output payload for function_call_output.
+   */
+  private normalizeToolOutput(output: string, outputSummary?: string): string {
+    if (output.trim().length > 0) return output
+    if (outputSummary && outputSummary.trim().length > 0) return outputSummary
+    return '[tool completed with empty output]'
   }
 
   private convertTools(tools: CompletionRequest['tools']): any[] | undefined {

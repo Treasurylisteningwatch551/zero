@@ -3,6 +3,7 @@ import { CONTEXT_PARAMS } from './params'
 
 export interface QueuedMessage {
   content: string
+  images?: Array<{ mediaType: string; data: string }>
   timestamp: string
 }
 
@@ -60,6 +61,15 @@ export function injectQueuedMessages(lastUserMsg: Message, queued: QueuedMessage
     ...lastUserMsg.content,
     { type: 'text', text: formattedText },
   ]
+
+  // Merge images from queued messages
+  for (const q of queued) {
+    if (q.images?.length) {
+      for (const img of q.images) {
+        newContent.push({ type: 'image', mediaType: img.mediaType, data: img.data })
+      }
+    }
+  }
 
   return { ...lastUserMsg, content: newContent }
 }

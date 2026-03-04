@@ -51,6 +51,8 @@ export interface SessionDeps {
 export interface HandleMessageOptions {
   /** Called synchronously for every new Message (user, assistant, tool_result). */
   onProgress?: (msg: Message) => void
+  /** Image attachments (base64) to send alongside the text message. */
+  images?: Array<{ mediaType: string; data: string }>
 }
 
 /**
@@ -184,7 +186,7 @@ export class Session {
 
     // If another message is already processing, queue it instead of blocking
     if (this.mutex.isLocked()) {
-      this.messageQueue.push({ content, timestamp: now() })
+      this.messageQueue.push({ content, images: options?.images, timestamp: now() })
       this.interruptFlag = true
       return []
     }
@@ -315,7 +317,7 @@ export class Session {
       this.messageQueue.length = 0
       return msgs
     }
-    const newMessages = await this.agent!.run(context, content, onNewMessage, shouldInterrupt, getQueuedMessages)
+    const newMessages = await this.agent!.run(context, content, options?.images, onNewMessage, shouldInterrupt, getQueuedMessages)
 
     // Emit session:update
     this.deps.bus?.emit('session:update', {

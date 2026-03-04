@@ -34,12 +34,18 @@ export interface Channel {
 /**
  * Incoming message from a channel.
  */
+export interface ImageAttachment {
+  mediaType: string
+  data: string // base64
+}
+
 export interface IncomingMessage {
   channelType: string
   senderId: string
   content: string
   timestamp: string
   metadata?: Record<string, unknown>
+  images?: ImageAttachment[]
 }
 
 /**

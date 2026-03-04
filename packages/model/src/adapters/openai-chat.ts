@@ -154,9 +154,21 @@ export class OpenAIChatAdapter implements ProviderAdapter {
           .filter((b) => b.type === 'text')
           .map((b) => (b as { text: string }).text)
           .join('\n')
-        // Skip empty user messages (e.g. tool-result-only messages)
-        if (textParts) {
-          messages.push({ role: 'user', content: textParts })
+        const imageParts = msg.content.filter((b) => b.type === 'image')
+
+        if (textParts || imageParts.length > 0) {
+          if (imageParts.length > 0) {
+            // Multimodal: text + images
+            const parts: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = []
+            if (textParts) parts.push({ type: 'text', text: textParts })
+            for (const img of imageParts) {
+              const { mediaType, data } = img as { mediaType: string; data: string }
+              parts.push({ type: 'image_url', image_url: { url: `data:${mediaType};base64,${data}` } })
+            }
+            messages.push({ role: 'user', content: parts as any })
+          } else {
+            messages.push({ role: 'user', content: textParts })
+          }
         }
       } else if (msg.role === 'assistant') {
         const textParts = msg.content.filter((b) => b.type === 'text')

@@ -1,5 +1,5 @@
 import * as lark from '@larksuiteoapi/node-sdk'
-import type { Channel, IncomingMessage, MessageHandler } from '../base'
+import type { Channel, IncomingMessage, ImageAttachment, MessageHandler } from '../base'
 
 export interface FeishuChannelConfig {
   appId: string
@@ -67,8 +67,8 @@ export class FeishuChannel implements Channel {
 
           console.log('[FeishuChannel] im.message.receive_v1 from', data.sender?.sender_id?.open_id ?? 'unknown')
 
-          // Only handle text messages
           let content = ''
+          const images: ImageAttachment[] = []
           if (msg.message_type === 'text') {
             try {
               const parsed = JSON.parse(msg.content ?? '{}')
@@ -76,6 +76,77 @@ export class FeishuChannel implements Channel {
             } catch (parseErr) {
               console.error('[FeishuChannel] Failed to parse message content:', parseErr)
               content = msg.content ?? ''
+            }
+          } else if (msg.message_type === 'post') {
+            try {
+              const parsed = JSON.parse(msg.content ?? '{}')
+              // post content is keyed by locale (zh_cn, en_us, etc.), pick first available
+              const locale = parsed.zh_cn ?? parsed.en_us ?? Object.values(parsed)[0] as any
+              if (locale?.content) {
+                const parts: string[] = []
+                if (locale.title) parts.push(`# ${locale.title}`)
+                for (const paragraph of locale.content) {
+                  const lineParts: string[] = []
+                  for (const el of paragraph as any[]) {
+                    switch (el.tag) {
+                      case 'text': {
+                        let t = el.text ?? ''
+                        const s = el.style as string[] | undefined
+                        if (s?.includes('bold')) t = `**${t}**`
+                        if (s?.includes('italic')) t = `*${t}*`
+                        if (s?.includes('lineThrough')) t = `~~${t}~~`
+                        if (s?.includes('underline')) t = `<u>${t}</u>`
+                        lineParts.push(t)
+                        break
+                      }
+                      case 'a':
+                        lineParts.push(el.href ? `[${el.text ?? ''}](${el.href})` : el.text ?? '')
+                        break
+                      case 'img':
+                        if (el.image_key && this.client) {
+                          try {
+                            const imgResp = await this.client.im.image.get({
+                              path: { image_key: el.image_key },
+                              params: { image_type: 'message' },
+                            })
+                            const buf = Buffer.from(imgResp as ArrayBuffer)
+                            images.push({ mediaType: 'image/png', data: buf.toString('base64') })
+                            lineParts.push('[图片]')
+                          } catch (imgErr) {
+                            console.error('[FeishuChannel] Failed to download image:', el.image_key, imgErr)
+                            lineParts.push('[图片]')
+                          }
+                        }
+                        break
+                      case 'at':
+                        lineParts.push(`@${el.user_name ?? el.user_id ?? 'user'}`)
+                        break
+                    }
+                  }
+                  parts.push(lineParts.join(''))
+                }
+                content = parts.join('\n\n')
+              }
+            } catch (parseErr) {
+              console.error('[FeishuChannel] Failed to parse post content:', parseErr)
+              content = msg.content ?? ''
+            }
+          } else if (msg.message_type === 'image') {
+            // Standalone image message
+            try {
+              const parsed = JSON.parse(msg.content ?? '{}')
+              if (parsed.image_key && this.client) {
+                const imgResp = await this.client.im.image.get({
+                  path: { image_key: parsed.image_key },
+                  params: { image_type: 'message' },
+                })
+                const buf = Buffer.from(imgResp as ArrayBuffer)
+                images.push({ mediaType: 'image/png', data: buf.toString('base64') })
+                content = '[图片]'
+              }
+            } catch (imgErr) {
+              console.error('[FeishuChannel] Failed to download image message:', imgErr)
+              content = '[图片]'
             }
           } else {
             content = `[${msg.message_type} message]`
@@ -91,6 +162,7 @@ export class FeishuChannel implements Channel {
               messageId: msg.message_id,
               chatType: msg.chat_type,
             },
+            images: images.length > 0 ? images : undefined,
           }
 
           // Add typing reaction immediately (fire-and-forget, don't block ACK)

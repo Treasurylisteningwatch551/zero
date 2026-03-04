@@ -103,6 +103,11 @@ export class AnthropicAdapter implements ProviderAdapter {
         for (const block of msg.content) {
           if (block.type === 'text') {
             parts.push({ type: 'text', text: block.text })
+          } else if (block.type === 'image') {
+            parts.push({
+              type: 'image',
+              source: { type: 'base64', media_type: block.mediaType as any, data: block.data },
+            })
           } else if (block.type === 'tool_result') {
             parts.push({
               type: 'tool_result',

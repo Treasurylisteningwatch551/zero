@@ -4,6 +4,7 @@ import type {
   CompletionRequest,
   CompletionResponse,
   ToolContext,
+  ToolResult,
   ToolDefinition,
   TokenUsage,
   SecretFilter,
@@ -81,7 +82,7 @@ export class Agent {
   /**
    * Run the agent's tool-use loop until completion or max loops reached.
    */
-  async run(context: AgentContext, userMessage: string, onNewMessage?: (msg: Message) => void, shouldInterrupt?: () => boolean, getQueuedMessages?: () => QueuedMessage[]): Promise<Message[]> {
+  async run(context: AgentContext, userMessage: string, userImages?: Array<{ mediaType: string; data: string }>, onNewMessage?: (msg: Message) => void, shouldInterrupt?: () => boolean, getQueuedMessages?: () => QueuedMessage[]): Promise<Message[]> {
     const maxLoops = this.config.maxToolLoops ?? 10
     let continuationCount = 0
     const messages: Message[] = [...prepareConversationHistory(context.conversationHistory)]
@@ -93,13 +94,19 @@ export class Agent {
       `agent.run:${this.config.name}`
     )
 
-    // Add user message
+    // Add user message (text + optional images)
+    const userContent: ContentBlock[] = [{ type: 'text', text: userMessage }]
+    if (userImages?.length) {
+      for (const img of userImages) {
+        userContent.push({ type: 'image', mediaType: img.mediaType, data: img.data })
+      }
+    }
     const userMsg: Message = {
       id: generateId(),
       sessionId: this.toolContext.sessionId,
       role: 'user',
       messageType: 'message',
-      content: [{ type: 'text', text: userMessage }],
+      content: userContent,
       createdAt: now(),
     }
     messages.push(userMsg)
@@ -212,7 +219,17 @@ export class Agent {
           continue
         }
 
-        const result = await tool.run(this.toolContext, block.input)
+        let result: ToolResult
+        try {
+          result = await tool.run(this.toolContext, block.input)
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          result = {
+            success: false,
+            output: errorMessage,
+            outputSummary: `Tool execution failed: ${errorMessage.slice(0, 100)}`,
+          }
+        }
 
         if (toolSpan) {
           this.obs.tracer?.endSpan(toolSpan.id, result.success ? 'success' : 'error', {

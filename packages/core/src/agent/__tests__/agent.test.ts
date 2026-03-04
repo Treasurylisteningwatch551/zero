@@ -200,7 +200,7 @@ describe('Agent', () => {
       receivedMessages.push(msg)
     }
 
-    await agent.run(context, 'Say "test" and nothing else.', onNewMessage)
+    await agent.run(context, 'Say "test" and nothing else.', undefined, onNewMessage)
 
     // Should have been called at least for user and assistant messages
     expect(receivedMessages.length).toBeGreaterThanOrEqual(2)
