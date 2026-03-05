@@ -67,6 +67,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 
     let streamModel: string | undefined
     let streamUsage: TokenUsage | undefined
+    let streamStopReason: string | undefined
 
     for await (const event of stream) {
       if (event.type === 'content_block_delta') {
@@ -101,6 +102,9 @@ export class AnthropicAdapter implements ProviderAdapter {
         }
       } else if (event.type === 'message_delta') {
         const delta = event as any
+        if (delta.delta?.stop_reason) {
+          streamStopReason = delta.delta.stop_reason
+        }
         if (delta.usage?.output_tokens) {
           streamUsage = {
             ...streamUsage,
@@ -109,7 +113,7 @@ export class AnthropicAdapter implements ProviderAdapter {
           }
         }
       } else if (event.type === 'message_stop') {
-        yield { type: 'done', data: { model: streamModel, usage: streamUsage } }
+        yield { type: 'done', data: { model: streamModel, usage: streamUsage, finishReason: streamStopReason } }
       }
     }
   }

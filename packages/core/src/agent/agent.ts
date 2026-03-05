@@ -21,6 +21,13 @@ import { allocateBudget, shouldCompress } from './budget'
 import { type QueuedMessage, injectQueuedMessages, CONTINUATION_PROMPT, isTaskComplete } from './queue'
 import { CONTEXT_PARAMS } from './params'
 
+class ToolInputParseError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ToolInputParseError'
+  }
+}
+
 export interface AgentConfig {
   name: string
   systemPrompt: string
@@ -144,7 +151,7 @@ export class Agent {
         tools: context.tools,
         system,
         stream: true,
-        maxTokens: 4096,
+        maxTokens: context.maxOutput ?? 16384,
       }
 
       const llmStart = Date.now()
@@ -219,6 +226,25 @@ export class Agent {
           `tool:${block.name}`,
           rootSpan?.id
         )
+
+        // Detect malformed tool input (truncated by max_tokens)
+        if (block.type === 'tool_use' && block.input && typeof (block.input as Record<string, unknown>).__parse_error === 'string') {
+          const parseError = (block.input as Record<string, unknown>).__parse_error as string
+          toolResultBlocks.push({
+            type: 'tool_result',
+            toolUseId: block.id,
+            content: `Tool input JSON was malformed (likely truncated by max_tokens). ${parseError}. Please retry with shorter content or split into multiple calls.`,
+            isError: true,
+          })
+          if (toolSpan) this.obs.tracer?.endSpan(toolSpan.id, 'error')
+          this.obs.bus?.emit('tool:result', {
+            sessionId: this.toolContext.sessionId,
+            tool: block.name,
+            success: false,
+            error: parseError,
+          })
+          continue
+        }
 
         if (!tool) {
           toolResultBlocks.push({
@@ -324,7 +350,7 @@ export class Agent {
           messages,
           system,
           stream: true,
-          maxTokens: 4096,
+          maxTokens: context.maxOutput ?? 16384,
         }
         const finalStart = Date.now()
         const finalResponse = await this.completeWithStreamFallback(finalRequest, onTextDelta)
@@ -466,11 +492,17 @@ export class Agent {
     }
 
     for (const tc of toolCalls.values()) {
+      let input: Record<string, unknown>
+      try {
+        input = this.safeParseToolInput(tc.args)
+      } catch (e) {
+        input = { __parse_error: e instanceof Error ? e.message : 'Malformed tool input JSON' }
+      }
       content.push({
         type: 'tool_use',
         id: tc.id,
         name: tc.name,
-        input: this.safeParseToolInput(tc.args),
+        input,
       })
     }
 
@@ -506,7 +538,9 @@ export class Agent {
         ? parsed as Record<string, unknown>
         : {}
     } catch {
-      return { _raw: raw }
+      throw new ToolInputParseError(
+        `Failed to parse tool input JSON (${raw.length} chars, likely truncated by max_tokens)`
+      )
     }
   }
 
