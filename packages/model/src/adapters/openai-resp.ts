@@ -66,6 +66,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
           type: 'done',
           data: {
             finishReason: event.response?.status === 'completed' ? 'stop' : 'tool_calls',
+            model: event.response?.model,
             usage: usage ? this.parseUsage(usage) : undefined,
           },
         }

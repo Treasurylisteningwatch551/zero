@@ -120,6 +120,7 @@ export class OpenAIChatAdapter implements ProviderAdapter {
           type: 'done',
           data: {
             finishReason,
+            model: chunk.model,
             usage: chunk.usage ? this.parseUsage(chunk.usage) : undefined,
           },
         }

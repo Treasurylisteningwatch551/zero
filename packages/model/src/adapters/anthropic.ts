@@ -19,8 +19,16 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   constructor(config: AdapterConfig) {
     this.client = new Anthropic({
-      apiKey: config.apiKey ?? 'dummy',
+      apiKey: config.oauthToken ? null : (config.apiKey ?? 'dummy'),
+      authToken: config.oauthToken ?? null,
       baseURL: config.baseUrl,
+      ...(config.oauthToken && {
+        defaultHeaders: {
+          'anthropic-beta': 'claude-code-20250219,oauth-2025-04-20',
+          'user-agent': 'claude-cli/0.0.0 (external, cli)',
+          'x-app': 'cli',
+        },
+      }),
     })
     this.modelId = config.modelConfig.modelId
   }
@@ -57,6 +65,9 @@ export class AnthropicAdapter implements ProviderAdapter {
       max_tokens: req.maxTokens ?? 4096,
     })
 
+    let streamModel: string | undefined
+    let streamUsage: TokenUsage | undefined
+
     for await (const event of stream) {
       if (event.type === 'content_block_delta') {
         const delta = event.delta as Record<string, unknown>
@@ -75,8 +86,30 @@ export class AnthropicAdapter implements ProviderAdapter {
         }
       } else if (event.type === 'content_block_stop') {
         yield { type: 'tool_use_end', data: {} }
+      } else if (event.type === 'message_start') {
+        const msg = (event as any).message
+        if (msg?.model) {
+          streamModel = msg.model
+        }
+        if (msg?.usage) {
+          streamUsage = {
+            input: msg.usage.input_tokens ?? 0,
+            output: msg.usage.output_tokens ?? 0,
+            cacheWrite: msg.usage.cache_creation_input_tokens,
+            cacheRead: msg.usage.cache_read_input_tokens,
+          }
+        }
+      } else if (event.type === 'message_delta') {
+        const delta = event as any
+        if (delta.usage?.output_tokens) {
+          streamUsage = {
+            ...streamUsage,
+            input: streamUsage?.input ?? 0,
+            output: delta.usage.output_tokens,
+          }
+        }
       } else if (event.type === 'message_stop') {
-        yield { type: 'done', data: {} }
+        yield { type: 'done', data: { model: streamModel, usage: streamUsage } }
       }
     }
   }
