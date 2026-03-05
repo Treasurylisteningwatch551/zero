@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { mkdirSync, existsSync } from 'node:fs'
 import type { ModelRouter } from '@zero-os/model'
 import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
-import { buildSystemPrompt } from '../agent/prompt'
+import { buildSystemPrompt, buildDynamicContext } from '../agent/prompt'
 import { loadSkills } from '../skill/loader'
 import { allocateBudget } from '../agent/budget'
 import { estimateConversationTokens } from '../agent/context'
@@ -72,6 +72,8 @@ export class Session {
   private messageQueue: QueuedMessage[] = []
   private lastAgentConfig: AgentConfig | null = null
   private lastSystemPrompt: string = ''
+  private cachedSystemPrompt: string | null = null
+  private knownSkillNames = new Set<string>()
 
   constructor(
     source: SessionSource,
@@ -215,25 +217,51 @@ export class Session {
   }
 
   private async processMessage(content: string, options?: HandleMessageOptions): Promise<Message[]> {
-    // Retrieve relevant memories
     const currentModel = this.modelRouter.getCurrentModel()
     const tools = this.toolRegistry.getDefinitions()
+    const agentName = this.lastAgentConfig?.name ?? 'zero'
+    const projectRoot = process.cwd()
+    const workspacePath = join(projectRoot, '.zero', 'workspace', agentName)
 
-    let systemPrompt: string
-    let retrievedMemories: string[] = []
+    // === STATIC: System Prompt (built once per session, prompt cache friendly) ===
+    if (!this.cachedSystemPrompt) {
+      const identity = this.deps.identityReader?.(agentName)
+      const globalIdentity = identity?.global ?? this.deps.globalIdentity ?? ''
+      const agentIdentity = identity?.agent ?? this.deps.agentIdentity ?? ''
 
-    // Hot-reload memo content on each call
+      // Multi-source skill loading: global + workspace
+      const globalSkills = loadSkills(join(projectRoot, '.zero', 'skills'))
+      const workspaceSkills = loadSkills(join(workspacePath, 'skills'))
+      const skills = [...globalSkills, ...workspaceSkills]
+
+      this.cachedSystemPrompt = buildSystemPrompt({
+        agentName,
+        agentDescription: '擅长 TypeScript 全栈开发，使用 Bun 运行时。',
+        tools,
+        skills,
+        globalIdentity,
+        agentIdentity,
+        workspacePath,
+        projectRoot,
+      })
+
+      for (const s of skills) this.knownSkillNames.add(s.name)
+    }
+
+    const systemPrompt = this.cachedSystemPrompt
+    this.lastSystemPrompt = systemPrompt
+
+    // === DYNAMIC: Per-message context ===
+
+    // Hot-reload memo
     const memoContent = this.deps.memoReader?.() ?? this.deps.memoContent ?? ''
 
-    // Hot-reload identity on each call
-    const agentName = this.lastAgentConfig?.name ?? 'zero'
-    const identity = this.deps.identityReader?.(agentName)
-    const globalIdentity = identity?.global ?? this.deps.globalIdentity ?? ''
-    const agentIdentity = identity?.agent ?? this.deps.agentIdentity ?? ''
-
-    // Retrieval decision: determine if we need to search memories
+    // Memory retrieval decision
     let memories: import('@zero-os/shared').Memory[] = []
+    let retrievedMemories: string[] = []
     if (this.deps.memoryRetriever) {
+      const identity = this.deps.identityReader?.(agentName)
+      const globalIdentity = identity?.global ?? this.deps.globalIdentity ?? ''
       const adapter = this.modelRouter.getAdapter()
       const decisionPrompt = buildRetrievalDecisionPrompt(content, globalIdentity)
       try {
@@ -254,13 +282,11 @@ export class Session {
             const results = await this.deps.memoryRetriever.retrieve(query, { topN: 3 })
             memories.push(...results)
           }
-          // Deduplicate by ID
           const seen = new Set<string>()
           memories = memories.filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true })
           memories = memories.slice(0, 5)
         }
       } catch {
-        // Fallback: direct retrieval if decision call fails
         memories = await this.deps.memoryRetriever.retrieve(content, { topN: 5 })
       }
       retrievedMemories = memories.map(
@@ -268,33 +294,21 @@ export class Session {
       )
     }
 
-    const projectRoot = process.cwd()
-    const workspacePath = join(projectRoot, '.zero', 'workspace', agentName)
+    // Detect newly added skills (incremental notification)
+    const globalSkills = loadSkills(join(projectRoot, '.zero', 'skills'))
+    const workspaceSkills = loadSkills(join(workspacePath, 'skills'))
+    const allSkills = [...globalSkills, ...workspaceSkills]
+    const newSkills = allSkills.filter(s => !this.knownSkillNames.has(s.name))
+    for (const s of newSkills) this.knownSkillNames.add(s.name)
 
-    // Hot-reload skills on each call
-    const skills = loadSkills(join(projectRoot, '.zero', 'skills'))
-
-    if (globalIdentity || agentIdentity || memoContent) {
-      // Use structured XML prompt builder
-      systemPrompt = buildSystemPrompt({
-        agentName,
-        agentDescription: '擅长 TypeScript 全栈开发，使用 Bun 运行时。',
-        tools,
-        skills,
-        globalIdentity,
-        agentIdentity,
-        memo: memoContent,
-        retrievedMemories: memories,
-        currentTime: new Date().toISOString(),
-        workspacePath,
-        projectRoot,
-      })
-    } else {
-      // Backward compatible: simple prompt
-      systemPrompt = 'You are ZeRo OS, an AI agent system running on macOS.'
-    }
-
-    this.lastSystemPrompt = systemPrompt
+    // Build dynamic context and inject into user message
+    const dynamicCtx = buildDynamicContext({
+      currentTime: new Date().toISOString(),
+      memo: memoContent,
+      retrievedMemories: memories,
+      newSkills: newSkills.length > 0 ? newSkills : undefined,
+    })
+    const enrichedContent = `${dynamicCtx}\n\n${content}`
 
     const context: AgentContext = {
       systemPrompt,
@@ -321,7 +335,7 @@ export class Session {
     }
     const newMessages = await this.agent!.run(
       context,
-      content,
+      enrichedContent,
       options?.images,
       onNewMessage,
       options?.onTextDelta,

@@ -1,30 +1,51 @@
-import type { PromptComponents, SkillDefinition } from '@zero-os/shared'
+import type { PromptComponents, DynamicContext, SkillDefinition } from '@zero-os/shared'
 import type { ToolDefinition, Memory } from '@zero-os/shared'
 import { truncateToTokens } from '@zero-os/shared'
 import { enforceFixedBudget } from './budget'
 import { CONTEXT_PARAMS } from './params'
 
+/**
+ * Build System Prompt — static, built once per session for prompt cache stability.
+ * Does NOT include dynamic content (time, memo, memories) — those go in buildDynamicContext().
+ */
 export function buildSystemPrompt(components: PromptComponents): string {
   const sections: string[] = []
 
-  sections.push(buildRoleBlock(components.agentName, components.agentDescription, components.currentTime, components.workspacePath, components.projectRoot))
+  sections.push(buildRoleBlock(components.agentName, components.agentDescription, components.workspacePath, components.projectRoot))
   sections.push(buildRulesBlock())
   sections.push(buildToolRulesBlock(components.tools))
   if (components.skills && components.skills.length > 0) {
-    sections.push(buildSkillsBlock(components.skills))
+    sections.push(buildSkillCatalog(components.skills))
   }
   sections.push(buildConstraintsBlock())
   sections.push(buildIdentityBlock(components.globalIdentity, components.agentIdentity, components.agentName))
-  sections.push(buildMemoBlock(components.memo))
-
-  if (components.retrievedMemories.length > 0) {
-    sections.push(buildRetrievedMemoryBlock(components.retrievedMemories))
-  }
 
   return sections.join('\n\n')
 }
 
-export function buildRoleBlock(agentName: string, agentDescription: string, currentTime: string, workspacePath?: string, projectRoot?: string): string {
+/**
+ * Build dynamic context injected as <system-reminder> in user message each turn.
+ */
+export function buildDynamicContext(ctx: DynamicContext): string {
+  const parts: string[] = []
+  parts.push(`当前时间：${ctx.currentTime}`)
+
+  if (ctx.memo) {
+    parts.push(enforceFixedBudget(`<memo>\n${ctx.memo}\n</memo>`, 1500, 'Memo'))
+  }
+
+  if (ctx.retrievedMemories.length > 0) {
+    parts.push(buildRetrievedMemoryBlock(ctx.retrievedMemories))
+  }
+
+  if (ctx.newSkills && ctx.newSkills.length > 0) {
+    parts.push(buildSkillReminder(ctx.newSkills))
+  }
+
+  return `<system-reminder>\n${parts.join('\n\n')}\n</system-reminder>`
+}
+
+export function buildRoleBlock(agentName: string, agentDescription: string, workspacePath?: string, projectRoot?: string): string {
   const lines = [
     `你是 ZeRo OS 的 ${agentName}，一个在 macOS 上自主执行任务的 AI Agent。`,
     agentDescription,
@@ -33,7 +54,6 @@ export function buildRoleBlock(agentName: string, agentDescription: string, curr
     lines.push(`你的工作目录是 ${workspacePath}，下载和临时文件放在此目录。最终产出物放到 ${projectRoot}/.zero/workspace/shared/。`)
     lines.push(`项目根目录是 ${projectRoot}，源代码在此目录下。`)
   }
-  lines.push(`当前时间：${currentTime}`)
   const content = lines.join('\n')
   return enforceFixedBudget(`<role>\n${content}\n</role>`, 600, 'Role')
 }
@@ -104,6 +124,37 @@ export function buildRetrievedMemoryBlock(memories: Memory[]): string {
   return enforceFixedBudget(`<retrieved_memories>\n${content}\n</retrieved_memories>`, 2000, 'Retrieved Memories')
 }
 
+/**
+ * Build lightweight skill catalog for System Prompt — only metadata, no full content.
+ * Agent reads SKILL.md via Read tool when a skill is needed (Level 2 progressive disclosure).
+ */
+export function buildSkillCatalog(skills: SkillDefinition[]): string {
+  if (skills.length === 0) return ''
+
+  const entries = skills.map(s => {
+    const brief = s.description.split('\n').slice(0, 2).join(' ').trim()
+    return `  <skill name="${s.name}" path="${s.sourcePath}">\n    ${brief}\n  </skill>`
+  })
+
+  const instruction = '以下是可用的 Skill。当用户需求匹配某个 Skill 时，使用 Read 工具读取其 SKILL.md 获取详细指令，然后按指令执行。'
+  const content = `<skill_catalog>\n${instruction}\n\n${entries.join('\n\n')}\n</skill_catalog>`
+  return enforceFixedBudget(content, CONTEXT_PARAMS.budget.skillCatalog, 'Skill Catalog')
+}
+
+/**
+ * Build incremental skill notification for new skills discovered at runtime.
+ */
+export function buildSkillReminder(skills: SkillDefinition[]): string {
+  const entries = skills.map(s => {
+    const brief = s.description.split('\n').slice(0, 2).join(' ').trim()
+    return `  <skill name="${s.name}" path="${s.sourcePath}">\n    ${brief}\n  </skill>`
+  })
+  return `<new_skills>\n新增了以下 Skill，可通过 Read 工具读取 SKILL.md 获取详细指令：\n${entries.join('\n')}\n</new_skills>`
+}
+
+/**
+ * @deprecated Use buildSkillCatalog() for System Prompt and buildDynamicContext() for per-message injection.
+ */
 export function buildSkillsBlock(skills: SkillDefinition[]): string {
   const entries = skills.map(s => {
     const attrs = `name="${s.name}" allowed-tools="${s.allowedTools.join(', ')}"`

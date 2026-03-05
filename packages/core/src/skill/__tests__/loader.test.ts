@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadSkills } from '../loader'
-import { buildSkillsBlock } from '../../agent/prompt'
+import { buildSkillsBlock, buildSkillCatalog } from '../../agent/prompt'
 
 const TEST_DIR = join(import.meta.dir, '__fixtures__', 'skills')
 
@@ -45,6 +45,11 @@ describe('loadSkills', () => {
     expect(skills[0].description).toContain('agent-browser CLI')
   })
 
+  it('includes sourcePath pointing to SKILL.md', () => {
+    const skills = loadSkills(TEST_DIR)
+    expect(skills[0].sourcePath).toBe(join(TEST_DIR, 'browser', 'SKILL.md'))
+  })
+
   it('returns empty array for non-existent directory', () => {
     const skills = loadSkills('/tmp/non-existent-skills-dir')
     expect(skills).toEqual([])
@@ -73,6 +78,7 @@ This skill has no name in frontmatter.
     const noname = skills.find(s => s.name === 'noname')
     expect(noname).toBeDefined()
     expect(noname!.allowedTools).toEqual(['read'])
+    expect(noname!.sourcePath).toBe(join(TEST_DIR, 'noname', 'SKILL.md'))
 
     rmSync(join(TEST_DIR, 'noname'), { recursive: true })
   })
@@ -95,7 +101,7 @@ Minimal skill.
   })
 })
 
-describe('buildSkillsBlock', () => {
+describe('buildSkillsBlock (deprecated)', () => {
   it('renders skills as XML', () => {
     const skills = loadSkills(TEST_DIR)
     const block = buildSkillsBlock(skills)
@@ -107,13 +113,29 @@ describe('buildSkillsBlock', () => {
 
   it('renders multiple skills', () => {
     const block = buildSkillsBlock([
-      { name: 'a', description: 'Skill A', allowedTools: ['bash'], content: 'Content A' },
-      { name: 'b', description: 'Skill B', allowedTools: ['read', 'write'], content: 'Content B' },
+      { name: 'a', description: 'Skill A', allowedTools: ['bash'], content: 'Content A', sourcePath: '/a/SKILL.md' },
+      { name: 'b', description: 'Skill B', allowedTools: ['read', 'write'], content: 'Content B', sourcePath: '/b/SKILL.md' },
     ])
     expect(block).toContain('name="a"')
     expect(block).toContain('name="b"')
     expect(block).toContain('allowed-tools="read, write"')
     expect(block).toContain('Content A')
     expect(block).toContain('Content B')
+  })
+})
+
+describe('buildSkillCatalog', () => {
+  it('renders skill metadata without full content', () => {
+    const skills = loadSkills(TEST_DIR)
+    const catalog = buildSkillCatalog(skills)
+
+    expect(catalog).toContain('<skill_catalog>')
+    expect(catalog).toContain('</skill_catalog>')
+    expect(catalog).toContain('name="browser"')
+    expect(catalog).toContain(`path="${join(TEST_DIR, 'browser', 'SKILL.md')}"`)
+    expect(catalog).toContain('agent-browser CLI')
+    // Should NOT contain the full SKILL.md content
+    expect(catalog).not.toContain('# Browser Skill')
+    expect(catalog).not.toContain('agent-browser open')
   })
 })

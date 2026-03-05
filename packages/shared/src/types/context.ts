@@ -6,8 +6,12 @@ export interface SkillDefinition {
   description: string
   allowedTools: string[]
   content: string
+  sourcePath: string
 }
 
+/**
+ * Static components for System Prompt — built once per session for prompt cache stability.
+ */
 export interface PromptComponents {
   agentName: string
   agentDescription: string
@@ -15,11 +19,18 @@ export interface PromptComponents {
   skills?: SkillDefinition[]
   globalIdentity: string
   agentIdentity: string
-  memo: string
-  retrievedMemories: Memory[]
-  currentTime: string
   workspacePath?: string
   projectRoot?: string
+}
+
+/**
+ * Dynamic context injected into user message as <system-reminder> each turn.
+ */
+export interface DynamicContext {
+  currentTime: string
+  memo: string
+  retrievedMemories: Memory[]
+  newSkills?: SkillDefinition[]
 }
 
 export interface ContextBudget {
@@ -27,8 +38,7 @@ export interface ContextBudget {
   toolRules: number
   constraints: number
   identity: number
-  memo: number
-  retrievedMemory: number
+  skillCatalog: number
   conversation: number
   reserved: number
 }

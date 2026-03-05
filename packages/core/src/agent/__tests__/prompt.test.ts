@@ -8,6 +8,9 @@ import {
   buildIdentityBlock,
   buildMemoBlock,
   buildRetrievedMemoryBlock,
+  buildSkillCatalog,
+  buildDynamicContext,
+  buildSkillReminder,
 } from '../prompt'
 
 const makeMemory = (overrides: Partial<import('@zero-os/shared').Memory> = {}): import('@zero-os/shared').Memory => ({
@@ -30,16 +33,30 @@ const makeTool = (name: string): import('@zero-os/shared').ToolDefinition => ({
   parameters: {},
 })
 
+const makeSkill = (name: string, description = 'A test skill.'): import('@zero-os/shared').SkillDefinition => ({
+  name,
+  description,
+  allowedTools: ['bash'],
+  content: `# ${name} Skill\n\nFull content here.`,
+  sourcePath: `/path/to/skills/${name}/SKILL.md`,
+})
+
 describe('buildRoleBlock', () => {
   test('contains agent name and description in XML tags', () => {
-    const result = buildRoleBlock('Coder', '负责编写和修改代码', '2026-03-03T12:00:00Z')
+    const result = buildRoleBlock('Coder', '负责编写和修改代码')
 
     expect(result).toContain('<role>')
     expect(result).toContain('</role>')
     expect(result).toContain('Coder')
     expect(result).toContain('负责编写和修改代码')
-    expect(result).toContain('2026-03-03T12:00:00Z')
     expect(result).toContain('ZeRo OS')
+  })
+
+  test('includes workspace and project paths when provided', () => {
+    const result = buildRoleBlock('Coder', '负责编写代码', '/workspace/coder', '/project')
+
+    expect(result).toContain('/workspace/coder')
+    expect(result).toContain('/project')
   })
 })
 
@@ -188,17 +205,130 @@ describe('buildRetrievedMemoryBlock', () => {
   })
 })
 
+describe('buildSkillCatalog', () => {
+  test('renders skill metadata in <skill_catalog> tags', () => {
+    const skills = [makeSkill('browser', '通过 agent-browser CLI 控制浏览器。\n触发词：浏览器、打开网页。')]
+    const result = buildSkillCatalog(skills)
+
+    expect(result).toContain('<skill_catalog>')
+    expect(result).toContain('</skill_catalog>')
+    expect(result).toContain('name="browser"')
+    expect(result).toContain('path="/path/to/skills/browser/SKILL.md"')
+    expect(result).toContain('agent-browser CLI')
+    expect(result).toContain('使用 Read 工具读取其 SKILL.md')
+  })
+
+  test('does not include full skill content', () => {
+    const skills = [makeSkill('browser')]
+    const result = buildSkillCatalog(skills)
+
+    expect(result).not.toContain('Full content here')
+  })
+
+  test('returns empty string for no skills', () => {
+    expect(buildSkillCatalog([])).toBe('')
+  })
+
+  test('renders multiple skills', () => {
+    const skills = [makeSkill('browser'), makeSkill('awiki')]
+    const result = buildSkillCatalog(skills)
+
+    expect(result).toContain('name="browser"')
+    expect(result).toContain('name="awiki"')
+  })
+})
+
+describe('buildDynamicContext', () => {
+  test('includes currentTime', () => {
+    const result = buildDynamicContext({
+      currentTime: '2026-03-05T12:00:00Z',
+      memo: '',
+      retrievedMemories: [],
+    })
+
+    expect(result).toContain('<system-reminder>')
+    expect(result).toContain('</system-reminder>')
+    expect(result).toContain('当前时间：2026-03-05T12:00:00Z')
+  })
+
+  test('includes memo when non-empty', () => {
+    const result = buildDynamicContext({
+      currentTime: '2026-03-05T12:00:00Z',
+      memo: '备忘内容',
+      retrievedMemories: [],
+    })
+
+    expect(result).toContain('<memo>')
+    expect(result).toContain('备忘内容')
+    expect(result).toContain('</memo>')
+  })
+
+  test('omits memo when empty', () => {
+    const result = buildDynamicContext({
+      currentTime: '2026-03-05T12:00:00Z',
+      memo: '',
+      retrievedMemories: [],
+    })
+
+    expect(result).not.toContain('<memo>')
+  })
+
+  test('includes retrieved memories when present', () => {
+    const result = buildDynamicContext({
+      currentTime: '2026-03-05T12:00:00Z',
+      memo: '',
+      retrievedMemories: [makeMemory()],
+    })
+
+    expect(result).toContain('<retrieved_memories>')
+    expect(result).toContain('Test Memory')
+  })
+
+  test('includes new skills when present', () => {
+    const result = buildDynamicContext({
+      currentTime: '2026-03-05T12:00:00Z',
+      memo: '',
+      retrievedMemories: [],
+      newSkills: [makeSkill('awiki')],
+    })
+
+    expect(result).toContain('<new_skills>')
+    expect(result).toContain('name="awiki"')
+    expect(result).toContain('SKILL.md')
+  })
+
+  test('omits new_skills when undefined', () => {
+    const result = buildDynamicContext({
+      currentTime: '2026-03-05T12:00:00Z',
+      memo: '',
+      retrievedMemories: [],
+    })
+
+    expect(result).not.toContain('<new_skills>')
+  })
+})
+
+describe('buildSkillReminder', () => {
+  test('renders new skill notification', () => {
+    const skills = [makeSkill('awiki', '搜索和查询 wiki 内容。')]
+    const result = buildSkillReminder(skills)
+
+    expect(result).toContain('<new_skills>')
+    expect(result).toContain('</new_skills>')
+    expect(result).toContain('name="awiki"')
+    expect(result).toContain('path="/path/to/skills/awiki/SKILL.md"')
+    expect(result).toContain('Read 工具读取 SKILL.md')
+  })
+})
+
 describe('buildSystemPrompt', () => {
-  test('assembles all sections and omits retrieved_memories when empty', () => {
+  test('assembles static sections without dynamic content', () => {
     const result = buildSystemPrompt({
       agentName: 'Coder',
       agentDescription: '负责编写代码',
       tools: [makeTool('Read'), makeTool('Write')],
       globalIdentity: '全局身份',
       agentIdentity: '代理身份',
-      memo: '备忘内容',
-      retrievedMemories: [],
-      currentTime: '2026-03-03T12:00:00Z',
     })
 
     expect(result).toContain('<role>')
@@ -206,29 +336,36 @@ describe('buildSystemPrompt', () => {
     expect(result).toContain('<tool_rules>')
     expect(result).toContain('<constraints>')
     expect(result).toContain('<identity>')
-    expect(result).toContain('<memo>')
+    // Should NOT contain dynamic content
+    expect(result).not.toContain('<memo>')
     expect(result).not.toContain('<retrieved_memories>')
+    expect(result).not.toContain('<system-reminder>')
   })
 
-  test('includes retrieved_memories when memories are provided', () => {
+  test('includes skill_catalog when skills provided', () => {
     const result = buildSystemPrompt({
       agentName: 'Coder',
       agentDescription: '负责编写代码',
       tools: [makeTool('Read')],
+      skills: [makeSkill('browser')],
       globalIdentity: '全局身份',
       agentIdentity: '代理身份',
-      memo: '备忘内容',
-      retrievedMemories: [makeMemory()],
-      currentTime: '2026-03-03T12:00:00Z',
     })
 
-    expect(result).toContain('<role>')
-    expect(result).toContain('<rules>')
-    expect(result).toContain('<tool_rules>')
-    expect(result).toContain('<constraints>')
-    expect(result).toContain('<identity>')
-    expect(result).toContain('<memo>')
-    expect(result).toContain('<retrieved_memories>')
-    expect(result).toContain('Test Memory')
+    expect(result).toContain('<skill_catalog>')
+    expect(result).toContain('name="browser"')
+    expect(result).not.toContain('Full content here')
+  })
+
+  test('omits skill_catalog when no skills', () => {
+    const result = buildSystemPrompt({
+      agentName: 'Coder',
+      agentDescription: '负责编写代码',
+      tools: [makeTool('Read')],
+      globalIdentity: '',
+      agentIdentity: '',
+    })
+
+    expect(result).not.toContain('<skill_catalog>')
   })
 })

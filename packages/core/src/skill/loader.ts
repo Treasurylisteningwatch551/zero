@@ -29,6 +29,7 @@ export function loadSkills(skillsDir: string): SkillDefinition[] {
         description: data.description ?? '',
         allowedTools: data['allowed-tools'] ?? [],
         content: content.trim(),
+        sourcePath: skillFile,
       })
     } catch (err) {
       console.warn(`[skill] Failed to load ${skillFile}:`, err)

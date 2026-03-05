@@ -30,7 +30,7 @@ export type { TaskNode, TaskResult } from './task/orchestrator'
 export { loadSkills } from './skill/loader'
 
 // Context Engineering
-export { buildSystemPrompt, buildSubAgentPrompt, buildSkillsBlock } from './agent/prompt'
+export { buildSystemPrompt, buildSubAgentPrompt, buildSkillsBlock, buildSkillCatalog, buildDynamicContext, buildSkillReminder } from './agent/prompt'
 export { allocateBudget, shouldCompress } from './agent/budget'
 export { truncateToolOutput } from './agent/truncate'
 export { prepareConversationHistory, estimateConversationTokens } from './agent/context'

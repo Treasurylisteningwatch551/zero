@@ -3,14 +3,13 @@
  * All magic numbers are collected here for easy experimentation.
  */
 export const CONTEXT_PARAMS = {
-  /** System Prompt fixed budget allocations (tokens) */
+  /** System Prompt fixed budget allocations (tokens) — static, built once per session */
   budget: {
     role: 500,
     toolRules: 800,
     constraints: 300,
     identity: 3000,
-    memo: 1500,
-    retrievedMemory: 2000,
+    skillCatalog: 2000,
   },
 
   /** Conversation compression */

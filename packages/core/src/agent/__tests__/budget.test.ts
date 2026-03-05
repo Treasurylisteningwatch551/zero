@@ -9,20 +9,19 @@ describe('allocateBudget', () => {
     expect(budget.toolRules).toBe(800)
     expect(budget.constraints).toBe(300)
     expect(budget.identity).toBe(3000)
-    expect(budget.memo).toBe(1500)
-    expect(budget.retrievedMemory).toBe(2000)
+    expect(budget.skillCatalog).toBe(2000)
   })
 
   test('calculates conversation budget correctly (maxContext - maxOutput - fixedTotal)', () => {
     const maxContext = 100_000
     const maxOutput = 4_000
-    const fixedTotal = 500 + 800 + 300 + 3000 + 1500 + 2000 // 8100
+    const fixedTotal = 500 + 800 + 300 + 3000 + 2000 // 6600
 
     const budget = allocateBudget(maxContext, maxOutput)
 
     expect(budget.reserved).toBe(maxOutput)
     expect(budget.conversation).toBe(maxContext - maxOutput - fixedTotal)
-    expect(budget.conversation).toBe(87_900)
+    expect(budget.conversation).toBe(89_400)
   })
 })
 
