@@ -154,14 +154,6 @@ export class FeishuChannel implements Channel {
             images: images.length > 0 ? images : undefined,
           }
 
-          // Add typing reaction immediately (fire-and-forget, don't block ACK)
-          if (this.client && messageId) {
-            this.client.im.messageReaction.create({
-              path: { message_id: messageId },
-              data: { reaction_type: { emoji_type: 'Typing' } },
-            }).catch(() => {})
-          }
-
           // Fire-and-forget: return immediately so SDK sends ACK within 3s
           this.messageHandler(incoming).catch((err) => {
             console.error('[FeishuChannel] Async handler error:', err)
@@ -216,6 +208,34 @@ export class FeishuChannel implements Channel {
 
   setMessageHandler(handler: MessageHandler): void {
     this.messageHandler = handler
+  }
+
+  /**
+   * Add an emoji reaction to a message. Returns the reaction_id (for later removal) or null on failure.
+   */
+  async react(messageId: string, emojiType: string): Promise<string | null> {
+    if (!this.client) return null
+    try {
+      const resp = await this.client.im.messageReaction.create({
+        path: { message_id: messageId },
+        data: { reaction_type: { emoji_type: emojiType } },
+      })
+      return (resp as any)?.reaction_id ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Remove a reaction by its reaction_id.
+   */
+  async removeReaction(messageId: string, reactionId: string): Promise<void> {
+    if (!this.client) return
+    try {
+      await this.client.im.messageReaction.delete({
+        path: { message_id: messageId, reaction_id: reactionId },
+      })
+    } catch {}
   }
 
   /**

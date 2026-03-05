@@ -271,6 +271,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
       const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
       const messageId = msg.metadata?.messageId as string
       let activeSessionId: string | null = null
+      let typingReactionId: string | null = null
       try {
         if (isRestartCommand(msg.content)) {
           const reply = 'Restarting ZeRo OS...'
@@ -313,6 +314,11 @@ export async function startZeroOS(): Promise<ZeroOS> {
           })
         }
 
+        // Add typing reaction before processing
+        typingReactionId = messageId
+          ? await feishuChannel.react(messageId, 'Typing')
+          : null
+
         // Progressive messaging: send each assistant text to IM as it arrives
         let firstReply = true
         let lastSentMsgId: string | null = null
@@ -348,6 +354,12 @@ export async function startZeroOS(): Promise<ZeroOS> {
             await feishuChannel.send(chatId, replyText)
           }
         }
+
+        // Success: remove typing, add done reaction
+        if (messageId) {
+          if (typingReactionId) feishuChannel.removeReaction(messageId, typingReactionId).catch(() => {})
+          feishuChannel.react(messageId, 'DONE').catch(() => {})
+        }
       } catch (err) {
         console.error('[ZeRo OS] Feishu message handler error:', err)
         const errorMessage = err instanceof Error ? err.message : String(err)
@@ -369,6 +381,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
           : 'An error occurred processing your message.'
         try {
           if (messageId) {
+            if (typingReactionId) feishuChannel.removeReaction(messageId, typingReactionId).catch(() => {})
             await feishuChannel.reply(messageId, userReply)
           } else {
             await feishuChannel.send(chatId, userReply)
@@ -516,6 +529,11 @@ export async function startZeroOS(): Promise<ZeroOS> {
             await telegramChannel.sendRich(chatId, finalReply)
           }
         }
+
+        // Success: replace 👀 with ✅
+        if (messageId) {
+          telegramChannel.react(chatId, messageId, '✅').catch(() => {})
+        }
       } catch (err) {
         console.error('[ZeRo OS] Telegram message handler error:', err)
         const errorMessage = err instanceof Error ? err.message : String(err)
@@ -535,6 +553,10 @@ export async function startZeroOS(): Promise<ZeroOS> {
         const userReply = sessionWasArchived
           ? 'Session corrupted and has been reset. Please resend your message.'
           : 'An error occurred processing your message.'
+        // Error: replace 👀 with ❌
+        if (messageId) {
+          telegramChannel.react(chatId, messageId, '❌').catch(() => {})
+        }
         try {
           if (messageId) {
             await telegramChannel.replyRich(chatId, messageId, userReply)
