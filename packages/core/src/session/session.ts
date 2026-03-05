@@ -301,19 +301,19 @@ export class Session {
     const newSkills = allSkills.filter(s => !this.knownSkillNames.has(s.name))
     for (const s of newSkills) this.knownSkillNames.add(s.name)
 
-    // Build dynamic context and inject into user message
+    // Build dynamic context — injected into API request only, not stored in messages
     const dynamicCtx = buildDynamicContext({
       currentTime: new Date().toISOString(),
       memo: memoContent,
       retrievedMemories: memories,
       newSkills: newSkills.length > 0 ? newSkills : undefined,
     })
-    const enrichedContent = `${dynamicCtx}\n\n${content}`
 
     const context: AgentContext = {
       systemPrompt,
       identityMemory: this.deps.identityMemory,
       retrievedMemories,
+      dynamicContext: dynamicCtx,
       conversationHistory: this.messages,
       tools,
       maxContext: currentModel?.modelConfig.maxContext,
@@ -335,7 +335,7 @@ export class Session {
     }
     const newMessages = await this.agent!.run(
       context,
-      enrichedContent,
+      content,
       options?.images,
       onNewMessage,
       options?.onTextDelta,

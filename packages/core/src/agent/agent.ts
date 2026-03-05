@@ -31,6 +31,8 @@ export interface AgentContext {
   systemPrompt: string
   identityMemory?: string
   retrievedMemories?: string[]
+  /** Dynamic context (<system-reminder>) injected into user message for the API only, not stored. */
+  dynamicContext?: string
   conversationHistory: Message[]
   tools: ToolDefinition[]
   maxContext?: number
@@ -115,9 +117,19 @@ export class Agent {
       content: userContent,
       createdAt: now(),
     }
-    messages.push(userMsg)
     newMessages.push(userMsg)
     onNewMessage?.(userMsg)
+
+    // Inject dynamic context into API copy only — stored message stays clean
+    if (context.dynamicContext) {
+      const enrichedContent: ContentBlock[] = [
+        { type: 'text', text: context.dynamicContext },
+        ...userContent,
+      ]
+      messages.push({ ...userMsg, content: enrichedContent })
+    } else {
+      messages.push(userMsg)
+    }
 
     // Build system prompt (retrieved memories are already in XML System Prompt if using structured builder)
     const systemParts: string[] = [context.systemPrompt]
