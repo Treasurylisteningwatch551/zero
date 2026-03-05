@@ -24,7 +24,8 @@ describe('FetchTool', () => {
   test('returns error for missing url', async () => {
     const result = await tool.run(ctx, {})
     expect(result.success).toBe(false)
-    expect(result.output).toContain('Missing required parameter: url')
+    expect(result.output).toContain('missing required fields')
+    expect(result.output).toContain('url')
   })
 
   test('fetches HTML page and converts to markdown', async () => {

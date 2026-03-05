@@ -498,6 +498,10 @@ export class Agent {
       } catch (e) {
         input = { __parse_error: e instanceof Error ? e.message : 'Malformed tool input JSON' }
       }
+      // Empty args with tool call means truncation (LLM started tool_use but args were cut off)
+      if (Object.keys(input).length === 0 && !tc.args.trim()) {
+        input = { __parse_error: `Tool arguments empty (likely truncated by max_tokens, stopReason=${stopReason})` }
+      }
       content.push({
         type: 'tool_use',
         id: tc.id,

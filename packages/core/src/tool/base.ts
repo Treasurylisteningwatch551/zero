@@ -69,6 +69,8 @@ export abstract class BaseTool {
   async run(ctx: ToolContext, input: unknown): Promise<ToolResult> {
     const startTime = Date.now()
     try {
+      // Validate required fields from tool schema
+      this.validateRequiredFields(input)
       await this.fuseCheck(input)
       await this.beforeExecute(ctx, input)
       const result = await this.execute(ctx, input)
@@ -89,6 +91,22 @@ export abstract class BaseTool {
         durationMs,
       })
       return result
+    }
+  }
+
+  /**
+   * Validate that all required fields from the tool's parameters schema exist in the input.
+   */
+  private validateRequiredFields(input: unknown): void {
+    const required = (this.parameters as Record<string, unknown>).required
+    if (!Array.isArray(required) || required.length === 0) return
+    if (!input || typeof input !== 'object') {
+      throw new Error(`Tool "${this.name}" requires fields [${required.join(', ')}] but received ${input === null ? 'null' : typeof input}`)
+    }
+    const obj = input as Record<string, unknown>
+    const missing = required.filter((field: string) => obj[field] === undefined || obj[field] === null)
+    if (missing.length > 0) {
+      throw new Error(`Tool "${this.name}" missing required fields: [${missing.join(', ')}]. Input may have been truncated by max_tokens.`)
     }
   }
 
