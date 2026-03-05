@@ -876,6 +876,228 @@ function formatRetrievedMemories(memories: Memory[]): string {
 
 ---
 
+## 记忆写入的上下文处理
+
+写入管线的架构设计见 [Architecture - 记忆的写入]。本节定义写入流程中涉及的上下文工程：写入意图检测 Prompt、事件分类 Prompt、框架层拦截机制、和写入结果的上下文通知格式。
+
+### 写入意图检测
+
+写入意图的识别分两个层面，对应两种写入触发方式：
+
+1. **框架层自动拦截**：在用户消息到达 Agent 前，检测简单的"记住 X"模式，自动执行写入。
+2. **Agent 工具调用**：Agent 通过 MemoryWrite 工具主动写入，用于需要推理的复杂写入场景。
+
+框架层处理轻量级写入（不消耗 Agent 推理轮次），Agent 工具处理重量级写入（需要上下文理解）。与读取端对称——读取端的记忆检索也是框架层做的独立调用，不是 Agent 自己检索。
+
+### 框架层写入拦截
+
+```
+用户消息到达
+  │
+  ├──→ 正则快速匹配（无模型调用，延迟 < 1ms）
+  │     匹配模式：/^(记住|记下|别忘了|以后|今后).+/
+  │               /^我(喜欢|偏好|习惯).+/
+  │               /(帮我|请)(记住|记录|记下).+/
+  │
+  │     未命中 → 用户消息正常传给 Agent，不拦截
+  │     命中 ↓
+  │
+  ├──→ 便宜模型确认 + 提取（单轮调用，延迟 < 500ms）
+  │     确认是写入意图 → 提取核心内容 + type 映射为 path/target
+  │     否定（误匹配）→ 用户消息正常传给 Agent
+  │
+  │     确认 ↓
+  │
+  ├──→ 执行写入（Path A 或 B，由 Prompt 返回的 type 直接映射）
+  │
+  ├──→ 生成 system_notice 通知 Agent "已自动记录"
+  │
+  └──→ 用户消息正常传给 Agent（Agent 仍需回应用户）
+```
+
+关键设计点：
+
+1. **两步过滤**：正则先过滤掉 90%+ 的非写入消息，只有命中正则的才调用模型确认。避免每条消息都做模型调用。
+2. **拦截不阻断**：拦截后仍然将原始消息传给 Agent。Agent 需要回应用户"好的，已记住"，而 system_notice 告诉 Agent 不需要重复执行写入操作。
+3. **不占用主 Session 上下文**：便宜模型确认是独立单轮调用，不进入主 Session 的 messages 数组。
+
+### 写入拦截确认 Prompt
+
+```typescript
+// packages/memory/src/write-intent.ts
+
+const WRITE_INTENT_PROMPT = `
+<instruction>
+分析用户消息，判断是否包含需要记录到记忆库的意图。
+
+是记忆写入意图的情况：
+- "记住我喜欢用 Vim"（用户偏好 → preferences）
+- "以后部署前先跑测试"（行为规则 → agent identity）
+- "别忘了明天有个会议"（待办事项 → memo）
+- "记一下，这个 API 的 base_url 改了"（知识条目 → notes）
+
+不是记忆写入意图的情况：
+- "帮我记录一下这个函数的文档"（文档写入，不是记忆写入）
+- "记得把这个文件保存一下"（文件操作指令）
+- "我记得之前有个类似的问题"（回忆/检索意图，不是写入）
+
+返回 JSON，不要其他内容：
+是写入: {"write": true, "type": "global_pref|agent_pref|task_note|knowledge", "content": "提取的核心内容"}
+不是:   {"write": false}
+
+type 说明：
+- global_pref: 用户个人偏好、沟通习惯、通用约束 → 写入 Path A (preferences/global.md)
+  例："我喜欢用 Vim"、"中文沟通，技术术语保留英文"
+- agent_pref: 针对特定 Agent 的行为规则、技术栈约束 → 写入 Path A (preferences/agents/{name}.md)
+  例："以后部署前先跑测试"、"代码注释用英文"
+- task_note: 当前任务相关的临时约束 → 写入 Path A (memo)
+  例："别忘了明天有个会议"、"先别动 config.ts"
+- knowledge: 事实性知识、技术细节 → 写入 Path B (notes)
+  例："这个 API 的 base_url 改了"、"DeepSeek 的速率限制是 60 RPM"
+</instruction>
+
+<user_message>
+{用户消息}
+</user_message>
+`.trim()
+```
+
+此 Prompt 与检索判断的 `RETRIEVAL_DECISION_PROMPT` 风格一致：单轮调用、便宜模型、返回 JSON。
+
+### 事件分类 Prompt
+
+用于 `user_request` 和 `agent_discovery` 等模糊事件的分类（确定性事件不需要模型调用）：
+
+```typescript
+// packages/memory/src/classifier.ts
+
+const EVENT_CLASSIFY_PROMPT = `
+<instruction>
+将以下事件分类到正确的记忆写入路径。
+
+Path A（身份记忆 / 备忘录）适合：
+- 用户偏好、行为规则、Agent 工作模式
+- 当前目标、任务状态、待办事项
+- 需要同 Session 立即可见的约束
+
+Path B（工作记忆库）适合：
+- 故障案例、可复用修复步骤、架构决策
+- 需要跨 Session 检索的知识
+- 事实性信息、技术细节
+
+返回 JSON，不要其他内容：
+{"path": "A", "target": "global|agent|memo", "reason": "分类理由"}
+或
+{"path": "B", "target": "incident|runbook|decision|note", "reason": "分类理由"}
+</instruction>
+
+<event>
+来源：{event_source}
+内容：{event_content}
+当前 Agent：{agent_name}
+</event>
+`.trim()
+```
+
+### Session 分析 Prompt
+
+Session 结束时用便宜模型生成分析，驱动后续的跨路径写入流（[Architecture - Session 结束写入流]）：
+
+```typescript
+// packages/memory/src/lifecycle.ts
+
+const SESSION_ANALYSIS_PROMPT = `
+<instruction>
+分析以下 Session 的完整对话历史，生成结构化的 Session 分析。
+
+输出 JSON：
+{
+  "summary": "Session 总结，800 tokens 以内",
+  "outcome": "success | partial | failed",
+  "extractable": [
+    {"type": "incident|runbook|decision", "title": "标题", "content": "内容", "tags": ["tag1"]}
+  ],
+  "preferenceUpdates": [
+    {"target": "global|agent", "content": "需要更新的偏好内容"}
+  ],
+  "memoCleanup": ["可以从 memo 中删除的条目描述"]
+}
+
+extractable 提取规则：
+- 遇到的错误 + 解决方案 → incident
+- 可复用的操作步骤 → runbook
+- 做出的架构或方案选择 → decision
+- 没有值得提取的内容时 extractable 为空数组
+
+preferenceUpdates 提取规则：
+- 用户纠正了 Agent 的行为（如 "不要用 npm" → 更新 agent preferences）
+- 用户表达了新的偏好（如 "代码注释用英文" → 更新 global preferences）
+- 没有行为纠正时 preferenceUpdates 为空数组
+
+memoCleanup 规则：
+- 本 Session 完成的任务对应的 memo 条目可以清理
+- 未完成的任务不清理
+</instruction>
+
+<conversation>
+{对话历史}
+</conversation>
+`.trim()
+```
+
+此调用使用便宜模型，不占用主 Session 上下文。Session 结束后执行，不影响 Agent 响应延迟。
+
+### 写入通知的上下文注入
+
+#### system_notice 格式（框架层自动写入后）
+
+框架层自动执行写入后，需要通知 Agent 两件事：(1) 已经自动记录了，(2) 不需要 Agent 重复执行写入。
+
+```xml
+<system_notice>
+已自动记录到记忆库：
+- 写入路径：{path_description}
+- 内容摘要：{content_summary}
+- 状态：{draft | verified}
+你不需要重复记录此内容。请继续回应用户的消息。
+</system_notice>
+```
+
+注入方式与排队消息注入一致（[排队消息注入]）：合并到当前 user 消息的 text content block 中。使用 `<system_notice>` 标签——与兜底续接 Prompt（本文档"排队消息注入"章节）使用的标签一致，语义为"系统生成的通知，非用户消息"。
+
+#### MemoryWrite 工具结果格式
+
+Agent 通过 MemoryWrite 工具写入时，结果作为 `tool_result` 返回：
+
+```
+写入成功。
+- 路径：{Path A: preferences/global.md | Path B: incidents/inc_xxx}
+- 标题：{memory_title}
+- 状态：{status}，置信度：{confidence}
+- 去重结果：{与 {existing_id} 合并 | 无重复，新建记录}
+```
+
+结果控制在 200 tokens 以内，遵循工具输出的 token 预算限制。
+
+### 写入路由的两条路径
+
+写入端有两种路由机制，各自独立，不要混淆：
+
+1. **框架层拦截**（用户消息触发）：`WRITE_INTENT_PROMPT` 返回 type → `resolvePathAndTarget` 直接映射为 path/target。**不经过 EventClassifier**——框架层处理的是用户显式的"记住 X"请求，type 到 path/target 的映射是确定性的。
+2. **程序化事件**（系统内部触发）：由 `EventClassifier.classify()` 路由。处理 `task_status_change`、`error_recurring` 等运行时事件。跨路径事件（`session_end`/`session_interrupt`）不经过分类器，由 `SessionLifecycle` 直接编排。
+
+### 与记忆检索的对比
+
+| 维度 | 记忆检索（读取端） | 记忆写入（写入端） |
+|------|-------------------|-------------------|
+| 调用时机 | 用户消息到达后、Agent 循环前 | 实时（框架层拦截或 Agent 工具调用） |
+| 模型调用 | 便宜模型单轮（检索判断 + query 生成） | 便宜模型单轮（写入意图确认 / 事件分类） |
+| 上下文注入 | 结果注入 System Prompt `<retrieved_memories>` | 通知注入 messages `<system_notice>` |
+| 占用主 Session | 否（独立调用） | 否（便宜模型独立调用），仅 notice 占用少量 token |
+| 无结果时 | 不注入空标签 | 不注入 notice |
+
+---
+
 ## SubAgent 上下文
 
 SubAgent 通过 Task 工具启动（[Architecture - 任务编排]），其上下文设计和主 Agent 有本质区别：SubAgent 是**任务导向的一次性执行者**，不需要完整的对话历史和身份记忆。
@@ -1058,6 +1280,25 @@ async function migrateContext(
 | `retrieval.confidenceThreshold` | 0.6 | 最低 confidence 门槛 |
 | `retrieval.maxQueries` | 3 | 单次检索的最大 query 数 |
 | `retrieval.perMemoryMaxTokens` | 400 | 每条检索结果的最大 token 数 |
+
+### 记忆写入
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `write.intentModel` | 降级链最便宜模型 | 写入意图检测使用的模型 |
+| `write.dedupHighThreshold` | 0.98 | embedding 相似度高于此值直接判定为重复 |
+| `write.dedupLowThreshold` | 0.85 | embedding 相似度低于此值判定为不同 |
+| `write.dedupModel` | 降级链最便宜模型 | 灰色区间去重判断使用的模型 |
+| `write.inboxDefaultConfidence` | 0.3 | inbox 新条目的默认 confidence |
+| `write.autoVerifyConfidence` | 0.7 | 自动升级为 verified 的 confidence 门槛 |
+| `write.autoVerifyMinSessions` | 2 | 自动 verify 要求的最少确认 Session 数 |
+| `write.sessionSummaryConfidence` | 0.8 | Session 总结的 confidence |
+| `write.knowledgeExtractConfidence` | 0.6 | 提炼知识条目的初始 confidence |
+| `write.interruptSummaryConfidence` | 0.5 | 中断 Session 部分总结的 confidence |
+| `write.pathA.globalCapacity` | 1,000 tokens | preferences/global.md 容量上限 |
+| `write.pathA.agentCapacity` | 2,000 tokens | preferences/agents/*.md 容量上限 |
+| `write.pathA.memoCapacity` | 1,500 tokens | memo.md 容量上限 |
+| `write.pathA.warnThreshold` | 0.90 | 容量警告阈值（超过则发出 system_notice） |
 
 ### SubAgent
 

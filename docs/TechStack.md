@@ -64,7 +64,11 @@ zero-os/
 │   │   │   ├── index.ts          #   memory.md 索引维护
 │   │   │   ├── retrieval.ts      #   记忆检索（Embedding + Tag）
 │   │   │   ├── embedding.ts      #   向量化 + 索引
-│   │   │   └── lifecycle.ts      #   记忆写入、整理、归档、冲突解决
+│   │   │   ├── write.ts          #   写入管线（Path A / Path B 路由）
+│   │   │   ├── write-intent.ts   #   写入意图检测（框架层拦截）
+│   │   │   ├── dedup.ts          #   跨 Session 去重（三级阈值）
+│   │   │   ├── classifier.ts     #   事件分类器（确定性 + 模型）
+│   │   │   └── lifecycle.ts      #   记忆整理、归档、冲突解决、Session 结束流
 │   │   └── package.json
 │   │
 │   ├── observe/                  # 观测性
@@ -417,7 +421,7 @@ const sessions = await client.api.sessions.$get()
 | Markdown 编辑 | CodeMirror 6 | Memo 页面 + Memory 编辑模式 |
 | Markdown 渲染 | `react-markdown` + `remark-gfm` | Memory 详情面板的内容渲染 |
 | 字体 | Geist + Geist Mono | UI/UX 文档指定 |
-| 图标 | Phosphor Icons (`@phosphor-icons/react`) | 线条风格，和 Calm Futurism 调性匹配 |
+| 图标 | Lucide React | 线条风格，和 Calm Futurism 调性匹配 |
 | 虚拟列表 | TanStack Virtual | Memory 列表、Logs 表格的大量数据渲染 |
 
 ### 前端目录结构
@@ -475,7 +479,6 @@ apps/web/src/app/
 │   ├── memory.tsx
 │   ├── memo.tsx
 │   ├── logs.tsx
-│   ├── tools.tsx
 │   ├── config.tsx
 │   └── metrics.tsx
 ├── stores/
@@ -1000,6 +1003,541 @@ class EmbeddingPipeline {
 
 ---
 
+## 记忆写入实现
+
+架构设计见 [Architecture - 记忆的写入]，上下文处理（Prompt、通知格式）见 [ContextEngineering - 记忆写入的上下文处理]。
+
+### 写入管线核心
+
+```typescript
+// packages/memory/src/write.ts
+
+/** 写入请求可指定的状态 */
+type WriteStatus = 'draft' | 'verified'
+
+/** 存储层的完整状态集（包含系统管理的状态） */
+type MemoryStatus = WriteStatus | 'corrupted'
+
+interface WriteRequest {
+  path: 'A' | 'B'
+  target: string           // Path A: 'global' | 'agent' | 'memo'，Path B: memory type
+  operation?: 'append' | 'update' | 'remove'  // Path A 专用，默认 'append'
+  content: string
+  confidence: number
+  status: WriteStatus         // 请求时可指定的状态
+  sessionId: string
+  agentName: string
+  tags?: string[]
+}
+
+interface WriteResult {
+  success: boolean
+  memoryId: string
+  action: 'created' | 'merged' | 'rejected'
+  mergedWith?: string      // 合并时的目标记忆 ID
+  capacityWarning?: boolean
+}
+
+class MemoryWriter {
+  private store: MemoryStore
+  private vectorIndex: VectorIndex
+  private tagIndex: TagIndex
+  private dedup: DedupChecker
+  private lockManager: LockManager
+  private logger: Logger
+
+  async write(req: WriteRequest): Promise<WriteResult> {
+    if (req.path === 'A') return this.writePathA(req)
+    return this.writePathB(req)
+  }
+
+  private async writePathA(req: WriteRequest): Promise<WriteResult> {
+    const filePath = this.resolvePathATarget(req.target, req.agentName)
+    const operation = req.operation ?? 'append'
+    const limit = PATH_A_LIMITS[req.target]
+
+    // 文件锁内执行：读取 → 容量检查 → 写入（消除 TOCTOU 竞态）
+    const release = await this.lockManager.acquire(filePath)
+    try {
+      const current = await this.store.read(filePath)
+
+      // 模拟写入后的内容，计算写入后 token 数
+      const projected = this.store.projectSection(current, req.content, req.agentName, operation)
+      const projectedTokens = countTokens(projected)
+
+      if (projectedTokens > limit) {
+        return { success: false, memoryId: '', action: 'rejected', capacityWarning: true }
+      }
+
+      await this.store.applySection(filePath, projected)
+      return {
+        success: true,
+        memoryId: filePath,
+        action: 'created',
+        capacityWarning: projectedTokens > limit * 0.9,
+      }
+    } finally {
+      await release()
+    }
+  }
+
+  private async writePathB(req: WriteRequest): Promise<WriteResult> {
+    // 1. 去重检查
+    const dedupResult = await this.dedup.check(req.content)
+
+    if (dedupResult.action === 'duplicate' && dedupResult.existingId) {
+      return this.mergeInto(dedupResult.existingId, req)
+    }
+
+    // 2. 事务性多层写入（先创建新记录拿到 ID）
+    const result = await this.transactionalWrite(req)
+
+    // 3. 如果判定为 related，建立双向链接（非致命：主记录已落地，关联失败不回滚主记录）
+    if (dedupResult.action === 'related' && dedupResult.existingId && result.success) {
+      try {
+        await this.store.addRelatedBidirectional(dedupResult.existingId, result.memoryId)
+        // addRelatedBidirectional 在同一事务中同时写入 A→B 和 B→A，
+        // 失败时两边都不写入，避免产生单向半链接
+      } catch (error) {
+        // 关联失败是非致命错误——主记录已成功创建并索引化。
+        // 记录日志供后续 memory_cleanup 任务补建关联，不向上层抛错。
+        this.logger.warn('related link failed', { newId: result.memoryId,
+          existingId: dedupResult.existingId, error })
+      }
+    }
+
+    return result
+  }
+}
+
+const PATH_A_LIMITS: Record<string, number> = {
+  global: 1000,   // preferences/global.md
+  agent: 2000,    // preferences/agents/{name}.md
+  memo: 1500,     // memo.md
+}
+```
+
+### 事务性多层写入
+
+Path B 每次写入必须同时维护四层存储：Markdown 文件 + 向量索引 + Tag 索引 + memory.md 全局索引。任一层失败则尝试回滚。回滚本身也可能失败（磁盘故障等），此时标记记忆为 `corrupted`，由 `memory_cleanup` 定时任务修复。
+
+```typescript
+// packages/memory/src/write.ts — transactionalWrite
+
+private async transactionalWrite(req: WriteRequest): Promise<WriteResult> {
+  const memoryId = generateId(req.target)
+  const filePath = `.zero/memory/${req.target}s/${memoryId}.md`
+  const memory = this.buildMemoryEntry(memoryId, req)
+
+  const rollback: (() => Promise<void>)[] = []
+
+  try {
+    // Layer 1: Markdown 文件
+    await this.store.create(filePath, memory)
+    rollback.push(() => this.store.delete(filePath))
+
+    // Layer 2: 向量索引
+    const text = `${memory.title}\n${memory.content}`
+    const vector = await this.embed(text)
+    await this.vectorIndex.upsert(memoryId, vector, {
+      type: memory.type,
+      status: memory.status,
+      confidence: memory.confidence,
+      tags: memory.tags,
+      updatedAt: new Date().toISOString(),
+    })
+    rollback.push(() => this.vectorIndex.remove(memoryId))
+
+    // Layer 3: Tag 索引
+    await this.tagIndex.insert(memoryId, {
+      type: memory.type,
+      status: memory.status,
+      confidence: memory.confidence,
+      tags: memory.tags,
+      sessionId: req.sessionId,
+    })
+    rollback.push(() => this.tagIndex.remove(memoryId))
+
+    // Layer 4: memory.md 全局索引
+    // 先注册回滚（在更新之前），防止 updateIndex 部分写入后抛错时回滚函数未注册
+    rollback.push(() => this.removeFromIndex(memoryId))
+    await this.updateIndex(memory)
+
+    return { success: true, memoryId, action: 'created' }
+  } catch (error) {
+    // 尝试回滚所有已完成的操作（按逆序）
+    let rollbackFailed = false
+    for (const fn of rollback.reverse()) {
+      try {
+        await fn()
+      } catch (rollbackError) {
+        rollbackFailed = true
+        this.logger.error('rollback failed', { memoryId, rollbackError })
+      }
+    }
+
+    // 回滚本身失败 → 标记为 corrupted，由 memory_cleanup 修复
+    if (rollbackFailed) {
+      try {
+        await this.store.markCorrupted(memoryId)
+      } catch (markError) {
+        // 标记也失败：记录到日志，这是最后的信号保留手段
+        this.logger.error('markCorrupted failed, manual intervention needed',
+          { memoryId, markError })
+      }
+    }
+
+    throw error
+  }
+}
+```
+
+### 跨 Session 去重
+
+```typescript
+// packages/memory/src/dedup.ts
+
+interface DedupResult {
+  action: 'duplicate' | 'related' | 'different'
+  existingId?: string
+  similarity: number
+}
+
+class DedupChecker {
+  private vectorIndex: VectorIndex
+
+  async check(content: string): Promise<DedupResult> {
+    const embedding = await this.embed(content)
+    const nearest = await this.vectorIndex.searchNearest(embedding, 3)
+
+    if (!nearest || nearest.length === 0) {
+      return { action: 'different', similarity: 0 }
+    }
+
+    const top = nearest[0]
+
+    // 三级阈值判断
+    if (top.score > 0.98) {
+      return { action: 'duplicate', existingId: top.id, similarity: top.score }
+    }
+
+    if (top.score > 0.85) {
+      // 灰色区间：便宜模型判断
+      const existing = await this.store.read(top.id)
+      const judgment = await this.modelJudge(content, existing.content)
+      return {
+        action: judgment,
+        existingId: judgment !== 'different' ? top.id : undefined,
+        similarity: top.score,
+      }
+    }
+
+    return { action: 'different', similarity: top.score }
+  }
+
+  /** 便宜模型判断两条记忆的关系 */
+  private async modelJudge(
+    newContent: string,
+    existingContent: string,
+  ): Promise<'duplicate' | 'related' | 'different'> {
+    const result = await this.cheapModel.complete({
+      system: `比较两条记录，判断关系：
+- duplicate: 同一件事的重复记录，应合并
+- related: 相关但不同的事件，应建立关联
+- different: 不相关
+返回 JSON: {"relation": "duplicate" | "related" | "different"}`,
+      messages: [{
+        role: 'user',
+        content: `记录A:\n${existingContent}\n\n记录B:\n${newContent}`,
+      }],
+    })
+    return JSON.parse(result).relation
+  }
+}
+```
+
+合并逻辑：重复出现的信息 confidence +0.1，满足自动验证条件（`confidence >= 0.7` 且 `>= 2` 个不同 Session 确认）时 status 自动升级为 `verified`。
+
+```typescript
+// packages/memory/src/write.ts — mergeInto
+
+private async mergeInto(
+  existingId: string,
+  incoming: WriteRequest,
+): Promise<WriteResult> {
+  const existing = await this.store.read(existingId)
+
+  // 合并内容（便宜模型去重 + 补充）
+  const mergedContent = await this.cheapModel.complete({
+    system: `合并两条相似的记忆记录。保留所有不重复的信息，去除冗余。输出不超过 400 tokens。`,
+    messages: [{
+      role: 'user',
+      content: `已有记录:\n${existing.content}\n\n新记录:\n${incoming.content}`,
+    }],
+  })
+
+  // confidence 升级：取两者较大值再 +0.1（Architecture - 冲突解决）
+  const baseConfidence = Math.max(existing.confidence, incoming.confidence)
+  const newConfidence = Math.min(baseConfidence + 0.1, 1.0)
+  const sessionIds = [...new Set([...existing.sessionIds, incoming.sessionId])]
+
+  // 自动验证判定
+  const newStatus = (
+    newConfidence >= 0.7 && sessionIds.length >= 2
+  ) ? 'verified' : existing.status
+
+  // 合并目标固定为 existingId（保持 ID 稳定，已有链接和引用不中断）。
+  // confidence 通过上面的 Math.max 取两者较大值再 +0.1。
+  // 内容由模型合并，不偏向任何一方。
+
+  const updated = {
+    ...existing,
+    content: mergedContent,
+    confidence: newConfidence,
+    status: newStatus,
+    sessionIds,
+    tags: [...new Set([...existing.tags, ...(incoming.tags ?? [])])],
+    mergeHistory: [
+      ...existing.mergeHistory,
+      { sessionId: incoming.sessionId, mergedAt: new Date().toISOString(),
+        confidenceBefore: existing.confidence, confidenceAfter: newConfidence },
+    ],
+  }
+
+  // 事务性多层更新（与 transactionalWrite 对称的回滚保证）
+  const snapshot = await this.store.snapshot(existingId) // 保存更新前的快照
+  try {
+    await this.store.update(existingId, updated)
+    const vector = await this.embed(`${updated.title}\n${updated.content}`)
+    await this.vectorIndex.upsert(existingId, vector, {
+      type: updated.type, status: updated.status,
+      confidence: updated.confidence, tags: updated.tags,
+    })
+    await this.tagIndex.update(existingId, {
+      status: updated.status, confidence: updated.confidence, tags: updated.tags,
+    })
+    await this.updateIndex(updated)
+  } catch (error) {
+    // 尝试恢复更新前的快照（覆盖全部四层）
+    let rollbackFailed = false
+    for (const fn of [
+      () => this.store.restore(existingId, snapshot),
+      () => this.vectorIndex.upsert(existingId, snapshot.vector, snapshot.metadata),
+      () => this.tagIndex.update(existingId, snapshot.tagMetadata),
+      () => this.restoreIndex(existingId, snapshot.indexEntry),
+    ]) {
+      try { await fn() } catch (e) {
+        rollbackFailed = true
+        this.logger.error('merge rollback failed', { existingId, error: e })
+      }
+    }
+    if (rollbackFailed) {
+      try {
+        await this.store.markCorrupted(existingId)
+      } catch (markError) {
+        this.logger.error('markCorrupted failed, manual intervention needed',
+          { existingId, markError })
+      }
+    }
+    throw error
+  }
+
+  return { success: true, memoryId: existingId, action: 'merged', mergedWith: existingId }
+}
+```
+
+### 事件分类器
+
+```typescript
+// packages/memory/src/classifier.ts
+
+/** 单路径事件类型（可由 EventClassifier 分类）。
+ *  跨路径事件（session_end / session_interrupt）不在此类型中，
+ *  由 SessionLifecycle 直接编排，不经过分类器。 */
+type EventType =
+  | 'task_status_change' | 'user_correction' | 'user_preference'
+  | 'error_recurring' | 'fix_verified' | 'architecture_choice'
+  | 'user_request' | 'agent_discovery'
+
+interface ClassifyResult {
+  path: 'A' | 'B'
+  target: string
+}
+
+class EventClassifier {
+  /**
+   * 确定性路由表，无需模型调用。
+   * 注意：session_end / session_interrupt 不经过此分类器，
+   * 由 SessionLifecycle 直接编排跨路径写入（既有 A 又有 B）。
+   */
+  private static DETERMINISTIC: Record<string, ClassifyResult> = {
+    task_status_change:  { path: 'A', target: 'memo' },
+    user_correction:     { path: 'A', target: 'agent' },
+    user_preference:     { path: 'A', target: 'global' },
+    error_recurring:     { path: 'B', target: 'incident' },
+    fix_verified:        { path: 'B', target: 'runbook' },
+    architecture_choice: { path: 'B', target: 'decision' },
+  }
+
+  /**
+   * 分类单路径事件。返回 A 或 B。
+   * 跨路径事件（session_end / session_interrupt）不走此方法，
+   * 由 SessionLifecycle.onSessionEnd() 自行拆解为多次 A/B 写入。
+   */
+  async classify(eventType: EventType, content: string, agentName: string): Promise<ClassifyResult> {
+    const deterministic = EventClassifier.DETERMINISTIC[eventType]
+    if (deterministic) return deterministic
+
+    // 模糊事件：便宜模型单轮调用
+    // Prompt 定义见 [ContextEngineering - 事件分类 Prompt]
+    return this.modelClassify(eventType, content, agentName)
+  }
+}
+```
+
+### 框架层写入拦截
+
+```typescript
+// packages/memory/src/write-intent.ts
+
+class WriteIntentDetector {
+  /** 正则快速匹配（无模型调用） */
+  private static PATTERNS = [
+    /^(记住|记下|别忘了|以后|今后).+/,
+    /^我(喜欢|偏好|习惯).+/,
+    /(帮我|请|麻烦)(记住|记录|记下).+/,
+  ]
+
+  /** 第一步：正则快筛，延迟 < 1ms */
+  quickMatch(message: string): boolean {
+    return WriteIntentDetector.PATTERNS.some(p => p.test(message.trim()))
+  }
+
+  /** 第二步：便宜模型确认 + 提取（仅在 quickMatch 通过后调用） */
+  async confirmAndExtract(message: string): Promise<WriteIntentResult | null> {
+    // Prompt 定义见 [ContextEngineering - 写入拦截确认 Prompt]
+    const response = await this.cheapModel.complete(WRITE_INTENT_PROMPT, message)
+    const parsed = JSON.parse(response)
+
+    if (!parsed.write) return null
+
+    const resolved = this.resolvePathAndTarget(parsed.type)
+    if (!resolved) return null  // 未知 type → 放弃拦截，交给 Agent 处理
+
+    return { ...resolved, content: parsed.content }
+  }
+
+  /** 将模型返回的 type 映射为合法的 path + target 组合。
+   *  返回 null 表示无法映射（模型输出偏离 schema），拦截器应放弃处理。 */
+  private resolvePathAndTarget(type: string): { path: 'A' | 'B'; target: string } | null {
+    switch (type) {
+      case 'global_pref': return { path: 'A', target: 'global' }
+      case 'agent_pref': return { path: 'A', target: 'agent' }
+      case 'task_note':   return { path: 'A', target: 'memo' }
+      case 'knowledge':   return { path: 'B', target: 'note' }
+      default:            return null  // 未知 type，不构造非法组合
+    }
+  }
+}
+
+interface WriteIntentResult {
+  path: 'A' | 'B'
+  target: string
+  content: string
+}
+```
+
+### Session 结束写入流
+
+```typescript
+// packages/memory/src/lifecycle.ts
+
+class SessionLifecycle {
+  private writer: MemoryWriter
+  private classifier: EventClassifier
+
+  async onSessionEnd(session: SessionRecord, isInterrupt: boolean): Promise<void> {
+    if (isInterrupt) return this.handleInterrupt(session)
+    return this.handleNormalEnd(session)
+  }
+
+  private async handleNormalEnd(session: SessionRecord): Promise<void> {
+    // 1. 生成 Session 分析（便宜模型）
+    // Prompt 定义见 [ContextEngineering - Session 分析 Prompt]
+    const analysis = await this.analyzeSession(session)
+
+    // 2. Path B: 写入 session 总结
+    await this.writer.write({
+      path: 'B', target: 'session',
+      content: analysis.summary,
+      confidence: 0.8, status: 'verified',
+      sessionId: session.id, agentName: session.agentName,
+      tags: this.extractTags(session),
+    })
+
+    // 3. Path B: 提炼知识条目
+    for (const item of analysis.extractable) {
+      await this.writer.write({
+        path: 'B', target: item.type,
+        content: item.content,
+        confidence: 0.6, status: 'draft',
+        sessionId: session.id, agentName: session.agentName,
+        tags: item.tags,
+      })
+    }
+
+    // 4. Path A: 清理 memo 已完成条目
+    for (const entry of analysis.memoCleanup) {
+      await this.writer.write({
+        path: 'A', target: 'memo',
+        operation: 'remove',
+        content: entry, // 待删除的条目内容（用于匹配定位）
+        confidence: 1, status: 'verified',
+        sessionId: session.id, agentName: session.agentName,
+      })
+    }
+
+    // 5. Path A: 更新 preferences（行为纠正）
+    for (const update of analysis.preferenceUpdates) {
+      await this.writer.write({
+        path: 'A', target: update.target,
+        content: update.content,
+        confidence: 1, status: 'verified',
+        sessionId: session.id, agentName: session.agentName,
+      })
+    }
+
+    // 6. 审查本 Session 的 inbox 条目
+    await this.reviewInbox(session.id, analysis)
+  }
+
+  private async handleInterrupt(session: SessionRecord): Promise<void> {
+    // Path B: 部分总结
+    const partial = await this.generatePartialSummary(session)
+    if (partial) {
+      await this.writer.write({
+        path: 'B', target: 'session',
+        content: partial,
+        confidence: 0.5, status: 'draft',
+        sessionId: session.id, agentName: session.agentName,
+        tags: ['interrupted'],
+      })
+    }
+
+    // Path A: memo 标记中断（不清理，追加中断标记）
+    await this.writer.write({
+      path: 'A', target: 'memo',
+      operation: 'update',
+      content: `**中断**：Session ${session.id} 因异常中断，任务未完成`,
+      confidence: 1, status: 'verified',
+      sessionId: session.id, agentName: session.agentName,
+    })
+  }
+}
+```
+
+---
+
 ## 启动流程
 
 ```
@@ -1041,6 +1579,10 @@ Supervisor 启动主进程（apps/server）
   │
   ├──→ Channel 接收，创建/复用 Session
   │
+  ├──→ 框架层写入拦截（WriteIntentDetector）
+  │      ├──→ 正则快筛用户消息（< 1ms）
+  │      └──→ 命中 → 便宜模型确认 + 提取 → MemoryWriter.write()
+  │
   ├──→ 记忆检索（独立调用，走便宜模型）
   │      └──→ Embedding API → 向量检索 → 返回记忆片段
   │
@@ -1060,12 +1602,16 @@ Supervisor 启动主进程（apps/server）
   │             ├──→ 写入 operations.jsonl
   │             ├──→ bus.emit('tool:call', ...)
   │             ├──→ 检查排队消息队列（有则注入后继续循环）
+  │             ├──→ MemoryWrite 工具 → MemoryWriter.write()（Agent 指定 path + target）
   │             └──→ 结果返回给 Agent，继续循环
   │
-  ├──→ Session 结束
-  │      ├──→ 生成总结
-  │      ├──→ 写入 memory/sessions/
-  │      ├──→ 提炼 incident/runbook/decision
+  ├──→ Session 结束（SessionLifecycle）
+  │      ├──→ 便宜模型生成 Session 分析
+  │      ├──→ Path B: 写入 session 总结（confidence 0.8, verified）
+  │      ├──→ Path B: 提炼知识条目（confidence 0.6, draft）
+  │      ├──→ Path A: 清理 memo 已完成条目
+  │      ├──→ Path A: 更新 preferences（行为纠正）
+  │      ├──→ 审查 inbox 条目
   │      └──→ 更新 memory.md 索引
   │
   └──→ 全程密钥过滤（所有输出经 SecretFilter）
@@ -1173,7 +1719,7 @@ zustand                    # 状态管理
 @tanstack/react-virtual    # 虚拟列表
 react-markdown             # Markdown 渲染
 remark-gfm
-@phosphor-icons/react      # 图标
+lucide-react               # 图标
 
 # 网页内容提取（Fetch 工具）
 @mozilla/readability       # HTML 正文提取

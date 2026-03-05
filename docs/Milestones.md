@@ -401,7 +401,7 @@ CLI harness → 初始化 vault+config → 创建 Session → 发送 "创建 hel
 **构建内容**:
 
 - 后端: Hono API 路由 (typed RPC) + WebSocket Hub，详见 [TechStack - 后端 API]
-- 前端: React 19 + TailwindCSS 9 个路由 (Dashboard/Sessions/Session Detail/Memory/Memo/Logs/Tools/Config/Metrics) + Chat Drawer，详见 [TechStack - 前端目录结构]
+- 前端: React 19 + TailwindCSS 7 个页面 (Dashboard/Sessions/Memory/Memo/Logs/Config/Metrics) + Chat Drawer，详见 [TechStack - 前端目录结构]
 - 设计系统: Calm Futurism 主题，详见 [UI-UX] 全文
 
 ### 验收标准
@@ -415,9 +415,8 @@ CLI harness → 初始化 vault+config → 创建 Session → 发送 "创建 hel
 7. **Logs**: 三类日志 Tab / 级别着色 / 时间范围 / 行展开 / 实时 tail。
 8. **Config**: Models (Provider 卡片 + 降级链拖拽) / Scheduler (cron 双模式) / Fuse List。
 9. **Metrics**: 堆叠条形图 + 模型分布 + 详细表格。
-10. **Tools**: 工具注册表管理 / 类型过滤 (built-in/tool/skill/mcp) / 启用停用 / 参数展开。
-11. **Chat Drawer**: 360px push / Session 跨开关持久 / 流式响应 / 工具调用块。
-12. **键盘导航**: j/k 移动 / Enter 选择 / Esc 关闭 / Cmd+K 全局搜索。
+10. **Chat Drawer**: 360px push / Session 跨开关持久 / 流式响应 / 工具调用块。
+11. **键盘导航**: j/k 移动 / Enter 选择 / Esc 关闭 / Cmd+K 全局搜索。
 
 ### 测试标准
 
@@ -425,8 +424,6 @@ CLI harness → 初始化 vault+config → 创建 Session → 发送 "创建 hel
 - WebSocket Hub: 5 用例
 - 关键交互组件: 各 3+ 用例
 - E2E: Dashboard 渲染 + Session 完整流程 + Config CRUD
-
-> **当前 E2E 覆盖范围**：核心流程（Dashboard、Sessions、Memory、Chat）已覆盖。Config、Metrics、Tools 页面需要补充额外的 E2E 测试。
 
 **覆盖率目标**: API 70%+，前端组件 60%+
 
@@ -454,7 +451,6 @@ CLI harness → 初始化 vault+config → 创建 Session → 发送 "创建 hel
 5. **Rollback**: git revert 到 latest stable → 可重启。
 6. **自更新完整流程**: 改代码 → commit → build:web → 健康检查 → Supervisor 重启 → 观察 → tag stable（详见 [TechStack - 自更新]）。
 7. **ChatGPT OAuth**: UI 发起 → state+PKCE → 浏览器授权 → callback → token 入 vault → WS 通知（详见 [TechStack - ChatGPT OAuth 流程]）。
-   > **进展备注**：OAuth2Client 基础设施已完成（PKCE code_challenge/code_verifier 生成、Token 刷新、state 参数防 CSRF），ChatGPT 特定的授权流程集成为剩余工作。
 8. **凭证过期**: 401/403 → 标记失效 → `credential:expired` WS 事件 → UI 显示 → 降级链激活。
 9. **优雅关闭**: 停止接收 → 等待工具完成 → flush 日志 → 释放锁 → 关闭。
 
