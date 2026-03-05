@@ -1,9 +1,50 @@
 import { Telegraf } from 'telegraf'
-import type { Channel, IncomingMessage, MessageHandler } from '../base'
+import type { Channel, IncomingMessage, MessageHandler, ImageAttachment } from '../base'
 import { chunkTelegramRichText, markdownToTelegramRichText, type TelegramRichText } from '../richtext'
 
 export interface TelegramChannelConfig {
   botToken: string
+}
+
+export interface TelegramBotCommand {
+  command: string
+  description: string
+}
+
+export interface TelegramCommandScopeConfig {
+  type:
+    | 'default'
+    | 'all_private_chats'
+    | 'all_group_chats'
+    | 'all_chat_administrators'
+    | 'chat'
+    | 'chat_administrators'
+    | 'chat_member'
+  chatId?: number | string
+  userId?: number
+}
+
+export interface TelegramSetMyCommandsOptions {
+  scope?: TelegramCommandScopeConfig
+  languageCode?: string
+}
+
+export type TelegramMenuButtonConfig =
+  | { type: 'default' }
+  | { type: 'commands' }
+  | {
+      type: 'web_app'
+      text: string
+      webAppUrl: string
+    }
+
+export interface TelegramSetChatMenuButtonOptions {
+  chatId?: number
+  menuButton?: TelegramMenuButtonConfig
+}
+
+export interface TelegramGetChatMenuButtonOptions {
+  chatId?: number
 }
 
 interface TelegramSentMessage {
@@ -32,53 +73,20 @@ export class TelegramChannel implements Channel {
       console.error('[TelegramChannel] Middleware error:', err, 'update_id:', ctx.update?.update_id)
     })
 
-    // Handle text messages
-    this.bot.on('text', async (ctx) => {
-      if (!this.messageHandler) return
-
-      const incoming: IncomingMessage = {
-        channelType: 'telegram',
-        senderId: String(ctx.from.id),
-        content: ctx.message.text,
-        timestamp: new Date(ctx.message.date * 1000).toISOString(),
-        metadata: {
-          chatId: ctx.chat.id,
-          messageId: ctx.message.message_id,
-          chatType: ctx.chat.type,
-          username: ctx.from.username,
-          firstName: ctx.from.first_name,
-        },
-      }
-
-      // Fire-and-forget so long-running agent work does not block Telegraf update handling.
-      this.messageHandler(incoming).catch((err) => {
-        console.error('[TelegramChannel] Async text handler error:', err)
-      })
-    })
-
-    // Handle other message types
+    // Handle all message types in one place so media/caption/images are preserved.
     this.bot.on('message', async (ctx) => {
       if (!this.messageHandler) return
-      if ('text' in ctx.message) return // already handled above
 
-      const incoming: IncomingMessage = {
-        channelType: 'telegram',
-        senderId: String(ctx.from.id),
-        content: '[non-text message]',
-        timestamp: new Date(ctx.message.date * 1000).toISOString(),
-        metadata: {
-          chatId: ctx.chat.id,
-          messageId: ctx.message.message_id,
-          chatType: ctx.chat.type,
-          username: ctx.from.username,
-          firstName: ctx.from.first_name,
-        },
+      try {
+        const incoming = await this.buildIncomingMessage(ctx)
+
+        // Fire-and-forget so long-running agent work does not block Telegraf update handling.
+        this.messageHandler(incoming).catch((err) => {
+          console.error('[TelegramChannel] Async message handler error:', err)
+        })
+      } catch (err) {
+        console.error('[TelegramChannel] Failed to build incoming message:', err)
       }
-
-      // Fire-and-forget so long-running agent work does not block Telegraf update handling.
-      this.messageHandler(incoming).catch((err) => {
-        console.error('[TelegramChannel] Async message handler error:', err)
-      })
     })
 
     // Launch in polling mode (non-blocking)
@@ -179,6 +187,43 @@ export class TelegramChannel implements Channel {
     )
   }
 
+  async setMyCommands(
+    commands: TelegramBotCommand[],
+    options: TelegramSetMyCommandsOptions = {}
+  ): Promise<void> {
+    if (!this.bot) return
+    await this.bot.telegram.setMyCommands(
+      commands,
+      this.toApiSetMyCommandsOptions(options),
+    )
+  }
+
+  async getMyCommands(options: TelegramSetMyCommandsOptions = {}): Promise<TelegramBotCommand[]> {
+    if (!this.bot) return []
+    const commands = await this.bot.telegram.getMyCommands(
+      this.toApiSetMyCommandsOptions(options),
+    )
+    return commands.map((cmd: any) => ({
+      command: String(cmd?.command ?? ''),
+      description: String(cmd?.description ?? ''),
+    }))
+  }
+
+  async setChatMenuButton(options: TelegramSetChatMenuButtonOptions = {}): Promise<void> {
+    if (!this.bot) return
+    await this.bot.telegram.setChatMenuButton(this.toApiSetChatMenuButtonOptions(options))
+  }
+
+  async getChatMenuButton(
+    options: TelegramGetChatMenuButtonOptions = {}
+  ): Promise<TelegramMenuButtonConfig | null> {
+    if (!this.bot) return null
+    const menuButton = await this.bot.telegram.getChatMenuButton(
+      this.toApiGetChatMenuButtonOptions(options),
+    )
+    return this.fromApiMenuButton(menuButton)
+  }
+
   isConnected(): boolean {
     return this.running
   }
@@ -190,6 +235,83 @@ export class TelegramChannel implements Channel {
   private parseChatId(sessionId: string): number | null {
     const chatId = Number(sessionId)
     return Number.isFinite(chatId) ? chatId : null
+  }
+
+  private toApiSetMyCommandsOptions(options: TelegramSetMyCommandsOptions): Record<string, unknown> {
+    const out: Record<string, unknown> = {}
+    if (options.scope) {
+      out.scope = this.toApiCommandScope(options.scope)
+    }
+    if (typeof options.languageCode === 'string') {
+      out.language_code = options.languageCode
+    }
+    return out
+  }
+
+  private toApiCommandScope(scope: TelegramCommandScopeConfig): Record<string, unknown> {
+    const out: Record<string, unknown> = { type: scope.type }
+    if (scope.chatId !== undefined) {
+      out.chat_id = scope.chatId
+    }
+    if (scope.userId !== undefined) {
+      out.user_id = scope.userId
+    }
+    return out
+  }
+
+  private toApiSetChatMenuButtonOptions(
+    options: TelegramSetChatMenuButtonOptions
+  ): { chatId?: number; menuButton?: Record<string, unknown> } {
+    const out: { chatId?: number; menuButton?: Record<string, unknown> } = {}
+    if (options.chatId !== undefined) {
+      out.chatId = options.chatId
+    }
+    if (options.menuButton) {
+      out.menuButton = this.toApiMenuButton(options.menuButton)
+    }
+    return out
+  }
+
+  private toApiGetChatMenuButtonOptions(
+    options: TelegramGetChatMenuButtonOptions
+  ): { chatId?: number } {
+    if (options.chatId !== undefined) {
+      return { chatId: options.chatId }
+    }
+    return {}
+  }
+
+  private toApiMenuButton(menuButton: TelegramMenuButtonConfig): Record<string, unknown> {
+    if (menuButton.type === 'web_app') {
+      return {
+        type: 'web_app',
+        text: menuButton.text,
+        web_app: { url: menuButton.webAppUrl },
+      }
+    }
+    return { type: menuButton.type }
+  }
+
+  private fromApiMenuButton(menuButton: any): TelegramMenuButtonConfig | null {
+    if (!menuButton || typeof menuButton !== 'object') return null
+
+    if (menuButton.type === 'web_app') {
+      return {
+        type: 'web_app',
+        text: String(menuButton.text ?? ''),
+        webAppUrl: String(menuButton.web_app?.url ?? ''),
+      }
+    }
+
+    if (menuButton.type === 'commands') {
+      return { type: 'commands' }
+    }
+
+    if (menuButton.type === 'default') {
+      return { type: 'default' }
+    }
+
+    return null
   }
 
   private async sendRendered(
@@ -223,5 +345,113 @@ export class TelegramChannel implements Channel {
     }
 
     return firstMessage
+  }
+
+  private async buildIncomingMessage(ctx: any): Promise<IncomingMessage> {
+    const message = ctx.message ?? {}
+    const images = await this.extractImages(message)
+    const mediaHints = this.collectMediaHints(message)
+
+    let content = '[non-text message]'
+    if (typeof message.text === 'string' && message.text.trim()) {
+      content = message.text
+    } else if (typeof message.caption === 'string' && message.caption.trim()) {
+      content = message.caption
+    } else if (mediaHints.length > 0) {
+      content = mediaHints.join(' ')
+    }
+
+    const senderId = ctx.from?.id != null
+      ? String(ctx.from.id)
+      : (ctx.chat?.id != null ? String(ctx.chat.id) : 'unknown')
+
+    const tsSec = typeof message.date === 'number' ? message.date : Math.floor(Date.now() / 1000)
+
+    return {
+      channelType: 'telegram',
+      senderId,
+      content,
+      timestamp: new Date(tsSec * 1000).toISOString(),
+      metadata: {
+        chatId: ctx.chat?.id ?? ctx.from?.id,
+        messageId: message.message_id,
+        chatType: ctx.chat?.type,
+        username: ctx.from?.username,
+        firstName: ctx.from?.first_name,
+        hasMedia: mediaHints.length > 0,
+        mediaHints,
+      },
+      images: images.length > 0 ? images : undefined,
+    }
+  }
+
+  private collectMediaHints(message: Record<string, unknown>): string[] {
+    const hints: string[] = []
+    if (Array.isArray(message.photo) && message.photo.length > 0) hints.push('[photo]')
+    if (message.video) hints.push('[video]')
+    if (message.document) hints.push('[document]')
+    if (message.animation) hints.push('[animation]')
+    if (message.audio) hints.push('[audio]')
+    if (message.voice) hints.push('[voice]')
+    if (message.sticker) hints.push('[sticker]')
+    if (message.location) hints.push('[location]')
+    if (message.contact) hints.push('[contact]')
+    return hints
+  }
+
+  private async extractImages(message: any): Promise<ImageAttachment[]> {
+    if (!this.bot) return []
+
+    const fileIds = new Set<string>()
+
+    const photoSizes = Array.isArray(message.photo) ? message.photo : []
+    if (photoSizes.length > 0) {
+      const best = photoSizes
+        .slice()
+        .sort((a: any, b: any) => {
+          const areaA = (a?.width ?? 0) * (a?.height ?? 0)
+          const areaB = (b?.width ?? 0) * (b?.height ?? 0)
+          if (areaA !== areaB) return areaB - areaA
+          return (b?.file_size ?? 0) - (a?.file_size ?? 0)
+        })[0]
+      if (best?.file_id) fileIds.add(best.file_id)
+    }
+
+    if (message.document?.mime_type?.startsWith?.('image/') && message.document?.file_id) {
+      fileIds.add(message.document.file_id)
+    }
+
+    const downloaded: ImageAttachment[] = []
+    for (const fileId of fileIds) {
+      try {
+        const info = await this.bot.telegram.getFile(fileId)
+        const filePath = (info as any)?.file_path
+        if (!filePath) continue
+
+        const stream = await this.bot.telegram.getFileStream(filePath)
+        const chunks: Buffer[] = []
+        for await (const chunk of stream as any) {
+          chunks.push(Buffer.from(chunk))
+        }
+        const buf = Buffer.concat(chunks)
+
+        const mediaType = this.inferImageMediaType(filePath, message.document?.mime_type)
+        downloaded.push({ mediaType, data: buf.toString('base64') })
+      } catch (err) {
+        console.error('[TelegramChannel] Failed to download image file:', fileId, err)
+      }
+    }
+
+    return downloaded
+  }
+
+  private inferImageMediaType(filePath: string, fallback?: string): string {
+    if (fallback?.startsWith('image/')) return fallback
+    const lower = filePath.toLowerCase()
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
+    if (lower.endsWith('.png')) return 'image/png'
+    if (lower.endsWith('.webp')) return 'image/webp'
+    if (lower.endsWith('.gif')) return 'image/gif'
+    return 'image/jpeg'
   }
 }

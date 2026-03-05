@@ -5,5 +5,13 @@ export { WebChannel } from './web/channel'
 export { FeishuChannel } from './feishu/index'
 export type { FeishuChannelConfig } from './feishu/index'
 export { TelegramChannel } from './telegram/index'
-export type { TelegramChannelConfig } from './telegram/index'
+export type {
+  TelegramChannelConfig,
+  TelegramBotCommand,
+  TelegramCommandScopeConfig,
+  TelegramSetMyCommandsOptions,
+  TelegramMenuButtonConfig,
+  TelegramSetChatMenuButtonOptions,
+  TelegramGetChatMenuButtonOptions,
+} from './telegram/index'
 export * from './richtext/index'

@@ -13,6 +13,7 @@ import { HeartbeatWriter } from '@zero-os/supervisor'
 import { CronScheduler } from '@zero-os/scheduler'
 import { globalBus } from './bus'
 import { createTelegramStreamFlusher, reconcileTelegramFinalText } from './telegram-streaming'
+import { canRunTelegramRestart, syncTelegramCommandMenu } from './telegram-menu'
 import type { Channel } from '@zero-os/channel'
 import { WebChannel, FeishuChannel, TelegramChannel } from '@zero-os/channel'
 import type { Notification } from '@zero-os/shared'
@@ -391,8 +392,20 @@ export async function startZeroOS(): Promise<ZeroOS> {
     telegramChannel.setMessageHandler(async (msg) => {
       const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
       const messageId = msg.metadata?.messageId as number | undefined
+      const chatType = msg.metadata?.chatType
+      let activeSessionId: string | null = null
       try {
         if (isRestartCommand(msg.content)) {
+          if (!canRunTelegramRestart(chatType)) {
+            const reply = 'The /restart command is only available in private chats.'
+            if (messageId) {
+              await telegramChannel.replyRich(chatId, messageId, reply)
+            } else {
+              await telegramChannel.sendRich(chatId, reply)
+            }
+            return
+          }
+
           const reply = 'Restarting ZeRo OS...'
           if (messageId) {
             await telegramChannel.replyRich(chatId, messageId, reply)
@@ -409,6 +422,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
             ? modelRouter.switchModel(newCommand.modelArg)
             : undefined
           const { session } = sessionManager.startNewForChannel('telegram', chatId)
+          activeSessionId = session.data.id
           session.initAgent({
             name: 'zero-telegram',
             systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
@@ -429,6 +443,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
         }
 
         const { session, isNew } = sessionManager.getOrCreateForChannel('telegram', chatId)
+        activeSessionId = session.data.id
         if (isNew) {
           session.initAgent({
             name: 'zero-telegram',
@@ -457,6 +472,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
         })
 
         const replies = await session.handleMessage(msg.content, {
+          images: msg.images,
           onTextDelta: (delta, meta) => {
             if (!delta) return
             seenDelta = true
@@ -502,16 +518,41 @@ export async function startZeroOS(): Promise<ZeroOS> {
         }
       } catch (err) {
         console.error('[ZeRo OS] Telegram message handler error:', err)
+        const errorMessage = err instanceof Error ? err.message : String(err)
+        let sessionWasArchived = false
+        if (
+          activeSessionId &&
+          errorMessage.includes('No tool output found for function call')
+        ) {
+          const poisonedSession = sessionManager.get(activeSessionId)
+          if (poisonedSession) {
+            poisonedSession.setStatus('archived')
+          }
+          sessionManager.remove(activeSessionId)
+          sessionWasArchived = true
+          console.warn('[ZeRo OS] Archived poisoned Telegram session after tool output mismatch:', activeSessionId)
+        }
+        const userReply = sessionWasArchived
+          ? 'Session corrupted and has been reset. Please resend your message.'
+          : 'An error occurred processing your message.'
         try {
           if (messageId) {
-            await telegramChannel.replyRich(chatId, messageId, 'An error occurred processing your message.')
+            await telegramChannel.replyRich(chatId, messageId, userReply)
           } else {
-            await telegramChannel.sendRich(chatId, 'An error occurred processing your message.')
+            await telegramChannel.sendRich(chatId, userReply)
           }
         } catch {}
       }
     })
     await telegramChannel.start()
+
+    try {
+      await syncTelegramCommandMenu(telegramChannel)
+      console.log('[ZeRo OS] Telegram commands/menu synced')
+    } catch (err) {
+      console.warn('[ZeRo OS] Telegram commands/menu sync failed:', err)
+    }
+
     channels.set('telegram', telegramChannel)
     console.log('[ZeRo OS] Telegram channel started')
   } else {
