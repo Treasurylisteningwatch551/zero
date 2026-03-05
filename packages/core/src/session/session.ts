@@ -473,6 +473,8 @@ export class Session {
     ;(session as any).agent = null
     ;(session as any).lastAgentConfig = null
     ;(session as any).lastSystemPrompt = systemPrompt ?? ''
+    ;(session as any).cachedSystemPrompt = null
+    ;(session as any).knownSkillNames = new Set<string>()
     return session
   }
 
