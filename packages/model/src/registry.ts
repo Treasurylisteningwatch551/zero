@@ -108,12 +108,14 @@ export class ModelRegistry {
     if (adapter) return adapter
 
     const apiKey = provider.auth.apiKeyRef ? this.secrets.get(provider.auth.apiKeyRef) : undefined
+    const oauthToken = provider.auth.oauthTokenRef ? this.secrets.get(provider.auth.oauthTokenRef) : undefined
 
     const config: AdapterConfig = {
       baseUrl: provider.baseUrl,
       auth: provider.auth,
       modelConfig: model,
       apiKey,
+      oauthToken,
     }
 
     adapter = this.createAdapter(provider.apiType, config)

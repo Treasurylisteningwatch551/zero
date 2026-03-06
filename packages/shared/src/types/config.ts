@@ -5,6 +5,7 @@ export type AuthType = 'api_key' | 'oauth2'
 export interface AuthConfig {
   type: AuthType
   apiKeyRef?: string
+  oauthTokenRef?: string
   oauth?: OAuthConfig
 }
 

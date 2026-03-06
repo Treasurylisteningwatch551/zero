@@ -43,6 +43,7 @@ function normalizeConfig(raw: Record<string, unknown>): SystemConfig {
       auth: {
         type: (rawAuth.type as string) as 'api_key' | 'oauth2',
         apiKeyRef: rawAuth.api_key_ref as string | undefined,
+        oauthTokenRef: rawAuth.oauth_token_ref as string | undefined,
       },
       models,
     }
