@@ -52,8 +52,17 @@ export class BashTool extends BaseTool {
     const exitCode = await proc.exited
     clearTimeout(timeoutId)
 
-    const stdout = await new Response(proc.stdout).text()
-    const stderr = await new Response(proc.stderr).text()
+    // Read pipes with a grace period — background child processes may hold
+    // inherited fds open indefinitely (e.g. `cmd &`), so we don't wait forever.
+    const PIPE_GRACE_MS = 1000
+    const stdout = await Promise.race([
+      new Response(proc.stdout).text(),
+      Bun.sleep(PIPE_GRACE_MS).then(() => ''),
+    ])
+    const stderr = await Promise.race([
+      new Response(proc.stderr).text(),
+      Bun.sleep(PIPE_GRACE_MS).then(() => ''),
+    ])
 
     const output = stdout + (stderr ? `\n[stderr]\n${stderr}` : '')
 
