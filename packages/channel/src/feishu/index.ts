@@ -1,4 +1,5 @@
 import * as lark from '@larksuiteoapi/node-sdk'
+import type { Readable } from 'node:stream'
 import type { Channel, IncomingMessage, ImageAttachment, MessageHandler } from '../base'
 import { renderMarkdownForFeishu } from '../richtext/feishu'
 
@@ -12,6 +13,11 @@ export interface FeishuChannelConfig {
 interface FeishuCardOptions {
   title?: string
   template?: string
+}
+
+interface FeishuBinaryResponse {
+  getReadableStream: () => Readable
+  headers?: unknown
 }
 
 /**
@@ -36,14 +42,20 @@ export class FeishuChannel implements Channel {
   }
 
   async start(): Promise<void> {
+    const sdkLogger = this.createSdkLogger()
+
     this.client = new lark.Client({
       appId: this.config.appId,
       appSecret: this.config.appSecret,
+      loggerLevel: lark.LoggerLevel.error,
+      logger: sdkLogger,
     })
 
     this.eventDispatcher = new lark.EventDispatcher({
       encryptKey: this.config.encryptKey ?? '',
       verificationToken: this.config.verificationToken ?? '',
+      loggerLevel: lark.LoggerLevel.error,
+      logger: sdkLogger,
     })
 
     // Listen for incoming messages
@@ -74,92 +86,15 @@ export class FeishuChannel implements Channel {
           }
 
           console.log('[FeishuChannel] im.message.receive_v1 from', data.sender?.sender_id?.open_id ?? 'unknown')
-
-          let content = ''
-          const images: ImageAttachment[] = []
-          if (msg.message_type === 'text') {
-            try {
-              const parsed = JSON.parse(msg.content ?? '{}')
-              content = parsed.text ?? ''
-            } catch (parseErr) {
-              console.error('[FeishuChannel] Failed to parse message content:', parseErr)
-              content = msg.content ?? ''
-            }
-          } else if (msg.message_type === 'post') {
-            try {
-              const parsed = JSON.parse(msg.content ?? '{}')
-              // parsePostContent collects image_keys as { mediaType: '__pending__', data: image_key }
-              const pendingImages: ImageAttachment[] = []
-              content = this.parsePostContent(parsed, pendingImages)
-              // Download pending images via messageResource API (post images need message_id)
-              if (this.client && messageId) {
-                const downloads = pendingImages
-                  .filter(p => p.mediaType === '__pending__')
-                  .map(async (p) => {
-                    try {
-                      const resp = await this.client!.im.messageResource.get({
-                        path: { message_id: messageId, file_key: p.data },
-                        params: { type: 'image' },
-                      })
-                      const stream = resp.getReadableStream()
-                      const chunks: Buffer[] = []
-                      for await (const chunk of stream) {
-                        chunks.push(Buffer.from(chunk))
-                      }
-                      const buf = Buffer.concat(chunks)
-                      images.push({ mediaType: 'image/png', data: buf.toString('base64') })
-                    } catch (imgErr: any) {
-                      console.error('[FeishuChannel] Failed to download image:', p.data,
-                        `HTTP ${imgErr?.response?.status ?? '?'}:`, imgErr?.message ?? imgErr)
-                    }
-                  })
-                await Promise.all(downloads)
-              }
-            } catch (parseErr) {
-              console.error('[FeishuChannel] Failed to parse post content:', parseErr, 'raw:', msg.content)
-              content = msg.content ?? ''
-            }
-          } else if (msg.message_type === 'image') {
-            // Standalone image message
-            try {
-              const parsed = JSON.parse(msg.content ?? '{}')
-              if (parsed.image_key && this.client) {
-                const imgResp = await this.client.im.image.get({
-                  path: { image_key: parsed.image_key },
-                  params: { image_type: 'message' },
-                })
-                const buf = Buffer.from(imgResp as ArrayBuffer)
-                images.push({ mediaType: 'image/png', data: buf.toString('base64') })
-                content = '[图片]'
-              }
-            } catch (imgErr: any) {
-              console.error('[FeishuChannel] Failed to download image message:',
-                `HTTP ${imgErr?.response?.status ?? '?'}:`, imgErr?.message ?? imgErr)
-              content = '[图片]'
-            }
-          } else {
-            content = `[${msg.message_type} message]`
-          }
-
-          const incoming: IncomingMessage = {
-            channelType: 'feishu',
-            senderId: data.sender?.sender_id?.open_id ?? 'unknown',
-            content,
-            timestamp: new Date(Number(msg.create_time) * 1000).toISOString(),
-            metadata: {
-              chatId: msg.chat_id,
-              messageId: msg.message_id,
-              chatType: msg.chat_type,
-            },
-            images: images.length > 0 ? images : undefined,
-          }
+          const incoming = await this.buildIncomingMessage(data)
+          if (!incoming) return
 
           // Fire-and-forget: return immediately so SDK sends ACK within 3s
           this.messageHandler(incoming).catch((err) => {
-            console.error('[FeishuChannel] Async handler error:', err)
+            console.error('[FeishuChannel] Async handler error:', this.describeError(err))
           })
         } catch (err) {
-          console.error('[FeishuChannel] Error handling im.message.receive_v1:', err)
+          console.error('[FeishuChannel] Error handling im.message.receive_v1:', this.describeError(err))
         }
       },
     })
@@ -168,7 +103,8 @@ export class FeishuChannel implements Channel {
     this.wsClient = new lark.WSClient({
       appId: this.config.appId,
       appSecret: this.config.appSecret,
-      loggerLevel: lark.LoggerLevel.info,
+      loggerLevel: lark.LoggerLevel.error,
+      logger: sdkLogger,
     })
     await this.wsClient.start({ eventDispatcher: this.eventDispatcher })
     console.log('[FeishuChannel] WSClient connected')
@@ -208,6 +144,91 @@ export class FeishuChannel implements Channel {
 
   setMessageHandler(handler: MessageHandler): void {
     this.messageHandler = handler
+  }
+
+  private async buildIncomingMessage(data: any): Promise<IncomingMessage | null> {
+    const msg = data?.message
+    if (!msg) {
+      console.warn('[FeishuChannel] Received event with no message payload')
+      return null
+    }
+
+    const messageId = typeof msg.message_id === 'string' ? msg.message_id : ''
+    let content = ''
+    const images: ImageAttachment[] = []
+
+    if (msg.message_type === 'text') {
+      try {
+        const parsed = JSON.parse(msg.content ?? '{}')
+        content = parsed.text ?? ''
+      } catch (parseErr) {
+        console.error('[FeishuChannel] Failed to parse message content:', this.describeError(parseErr))
+        content = msg.content ?? ''
+      }
+    } else if (msg.message_type === 'post') {
+      try {
+        const parsed = JSON.parse(msg.content ?? '{}')
+        const pendingImages: ImageAttachment[] = []
+        content = this.parsePostContent(parsed, pendingImages)
+
+        if (messageId) {
+          const downloads = pendingImages
+            .filter((image) => image.mediaType === '__pending__')
+            .map((image) => this.downloadMessageImage(messageId, image.data, 'Failed to download post image'))
+          const resolvedImages = await Promise.all(downloads)
+          images.push(...resolvedImages.filter((image): image is ImageAttachment => image !== null))
+        }
+
+        if (images.length > 0) {
+          content = this.removeImagePlaceholders(content)
+        }
+
+        if (images.length === 0 && this.isPureImagePlaceholder(content)) {
+          content = '[图片下载失败]'
+        }
+      } catch (parseErr) {
+        console.error(
+          '[FeishuChannel] Failed to parse post content:',
+          this.describeError(parseErr),
+          'raw:',
+          this.truncate(msg.content ?? '', 200),
+        )
+        content = msg.content ?? ''
+      }
+    } else if (msg.message_type === 'image') {
+      try {
+        const parsed = JSON.parse(msg.content ?? '{}')
+        const imageKey = typeof parsed.image_key === 'string' ? parsed.image_key : ''
+        const image = imageKey && messageId
+          ? await this.downloadMessageImage(messageId, imageKey, 'Failed to download image message')
+          : null
+
+        if (image) {
+          images.push(image)
+          content = ''
+        } else {
+          content = '[图片下载失败]'
+        }
+      } catch (parseErr) {
+        console.error('[FeishuChannel] Failed to parse image message content:', this.describeError(parseErr))
+        content = '[图片下载失败]'
+      }
+    } else {
+      content = `[${msg.message_type} message]`
+    }
+
+    return {
+      channelType: 'feishu',
+      senderId: data.sender?.sender_id?.open_id ?? 'unknown',
+      content,
+      timestamp: new Date(Number(msg.create_time) * 1000).toISOString(),
+      metadata: {
+        chatId: msg.chat_id,
+        messageId: msg.message_id,
+        chatType: msg.chat_type,
+      },
+      images: images.length > 0 ? images : undefined,
+    }
   }
 
   /**
@@ -414,7 +435,7 @@ export class FeishuChannel implements Channel {
         })
         return
       } catch (interactiveErr) {
-        console.warn('[FeishuChannel] interactive send failed, fallback to post:', interactiveErr)
+        console.warn('[FeishuChannel] interactive send failed, fallback to post:', this.describeError(interactiveErr))
       }
     } else {
       console.warn('[FeishuChannel] interactive payload exceeds size limit, fallback to post')
@@ -433,7 +454,7 @@ export class FeishuChannel implements Channel {
         })
         return
       } catch (postErr) {
-        console.warn('[FeishuChannel] post send failed, fallback to text:', postErr)
+        console.warn('[FeishuChannel] post send failed, fallback to text:', this.describeError(postErr))
       }
     } else {
       console.warn('[FeishuChannel] post payload exceeds size limit, fallback to text')
@@ -471,7 +492,7 @@ export class FeishuChannel implements Channel {
         })
         return
       } catch (interactiveErr) {
-        console.warn('[FeishuChannel] interactive reply failed, fallback to post:', interactiveErr)
+        console.warn('[FeishuChannel] interactive reply failed, fallback to post:', this.describeError(interactiveErr))
       }
     } else {
       console.warn('[FeishuChannel] interactive reply payload exceeds size limit, fallback to post')
@@ -489,7 +510,7 @@ export class FeishuChannel implements Channel {
         })
         return
       } catch (postErr) {
-        console.warn('[FeishuChannel] post reply failed, fallback to text:', postErr)
+        console.warn('[FeishuChannel] post reply failed, fallback to text:', this.describeError(postErr))
       }
     } else {
       console.warn('[FeishuChannel] post reply payload exceeds size limit, fallback to text')
@@ -511,9 +532,194 @@ export class FeishuChannel implements Channel {
         })
       }
     } catch (textErr) {
-      console.error('[FeishuChannel] text reply fallback failed:', textErr)
+      console.error('[FeishuChannel] text reply fallback failed:', this.describeError(textErr))
       throw textErr
     }
+  }
+
+  private createSdkLogger() {
+    const report = (level: 'error' | 'warn', args: unknown[]) => {
+      const message = this.describeLogValue(args)
+      if (!message) return
+      const log = level === 'error' ? console.error : console.warn
+      log('[FeishuSDK]', message)
+    }
+
+    return {
+      error: (...msg: unknown[]) => report('error', msg),
+      warn: (...msg: unknown[]) => report('warn', msg),
+      info: () => {},
+      debug: () => {},
+      trace: () => {},
+    }
+  }
+
+  private async downloadMessageImage(
+    messageId: string,
+    fileKey: string,
+    logContext: string,
+  ): Promise<ImageAttachment | null> {
+    if (!this.client) return null
+
+    try {
+      const response = await this.client.im.messageResource.get({
+        path: { message_id: messageId, file_key: fileKey },
+        params: { type: 'image' },
+      })
+      return await this.readBinaryResponse(response)
+    } catch (error) {
+      console.error(`[FeishuChannel] ${logContext}:`, this.describeError(error))
+      return null
+    }
+  }
+
+  private async readBinaryResponse(response: FeishuBinaryResponse): Promise<ImageAttachment> {
+    const stream = response.getReadableStream()
+    const chunks: Buffer[] = []
+
+    for await (const chunk of stream) {
+      chunks.push(Buffer.from(chunk))
+    }
+
+    const buffer = Buffer.concat(chunks)
+    return {
+      mediaType: this.getResponseMediaType(response.headers),
+      data: buffer.toString('base64'),
+    }
+  }
+
+  private getResponseMediaType(headers: unknown): string {
+    const contentType = this.getHeaderValue(headers, 'content-type')
+    if (!contentType) return 'image/png'
+    return contentType.split(';')[0]?.trim() || 'image/png'
+  }
+
+  private getHeaderValue(headers: unknown, headerName: string): string | undefined {
+    if (!headers || typeof headers !== 'object') return undefined
+
+    const lowerName = headerName.toLowerCase()
+    const withGetter = headers as { get?: (name: string) => unknown }
+    if (typeof withGetter.get === 'function') {
+      const value = withGetter.get(headerName) ?? withGetter.get(lowerName)
+      return typeof value === 'string' ? value : undefined
+    }
+
+    for (const [key, value] of Object.entries(headers)) {
+      if (key.toLowerCase() !== lowerName) continue
+      if (typeof value === 'string') return value
+      if (Array.isArray(value) && typeof value[0] === 'string') return value[0]
+    }
+
+    return undefined
+  }
+
+  private extractRequestId(headers: unknown): string | undefined {
+    return this.getHeaderValue(headers, 'x-request-id')
+      ?? this.getHeaderValue(headers, 'request-id')
+  }
+
+  private extractResponseDetail(data: unknown): string | undefined {
+    if (!data) return undefined
+    if (typeof data === 'string') return this.truncate(data, 160)
+    if (typeof data !== 'object') return undefined
+
+    const record = data as Record<string, unknown>
+    const code = typeof record.code === 'number' || typeof record.code === 'string'
+      ? String(record.code)
+      : undefined
+    const message = typeof record.msg === 'string'
+      ? record.msg
+      : typeof record.message === 'string'
+        ? record.message
+        : undefined
+
+    if (!code && !message) return undefined
+    return [code ? `code=${code}` : '', message ?? '']
+      .filter(Boolean)
+      .join(' ')
+  }
+
+  private describeLogValue(value: unknown): string {
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => this.describeLogValue(item))
+        .filter(Boolean)
+        .join(' | ')
+    }
+
+    if (typeof value === 'string') return value
+    if (typeof value === 'number' || typeof value === 'boolean' || value == null) return String(value)
+
+    const errorSummary = this.describeError(value)
+    if (errorSummary !== '[unknown error]') return errorSummary
+
+    const objectName = value && typeof value === 'object' && 'constructor' in value
+      ? (value as { constructor?: { name?: string } }).constructor?.name
+      : undefined
+    return objectName ? `[${objectName}]` : '[object]'
+  }
+
+  private describeError(error: unknown): string {
+    if (typeof error === 'string') return error
+    if (typeof error === 'number' || typeof error === 'boolean' || error == null) return String(error)
+
+    const record = error as Record<string, unknown>
+    const response = typeof record.response === 'object' && record.response !== null
+      ? record.response as Record<string, unknown>
+      : undefined
+    const config = typeof record.config === 'object' && record.config !== null
+      ? record.config as Record<string, unknown>
+      : undefined
+
+    const message = typeof record.message === 'string'
+      ? record.message
+      : error instanceof Error
+        ? error.message
+        : undefined
+    const code = typeof record.code === 'string' ? record.code : undefined
+    const status = typeof response?.status === 'number'
+      ? response.status
+      : typeof record.status === 'number'
+        ? record.status
+        : typeof record.statusCode === 'number'
+          ? record.statusCode
+          : undefined
+    const method = typeof config?.method === 'string' ? config.method.toUpperCase() : undefined
+    const url = typeof config?.url === 'string'
+      ? config.url
+      : typeof record.url === 'string'
+        ? record.url
+        : undefined
+    const requestId = this.extractRequestId(response?.headers)
+    const detail = this.extractResponseDetail(response?.data)
+
+    const parts = [
+      status ? `status=${status}` : '',
+      code ? `code=${code}` : '',
+      requestId ? `request_id=${requestId}` : '',
+      method || url ? `${method ?? 'REQUEST'} ${url ?? ''}`.trim() : '',
+      message ?? '',
+      detail ? `detail=${detail}` : '',
+    ].filter(Boolean)
+
+    return parts.join(' | ') || '[unknown error]'
+  }
+
+  private isPureImagePlaceholder(content: string): boolean {
+    const normalized = this.removeImagePlaceholders(content).replace(/\s+/g, '')
+    return normalized.length === 0 && content.replace(/\s+/g, '').length > 0
+  }
+
+  private removeImagePlaceholders(content: string): string {
+    return content
+      .replace(/^\s*\[(?:图片|Image(?:\s*#?\d+)?)\]\s*$/gim, '')
+      .replace(/(?:\r?\n){3,}/g, '\n\n')
+      .trim()
+  }
+
+  private truncate(value: string, maxLength: number): string {
+    if (value.length <= maxLength) return value
+    return `${value.slice(0, Math.max(0, maxLength - 1))}…`
   }
 
   /**

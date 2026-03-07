@@ -351,6 +351,156 @@ describe('FeishuChannel contract', () => {
     expect(channel.isConnected()).toBe(false)
   })
 
+  test('buildIncomingMessage downloads standalone image via messageResource', async () => {
+    const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
+    const calls: any[] = []
+
+    ;(channel as any).client = {
+      im: {
+        messageResource: {
+          get: async (payload: any) => {
+            calls.push(payload)
+            return {
+              headers: { 'content-type': 'image/jpeg' },
+              getReadableStream: () => Readable.from([Buffer.from('fake-image')]),
+            }
+          },
+        },
+      },
+    }
+
+    const msg = await (channel as any).buildIncomingMessage({
+      sender: { sender_id: { open_id: 'ou_test' } },
+      message: {
+        message_id: 'om_test',
+        chat_id: 'chat_test',
+        chat_type: 'p2p',
+        message_type: 'image',
+        create_time: '1710000000',
+        content: JSON.stringify({ image_key: 'img_v3_test' }),
+      },
+    })
+
+    expect(calls).toEqual([
+      {
+        path: { message_id: 'om_test', file_key: 'img_v3_test' },
+        params: { type: 'image' },
+      },
+    ])
+    expect(msg).toMatchObject({
+      channelType: 'feishu',
+      senderId: 'ou_test',
+      content: '',
+      metadata: {
+        chatId: 'chat_test',
+        messageId: 'om_test',
+        chatType: 'p2p',
+      },
+    })
+    expect(msg.images).toEqual([
+      {
+        mediaType: 'image/jpeg',
+        data: Buffer.from('fake-image').toString('base64'),
+      },
+    ])
+  })
+
+  test('buildIncomingMessage marks image download failure explicitly', async () => {
+    const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
+    const originalConsoleError = console.error
+    const errors: unknown[][] = []
+
+    console.error = (...args: unknown[]) => {
+      errors.push(args)
+    }
+
+    ;(channel as any).client = {
+      im: {
+        messageResource: {
+          get: async () => {
+            const error = new Error('Request failed with status code 400') as Error & {
+              response?: { status: number; headers: Record<string, string> }
+              config?: { method: string; url: string }
+            }
+            error.response = {
+              status: 400,
+              headers: { 'x-request-id': 'req_test' },
+            }
+            error.config = {
+              method: 'get',
+              url: 'https://open.feishu.cn/open-apis/im/v1/images/img_v3_test',
+            }
+            throw error
+          },
+        },
+      },
+    }
+
+    try {
+      const msg = await (channel as any).buildIncomingMessage({
+        sender: { sender_id: { open_id: 'ou_test' } },
+        message: {
+          message_id: 'om_test',
+          chat_id: 'chat_test',
+          chat_type: 'p2p',
+          message_type: 'image',
+          create_time: '1710000000',
+          content: JSON.stringify({ image_key: 'img_v3_test' }),
+        },
+      })
+
+      expect(msg.images).toBeUndefined()
+      expect(msg.content).toBe('[图片下载失败]')
+      expect(errors).toEqual([
+        [
+          '[FeishuChannel] Failed to download image message:',
+          'status=400 | request_id=req_test | GET https://open.feishu.cn/open-apis/im/v1/images/img_v3_test | Request failed with status code 400',
+        ],
+      ])
+    } finally {
+      console.error = originalConsoleError
+    }
+  })
+
+  test('buildIncomingMessage strips image placeholder text when post image download succeeds', async () => {
+    const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
+
+    ;(channel as any).client = {
+      im: {
+        messageResource: {
+          get: async () => ({
+            headers: { 'content-type': 'image/png' },
+            getReadableStream: () => Readable.from([Buffer.from('fake-post-image')]),
+          }),
+        },
+      },
+    }
+
+    const msg = await (channel as any).buildIncomingMessage({
+      sender: { sender_id: { open_id: 'ou_test' } },
+      message: {
+        message_id: 'om_post',
+        chat_id: 'chat_test',
+        chat_type: 'p2p',
+        message_type: 'post',
+        create_time: '1710000000',
+        content: JSON.stringify({
+          zh_cn: {
+            content: [[{ tag: 'img', image_key: 'img_v3_test' }], [{ tag: 'text', text: '分析下这个页面' }]],
+          },
+        }),
+      },
+    })
+
+    expect(msg.content).toBe('分析下这个页面')
+    expect(msg.images).toEqual([
+      {
+        mediaType: 'image/png',
+        data: Buffer.from('fake-post-image').toString('base64'),
+      },
+    ])
+  })
+
   test('send uses interactive JSON 2.0 card first', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
     const calls: any[] = []

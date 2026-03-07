@@ -19,7 +19,7 @@ interface Message {
 }
 
 export type TimelineItem =
-  | { type: 'user-message'; text: string; createdAt: string }
+  | { type: 'user-message'; text: string; images?: Array<{ mediaType: string; data: string }>; createdAt: string }
   | { type: 'agent-text'; text: string; model?: string; createdAt: string }
   | { type: 'tool-call'; id: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean; createdAt: string }
   | { type: 'system-event'; variant: 'warning' | 'info'; text: string; createdAt: string }
@@ -38,7 +38,7 @@ export function TimelineView({ messages, selectedToolId, onSelectTool }: Props) 
       {items.map((item, i) => {
         switch (item.type) {
           case 'user-message':
-            return <UserMessageBlock key={i} text={item.text} createdAt={item.createdAt} />
+            return <UserMessageBlock key={i} text={item.text} images={item.images} createdAt={item.createdAt} />
           case 'agent-text':
             return <AgentMessageBlock key={i} text={item.text} model={item.model} />
           case 'tool-call':
@@ -106,9 +106,21 @@ export function buildTimeline(messages: Message[]): TimelineItem[] {
     // User messages
     if (msg.role === 'user') {
       const textBlocks = msg.content.filter((b) => b.type === 'text')
-      if (textBlocks.length > 0) {
+      const imageBlocks = msg.content
+        .filter((b) => b.type === 'image')
+        .map((b) => ({
+          mediaType: b.mediaType as string,
+          data: b.data as string,
+        }))
+
+      if (textBlocks.length > 0 || imageBlocks.length > 0) {
         const text = textBlocks.map((b) => b.text as string).join('\n')
-        items.push({ type: 'user-message', text, createdAt: msg.createdAt })
+        items.push({
+          type: 'user-message',
+          text,
+          images: imageBlocks.length > 0 ? imageBlocks : undefined,
+          createdAt: msg.createdAt,
+        })
       }
       // tool_result blocks are already collected above
       continue

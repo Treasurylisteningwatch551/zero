@@ -225,6 +225,30 @@ export async function startZeroOS(): Promise<ZeroOS> {
       .trim()
   }
 
+  function describeError(err: unknown): string {
+    if (err instanceof Error) return err.message
+    if (typeof err === 'string') return err
+    if (!err || typeof err !== 'object') return String(err)
+
+    const record = err as Record<string, unknown>
+    const response = typeof record.response === 'object' && record.response !== null
+      ? record.response as Record<string, unknown>
+      : undefined
+    const config = typeof record.config === 'object' && record.config !== null
+      ? record.config as Record<string, unknown>
+      : undefined
+
+    const parts = [
+      typeof response?.status === 'number' ? `status=${response.status}` : '',
+      typeof config?.method === 'string' || typeof config?.url === 'string'
+        ? `${typeof config?.method === 'string' ? config.method.toUpperCase() : 'REQUEST'} ${typeof config?.url === 'string' ? config.url : ''}`.trim()
+        : '',
+      typeof record.message === 'string' ? record.message : '',
+    ].filter(Boolean)
+
+    return parts.join(' | ') || '[unknown error]'
+  }
+
   function isRestartCommand(content: string): boolean {
     if (Date.now() - startedAt < 15_000) return false // ignore during startup grace period
     return /^\/restart(?:@\S+)?$/i.test(content.trim())
@@ -339,10 +363,10 @@ export async function startZeroOS(): Promise<ZeroOS> {
             if (firstReply && messageId) {
               firstReply = false
               feishuChannel.reply(messageId, text).catch((err) =>
-                console.error('[ZeRo OS] Feishu progressive send error:', err))
+                console.error('[ZeRo OS] Feishu progressive send error:', describeError(err)))
             } else {
               feishuChannel.send(chatId, text).catch((err) =>
-                console.error('[ZeRo OS] Feishu progressive send error:', err))
+                console.error('[ZeRo OS] Feishu progressive send error:', describeError(err)))
             }
           },
         })
@@ -363,7 +387,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
           feishuChannel.react(messageId, 'DONE').catch(() => {})
         }
       } catch (err) {
-        console.error('[ZeRo OS] Feishu message handler error:', err)
+        console.error('[ZeRo OS] Feishu message handler error:', describeError(err))
         const errorMessage = err instanceof Error ? err.message : String(err)
         let sessionWasArchived = false
         if (
