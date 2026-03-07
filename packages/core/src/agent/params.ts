@@ -8,8 +8,13 @@ export const CONTEXT_PARAMS = {
     role: 500,
     toolRules: 800,
     constraints: 300,
+    executionMode: 500,
+    safety: 300,
+    toolCallStyle: 200,
     identity: 3000,
     skillCatalog: 2000,
+    runtime: 200,
+    bootstrapContext: 8000,
   },
 
   /** Conversation compression */

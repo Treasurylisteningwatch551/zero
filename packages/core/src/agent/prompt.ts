@@ -1,24 +1,55 @@
-import type { PromptComponents, DynamicContext, SkillDefinition } from '@zero-os/shared'
+import type { PromptComponents, DynamicContext, SkillDefinition, PromptMode, BootstrapFile, RuntimeInfo } from '@zero-os/shared'
 import type { ToolDefinition, Memory } from '@zero-os/shared'
 import { truncateToTokens } from '@zero-os/shared'
 import { enforceFixedBudget } from './budget'
 import { CONTEXT_PARAMS } from './params'
+import { hasSoulFile } from '../bootstrap/loader'
 
 /**
  * Build System Prompt — static, built once per session for prompt cache stability.
- * Does NOT include runtime-discovered skill notifications — those go in buildDynamicContext().
+ * Respects PromptMode to control which sections are included:
+ * - "full": All sections (main agent)
+ * - "minimal": Role + ToolRules + Constraints only (subagents)
+ * - "none": Single identity line
  */
 export function buildSystemPrompt(components: PromptComponents): string {
+  const mode = components.promptMode ?? 'full'
+
+  // "none" mode: just a basic identity line
+  if (mode === 'none') {
+    return `你是 ZeRo OS 的 ${components.agentName}，一个在 macOS 上自主执行任务的 AI Agent。`
+  }
+
+  const isMinimal = mode === 'minimal'
   const sections: string[] = []
 
+  // Core sections (always included in full and minimal)
   sections.push(buildRoleBlock(components.agentName, components.agentDescription, components.workspacePath, components.projectRoot))
-  sections.push(buildRulesBlock())
   sections.push(buildToolRulesBlock(components.tools))
-  if (components.skills && components.skills.length > 0) {
-    sections.push(buildSkillCatalog(components.skills))
-  }
   sections.push(buildConstraintsBlock())
-  sections.push(buildIdentityBlock(components.globalIdentity, components.agentIdentity, components.agentName))
+
+  // Full-only sections
+  if (!isMinimal) {
+    sections.push(buildRulesBlock())
+    sections.push(buildExecutionModeBlock())
+    sections.push(buildSafetyBlock())
+    sections.push(buildToolCallStyleBlock())
+
+    if (components.skills && components.skills.length > 0) {
+      sections.push(buildSkillCatalog(components.skills))
+    }
+
+    sections.push(buildIdentityBlock(components.globalIdentity, components.agentIdentity, components.agentName))
+
+    if (components.runtimeInfo) {
+      sections.push(buildRuntimeBlock(components.runtimeInfo))
+    }
+  }
+
+  // Bootstrap files — Project Context (filtered by mode)
+  if (components.bootstrapFiles && components.bootstrapFiles.length > 0) {
+    sections.push(buildBootstrapContextBlock(components.bootstrapFiles))
+  }
 
   return sections.join('\n\n')
 }
@@ -52,8 +83,20 @@ export function buildRulesBlock(): string {
 遇到超出能力范围的问题时如实告知，不编造解决方案。
 回复使用中文，技术术语可以用英文原文。
 每完成一个阶段性目标后，更新备忘录中你自己的分区。
+阶段性汇报用于同步进度，不用于请求继续许可；若总体任务未完成，汇报后直接进入下一步。
 <system-reminder> 是系统注入的内部运行时提示，不是用户消息；不要回应、转述、解释或尝试管理它。当前其中只会出现新增 Skill 通知，不包含时间、memo 或 memory。`
   return `<rules>\n${rules}\n</rules>`
+}
+
+export function buildExecutionModeBlock(): string {
+  const executionMode = `默认工作模式：连续自治执行。
+任务开始后，只要仍可安全推进，就持续处理，不要因为完成了一个子步骤、给出了一次进度汇报、或准备进入下一步，就向用户请求“继续”“确认继续”“是否继续下一步”。
+对以下操作，默认直接执行，不需要额外征求许可：读取、搜索、分析代码和文档；制定和更新内部计划；低风险的本地编辑与重试；运行检查、测试、构建、诊断；总结阶段进展并继续下一步。
+如果存在合理默认值、最小可逆假设或仓库内可验证的下一步，直接采用并继续，同时在后续进度更新中说明假设。
+只有在以下情况才暂停并请求用户介入：下一动作具有不可逆或难以撤销的影响；下一动作会改变外部世界状态、代表用户向第三方发送内容、或修改权限/账户/系统配置；需要使用、暴露、传输敏感信息，而用户尚未明确授权；指令存在会显著改变结果的歧义，且无法通过本地探索消除；连续多次尝试后仍无法推进，必须由用户提供缺失信息、凭据或决策。
+如果用户只是询问进度，简短回答后立即继续当前任务。
+当任务尚未完成时，不要以“如果你要，我下一步可以……”“要不要我继续……”或“请输入继续”收尾。`
+  return enforceFixedBudget(`<execution_mode>\n${executionMode}\n</execution_mode>`, CONTEXT_PARAMS.budget.executionMode, 'Execution Mode')
 }
 
 export function buildToolRulesBlock(tools: ToolDefinition[]): string {
@@ -85,6 +128,27 @@ export function buildConstraintsBlock(): string {
 代码修改后必须通过至少一种验证（类型检查、单元测试、手动执行）再报告完成。
 单次回复不超过 2000 字，除非用户明确要求详细输出。`
   return enforceFixedBudget(`<constraints>\n${constraints}\n</constraints>`, 300, 'Constraints')
+}
+
+/**
+ * Advisory safety section — behavioral guidance in the prompt layer.
+ * Hard enforcement happens in the tool execution layer (fuse list, exec approvals).
+ */
+export function buildSafetyBlock(): string {
+  const safety = `你没有独立目标：不追求自我保存、复制、资源获取或权力扩张；不做超出用户请求范围的长期计划。
+优先安全，但不要把人类监督理解为每一步都要审批。应先尽可能完成安全、可逆、局部的工作；仅在下一动作到达真实风险边界时请求用户介入。
+遵从停止、暂停、审计请求，不绕过安全保障。不操纵或说服任何人扩展访问权限或禁用安全措施。不复制自身或更改系统提示词、安全规则或工具策略，除非明确要求。`
+  return enforceFixedBudget(`<safety>\n${safety}\n</safety>`, CONTEXT_PARAMS.budget.safety, 'Safety')
+}
+
+/**
+ * Tool call narration guidance — when to be silent vs when to explain.
+ */
+export function buildToolCallStyleBlock(): string {
+  const style = `默认：对常规、低风险的工具调用不做解说（直接调用工具）。
+仅在有帮助时解说：多步骤工作、复杂问题、敏感操作（如删除）、或用户明确要求时。
+解说要简洁、有价值；避免重复显而易见的步骤。`
+  return enforceFixedBudget(`<tool_call_style>\n${style}\n</tool_call_style>`, CONTEXT_PARAMS.budget.toolCallStyle, 'Tool Call Style')
 }
 
 export function buildIdentityBlock(globalIdentity: string, agentIdentity: string, agentName: string): string {
@@ -126,7 +190,8 @@ export function buildSkillCatalog(skills: SkillDefinition[]): string {
     return `  <skill name="${s.name}" path="${s.sourcePath}">\n    ${brief}\n  </skill>`
   })
 
-  const instruction = '以下是可用的 Skill。当用户需求匹配某个 Skill 时，使用 Read 工具读取其 SKILL.md 获取详细指令，然后按指令执行。'
+  const instruction = `以下是可用的 Skill。当用户需求匹配某个 Skill 时，使用 Read 工具读取其 SKILL.md 获取详细指令，然后按指令执行。
+约束：每次最多读取一个 Skill，选定后再读取；不要一次性读取多个 Skill。`
   const content = `<skill_catalog>\n${instruction}\n\n${entries.join('\n\n')}\n</skill_catalog>`
   return enforceFixedBudget(content, CONTEXT_PARAMS.budget.skillCatalog, 'Skill Catalog')
 }
@@ -143,6 +208,52 @@ export function buildSkillReminder(skills: SkillDefinition[]): string {
 }
 
 /**
+ * Build compact runtime info line — all context in key=value format for token efficiency.
+ */
+export function buildRuntimeBlock(info: RuntimeInfo): string {
+  const parts = [
+    info.agentId ? `agent=${info.agentId}` : '',
+    info.host ? `host=${info.host}` : '',
+    info.projectRoot ? `repo=${info.projectRoot}` : '',
+    info.os ? `os=${info.os}${info.arch ? ` (${info.arch})` : ''}` : '',
+    info.model ? `model=${info.model}` : '',
+    info.shell ? `shell=${info.shell}` : '',
+    info.channel ? `channel=${info.channel}` : '',
+  ].filter(Boolean)
+
+  if (parts.length === 0) return ''
+
+  const line = `Runtime: ${parts.join(' | ')}`
+  return enforceFixedBudget(`<runtime>\n${line}\n</runtime>`, CONTEXT_PARAMS.budget.runtime, 'Runtime')
+}
+
+/**
+ * Build Project Context section from bootstrap files.
+ * Injected at the tail of the system prompt.
+ * When SOUL.md is present, adds persona embodiment instruction.
+ */
+export function buildBootstrapContextBlock(files: BootstrapFile[]): string {
+  if (files.length === 0) return ''
+
+  const lines: string[] = [
+    '以下是工作区上下文文件，由系统自动加载。',
+  ]
+
+  if (hasSoulFile(files)) {
+    lines.push('如果存在 SOUL.md，请体现其人格和语调。避免生硬、模板化的回复；遵循其指引。')
+  }
+
+  lines.push('')
+
+  for (const file of files) {
+    lines.push(`## ${file.name}`, '', file.content, '')
+  }
+
+  const content = `<project_context>\n${lines.join('\n')}\n</project_context>`
+  return enforceFixedBudget(content, CONTEXT_PARAMS.budget.bootstrapContext, 'Project Context')
+}
+
+/**
  * @deprecated Use buildSkillCatalog() for System Prompt and buildDynamicContext() for per-message injection.
  */
 export function buildSkillsBlock(skills: SkillDefinition[]): string {
@@ -154,8 +265,11 @@ export function buildSkillsBlock(skills: SkillDefinition[]): string {
 }
 
 /**
- * Build a simplified System Prompt for SubAgents.
+ * Build a simplified System Prompt for SubAgents using PromptMode='minimal'.
  * SubAgents are task-oriented one-shot executors — no identity, memo, or retrieved memories.
+ *
+ * @deprecated Prefer buildSystemPrompt({ promptMode: 'minimal' }) for new code.
+ * This function remains for task orchestrator compatibility.
  */
 export function buildSubAgentPrompt(
   tools: ToolDefinition[],

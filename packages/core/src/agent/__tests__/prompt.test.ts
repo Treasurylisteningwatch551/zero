@@ -3,6 +3,7 @@ import {
   buildSystemPrompt,
   buildRoleBlock,
   buildRulesBlock,
+  buildExecutionModeBlock,
   buildToolRulesBlock,
   buildConstraintsBlock,
   buildIdentityBlock,
@@ -11,6 +12,10 @@ import {
   buildSkillCatalog,
   buildDynamicContext,
   buildSkillReminder,
+  buildSafetyBlock,
+  buildToolCallStyleBlock,
+  buildRuntimeBlock,
+  buildBootstrapContextBlock,
 } from '../prompt'
 
 const makeMemory = (overrides: Partial<import('@zero-os/shared').Memory> = {}): import('@zero-os/shared').Memory => ({
@@ -41,6 +46,12 @@ const makeSkill = (name: string, description = 'A test skill.'): import('@zero-o
   sourcePath: `/path/to/skills/${name}/SKILL.md`,
 })
 
+const makeBootstrapFile = (name: string, content: string): import('@zero-os/shared').BootstrapFile => ({
+  name,
+  path: `/project/.zero/${name}`,
+  content,
+})
+
 describe('buildRoleBlock', () => {
   test('contains agent name and description in XML tags', () => {
     const result = buildRoleBlock('Coder', '负责编写和修改代码')
@@ -61,25 +72,39 @@ describe('buildRoleBlock', () => {
 })
 
 describe('buildRulesBlock', () => {
-  test('returns 7 rules in <rules> tags', () => {
+  test('returns 8 rules in <rules> tags', () => {
     const result = buildRulesBlock()
 
     expect(result).toStartWith('<rules>')
     expect(result).toEndWith('</rules>')
 
-    // Verify all 7 rules are present
+    // Verify all 8 rules are present
     expect(result).toContain('执行操作前先说明意图')
     expect(result).toContain('工具调用失败时先读错误信息做诊断')
     expect(result).toContain('涉及不可逆操作')
     expect(result).toContain('遇到超出能力范围的问题时如实告知')
     expect(result).toContain('回复使用中文')
     expect(result).toContain('每完成一个阶段性目标后')
+    expect(result).toContain('阶段性汇报用于同步进度')
     expect(result).toContain('<system-reminder> 是系统注入的内部运行时提示')
 
-    // Count lines inside the tags (7 rules = 7 lines)
+    // Count lines inside the tags (8 rules = 8 lines)
     const inner = result.replace('<rules>\n', '').replace('\n</rules>', '')
     const lines = inner.split('\n').filter(l => l.trim().length > 0)
-    expect(lines.length).toBe(7)
+    expect(lines.length).toBe(8)
+  })
+})
+
+describe('buildExecutionModeBlock', () => {
+  test('wraps continuous execution guidance in <execution_mode> tags', () => {
+    const result = buildExecutionModeBlock()
+
+    expect(result).toContain('<execution_mode>')
+    expect(result).toContain('</execution_mode>')
+    expect(result).toContain('默认工作模式：连续自治执行')
+    expect(result).toContain('不要因为完成了一个子步骤')
+    expect(result).toContain('只有在以下情况才暂停并请求用户介入')
+    expect(result).toContain('不要以“如果你要，我下一步可以……”')
   })
 })
 
@@ -119,6 +144,30 @@ describe('buildConstraintsBlock', () => {
     expect(result).toContain('不得包含密钥值')
     expect(result).toContain('代码修改后必须通过至少一种验证')
     expect(result).toContain('单次回复不超过 2000 字')
+  })
+})
+
+describe('buildSafetyBlock', () => {
+  test('wraps safety rules in <safety> tags', () => {
+    const result = buildSafetyBlock()
+
+    expect(result).toContain('<safety>')
+    expect(result).toContain('</safety>')
+    expect(result).toContain('没有独立目标')
+    expect(result).toContain('不要把人类监督理解为每一步都要审批')
+    expect(result).toContain('不操纵或说服')
+  })
+})
+
+describe('buildToolCallStyleBlock', () => {
+  test('wraps style guidance in <tool_call_style> tags', () => {
+    const result = buildToolCallStyleBlock()
+
+    expect(result).toContain('<tool_call_style>')
+    expect(result).toContain('</tool_call_style>')
+    expect(result).toContain('默认')
+    expect(result).toContain('低风险')
+    expect(result).toContain('解说要简洁')
   })
 })
 
@@ -222,6 +271,13 @@ describe('buildSkillCatalog', () => {
     expect(result).toContain('使用 Read 工具读取其 SKILL.md')
   })
 
+  test('includes skill reading constraint', () => {
+    const skills = [makeSkill('browser')]
+    const result = buildSkillCatalog(skills)
+
+    expect(result).toContain('每次最多读取一个 Skill')
+  })
+
   test('does not include full skill content', () => {
     const skills = [makeSkill('browser')]
     const result = buildSkillCatalog(skills)
@@ -287,36 +343,116 @@ describe('buildSkillReminder', () => {
   })
 })
 
-describe('buildSystemPrompt', () => {
-  test('assembles static sections without dynamic content', () => {
-    const result = buildSystemPrompt({
-      agentName: 'Coder',
-      agentDescription: '负责编写代码',
-      tools: [makeTool('Read'), makeTool('Write')],
-      globalIdentity: '全局身份',
-      agentIdentity: '代理身份',
+describe('buildRuntimeBlock', () => {
+  test('renders compact key=value runtime info', () => {
+    const result = buildRuntimeBlock({
+      agentId: 'zero',
+      host: 'mac-mini',
+      os: 'darwin',
+      arch: 'arm64',
+      model: 'gpt-5.3-codex-medium',
+      shell: 'zsh',
+      projectRoot: '/Users/x/project',
     })
+
+    expect(result).toContain('<runtime>')
+    expect(result).toContain('</runtime>')
+    expect(result).toContain('agent=zero')
+    expect(result).toContain('host=mac-mini')
+    expect(result).toContain('os=darwin (arm64)')
+    expect(result).toContain('model=gpt-5.3-codex-medium')
+    expect(result).toContain('shell=zsh')
+    expect(result).toContain('repo=/Users/x/project')
+  })
+
+  test('omits missing fields', () => {
+    const result = buildRuntimeBlock({
+      model: 'gpt-5.3-codex-medium',
+    })
+
+    expect(result).toContain('model=gpt-5.3-codex-medium')
+    expect(result).not.toContain('agent=')
+    expect(result).not.toContain('host=')
+    expect(result).not.toContain('shell=')
+  })
+
+  test('returns empty string when no info', () => {
+    const result = buildRuntimeBlock({})
+    expect(result).toBe('')
+  })
+})
+
+describe('buildBootstrapContextBlock', () => {
+  test('renders bootstrap files in <project_context> tags', () => {
+    const files = [
+      makeBootstrapFile('AGENTS.md', '# Workspace Rules\n\nDo this.'),
+      makeBootstrapFile('TOOLS.md', '# Tool Notes\n\nBash tips.'),
+    ]
+    const result = buildBootstrapContextBlock(files)
+
+    expect(result).toContain('<project_context>')
+    expect(result).toContain('</project_context>')
+    expect(result).toContain('## AGENTS.md')
+    expect(result).toContain('Workspace Rules')
+    expect(result).toContain('## TOOLS.md')
+    expect(result).toContain('Bash tips')
+  })
+
+  test('adds persona instruction when SOUL.md is present', () => {
+    const files = [
+      makeBootstrapFile('SOUL.md', '# Who You Are\n\nBe genuine.'),
+      makeBootstrapFile('AGENTS.md', '# Rules'),
+    ]
+    const result = buildBootstrapContextBlock(files)
+
+    expect(result).toContain('SOUL.md')
+    expect(result).toContain('体现其人格和语调')
+  })
+
+  test('does not add persona instruction without SOUL.md', () => {
+    const files = [
+      makeBootstrapFile('AGENTS.md', '# Rules'),
+    ]
+    const result = buildBootstrapContextBlock(files)
+
+    expect(result).not.toContain('体现其人格和语调')
+  })
+
+  test('returns empty string for no files', () => {
+    expect(buildBootstrapContextBlock([])).toBe('')
+  })
+})
+
+describe('buildSystemPrompt', () => {
+  const baseComponents = {
+    agentName: 'Coder',
+    agentDescription: '负责编写代码',
+    tools: [makeTool('Read'), makeTool('Write')],
+    globalIdentity: '全局身份',
+    agentIdentity: '代理身份',
+  }
+
+  test('assembles all sections in full mode (default)', () => {
+    const result = buildSystemPrompt(baseComponents)
 
     expect(result).toContain('<role>')
     expect(result).toContain('<rules>')
+    expect(result).toContain('<execution_mode>')
     expect(result).toContain('<tool_rules>')
     expect(result).toContain('<constraints>')
+    expect(result).toContain('<safety>')
+    expect(result).toContain('<tool_call_style>')
     expect(result).toContain('<identity>')
     // Should NOT contain dynamic content
     expect(result).not.toContain('<memo>')
     expect(result).not.toContain('<retrieved_memories>')
     expect(result).not.toContain('<new_skills>')
-    expect(result).not.toContain('当前时间：')
   })
 
   test('includes skill_catalog when skills provided', () => {
     const result = buildSystemPrompt({
-      agentName: 'Coder',
-      agentDescription: '负责编写代码',
-      tools: [makeTool('Read')],
+      ...baseComponents,
       skills: [makeSkill('browser')],
-      globalIdentity: '全局身份',
-      agentIdentity: '代理身份',
     })
 
     expect(result).toContain('<skill_catalog>')
@@ -325,14 +461,79 @@ describe('buildSystemPrompt', () => {
   })
 
   test('omits skill_catalog when no skills', () => {
-    const result = buildSystemPrompt({
-      agentName: 'Coder',
-      agentDescription: '负责编写代码',
-      tools: [makeTool('Read')],
-      globalIdentity: '',
-      agentIdentity: '',
-    })
+    const result = buildSystemPrompt(baseComponents)
 
     expect(result).not.toContain('<skill_catalog>')
+  })
+
+  test('includes runtime info when provided', () => {
+    const result = buildSystemPrompt({
+      ...baseComponents,
+      runtimeInfo: { model: 'gpt-5.3-codex-medium', shell: 'zsh' },
+    })
+
+    expect(result).toContain('<runtime>')
+    expect(result).toContain('model=gpt-5.3-codex-medium')
+  })
+
+  test('includes bootstrap files as project context', () => {
+    const result = buildSystemPrompt({
+      ...baseComponents,
+      bootstrapFiles: [
+        makeBootstrapFile('SOUL.md', '# Who You Are'),
+        makeBootstrapFile('AGENTS.md', '# Rules'),
+      ],
+    })
+
+    expect(result).toContain('<project_context>')
+    expect(result).toContain('## SOUL.md')
+    expect(result).toContain('## AGENTS.md')
+  })
+
+  describe('PromptMode: minimal', () => {
+    test('includes only core sections', () => {
+      const result = buildSystemPrompt({
+        ...baseComponents,
+        promptMode: 'minimal',
+      })
+
+      expect(result).toContain('<role>')
+      expect(result).toContain('<tool_rules>')
+      expect(result).toContain('<constraints>')
+      // Full-only sections should be absent
+      expect(result).not.toContain('<rules>')
+      expect(result).not.toContain('<safety>')
+      expect(result).not.toContain('<tool_call_style>')
+      expect(result).not.toContain('<identity>')
+      expect(result).not.toContain('<skill_catalog>')
+      expect(result).not.toContain('<runtime>')
+    })
+
+    test('still includes bootstrap files (filtered by mode externally)', () => {
+      const result = buildSystemPrompt({
+        ...baseComponents,
+        promptMode: 'minimal',
+        bootstrapFiles: [makeBootstrapFile('AGENTS.md', '# Rules')],
+      })
+
+      expect(result).toContain('<project_context>')
+      expect(result).toContain('## AGENTS.md')
+    })
+  })
+
+  describe('PromptMode: none', () => {
+    test('returns only identity line', () => {
+      const result = buildSystemPrompt({
+        ...baseComponents,
+        promptMode: 'none',
+      })
+
+      expect(result).toContain('ZeRo OS')
+      expect(result).toContain('Coder')
+      expect(result).not.toContain('<role>')
+      expect(result).not.toContain('<rules>')
+      expect(result).not.toContain('<tool_rules>')
+      expect(result).not.toContain('<constraints>')
+    })
   })
 })

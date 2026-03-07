@@ -20,10 +20,11 @@ describe('formatQueuedMessages', () => {
     expect(result).toContain('hello')
   })
 
-  test('single message contains "不要中断当前工作流"', () => {
+  test('single message prevents asking for continue', () => {
     const msgs: QueuedMessage[] = [{ content: 'ping', timestamp: '2026-03-03T10:30:00Z' }]
     const result = formatQueuedMessages(msgs)
-    expect(result).toContain('不要中断当前工作流')
+    expect(result).toContain('不要因为这条消息向用户请求“继续”')
+    expect(result).toContain('状态查询')
   })
 
   test('multiple messages wraps in <queued_messages count="N">', () => {
@@ -103,5 +104,6 @@ describe('CONTINUATION_PROMPT', () => {
   test('contains <system_notice> tag', () => {
     expect(CONTINUATION_PROMPT).toContain('<system_notice>')
     expect(CONTINUATION_PROMPT).toContain('</system_notice>')
+    expect(CONTINUATION_PROMPT).toContain('不要向用户请求“继续”')
   })
 })

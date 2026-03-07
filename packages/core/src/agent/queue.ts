@@ -20,7 +20,11 @@ export function formatQueuedMessages(messages: QueuedMessage[]): string {
 
   if (messages.length === 1) {
     return `<queued_message>
-以下是你执行任务期间用户发来的消息。请简短回应后继续执行之前的任务，不要中断当前工作流。
+以下是你执行任务期间用户发来的消息。
+如果这是状态查询，用 1-2 句简短回应后继续当前任务。
+如果这是补充约束，将其纳入后续执行并继续当前任务。
+如果这是停止、暂停、审计或明确禁止继续的请求，在当前工具结束后的下一个安全检查点停止新增工具调用，并汇报当前进度与恢复点。
+不要因为这条消息向用户请求“继续”或额外许可。
 ---
 ${messages[0].content}
 </queued_message>`
@@ -43,7 +47,11 @@ ${messages[0].content}
     .join('\n')
 
   return `<queued_messages count="${messages.length}">
-以下是你执行任务期间用户发来的 ${messages.length} 条消息。请统一简短回应后继续执行之前的任务。
+以下是你执行任务期间用户发来的 ${messages.length} 条消息。
+请统一简短回应，吸收其中仍然有效的约束。
+如果消息只是状态查询或补充说明，回应后继续当前任务。
+如果消息包含停止、暂停、审计或明确禁止继续的请求，在当前工具结束后的下一个安全检查点停止新增工具调用，并汇报当前进度与恢复点。
+不要把回应这些消息变成向用户请求“继续”或额外许可。
 ---
 ${omittedNote}${formatted}
 </queued_messages>`
@@ -79,7 +87,8 @@ export function injectQueuedMessages(lastUserMsg: Message, queued: QueuedMessage
  * but the original task is not yet complete.
  */
 export const CONTINUATION_PROMPT = `<system_notice>
-你刚才回应了用户的插队消息，但之前的任务尚未完成。请继续执行。
+当前任务尚未完成。除非最近消息明确要求停止、暂停、审计或禁止继续，否则请直接继续执行。
+不要向用户请求“继续”“确认继续”或额外许可。
 当前进度可参考上方的工具调用历史。
 </system_notice>`
 
