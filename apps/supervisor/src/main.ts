@@ -6,11 +6,9 @@ const PROJECT_ROOT = join(import.meta.dirname, '..', '..', '..')
 const ZERO_DIR = join(PROJECT_ROOT, '.zero')
 const HEARTBEAT_FILE = join(ZERO_DIR, 'heartbeat.json')
 const CHECK_INTERVAL = 5_000 // 5 seconds
-const LOG_INTERVAL = 60_000 // log alive status every 60 seconds
 
 const checker = new HeartbeatChecker(HEARTBEAT_FILE)
 const repairEngine = new RepairEngine()
-let lastAliveLogAt = 0
 
 console.log('[Supervisor] Starting heartbeat monitor...')
 console.log(`[Supervisor] Checking: ${HEARTBEAT_FILE}`)
@@ -19,18 +17,7 @@ console.log(`[Supervisor] Interval: ${CHECK_INTERVAL / 1000}s`)
 setInterval(async () => {
   const result = checker.check()
 
-  if (result.alive) {
-    const now = Date.now()
-    if (now - lastAliveLogAt >= LOG_INTERVAL) {
-      lastAliveLogAt = now
-      const healthInfo = result.health
-        ? ` | health: ${result.health.status}, mem: ${result.health.memoryUsageMB}MB, errors: ${result.health.errorCount}`
-        : ''
-      console.log(
-        `[Supervisor] Main process alive (PID: ${result.pid}, last beat: ${result.elapsedMs}ms ago${healthInfo})`
-      )
-    }
-  } else {
+  if (!result.alive) {
     console.warn('[Supervisor] Main process appears dead!')
     console.warn(`[Supervisor] Last heartbeat: ${result.lastBeat?.toISOString() ?? 'never'}`)
 
