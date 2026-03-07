@@ -1,12 +1,20 @@
 # AGENTS.md
 
 ## Project
-ZeRo OS monorepo (Bun + TypeScript).
+ZeRo OS monorepo built with Bun + TypeScript.
 
-## Goals for Agents
-- Deliver minimal, correct, testable changes.
-- Prefer small diffs over broad refactors.
-- Keep runtime stability for server/websocket/chat flows.
+## Mission
+- Deliver working, minimal, testable changes.
+- Prefer small, behavior-safe diffs over broad refactors.
+- Preserve runtime stability for server, websocket, session, tool, and chat flows.
+- Default to completing the requested change end-to-end in one pass: explore, implement, verify, and summarize.
+
+## Agent Operating Model
+- Be autonomous, but not reckless: make reasonable assumptions and move forward unless truly blocked.
+- Do the work, not just the plan. Avoid stopping after analysis when implementation is feasible.
+- Prefer fixing root causes over patching symptoms.
+- Stay scoped to the user's request. Do not opportunistically refactor unrelated areas.
+- If you notice unexpected unrelated changes in files you need to touch, stop and ask before proceeding.
 
 ## Tech Stack
 - Runtime/package manager: **Bun**
@@ -17,19 +25,35 @@ ZeRo OS monorepo (Bun + TypeScript).
 - Lint/format: Biome
 
 ## Repository Map
-- `apps/server`: ZeRo OS bootstrap/CLI/runtime (`src/cli.ts`, `src/main.ts`)
-- `apps/web`: UI + API/web server integration (`src/server.ts`)
+- `apps/server`: ZeRo OS bootstrap, CLI, runtime (`src/cli.ts`, `src/main.ts`)
+- `apps/web`: UI and API/web server integration (`src/server.ts`)
 - `apps/supervisor`: supervisor app entry
 - `packages/core|model|memory|observe|secrets|channel|scheduler|supervisor|shared`: domain modules
 - `e2e`: end-to-end tests
-- `.zero`: local runtime state (logs, memory, secrets, workspace) — treat as operational data
+- `.zero`: local runtime state (logs, memory, secrets, workspace) — treat as operational data, not product source
 
 ## Critical Safety Rules
-1. Never print or commit secret values.
+1. Never print, paste, or commit secret values.
 2. Never modify `.zero/secrets.enc` by direct file editing.
-3. Do not commit `.zero/*`, `dist`, `node_modules`, `test-results`.
+3. Do not commit `.zero/*`, `dist`, `node_modules`, or `test-results`.
 4. Avoid destructive actions unless explicitly requested.
-5. Keep changes scoped to requested task only.
+5. Never revert or overwrite user changes you did not make.
+6. Keep changes scoped to the requested task only.
+
+## Tool and Search Preferences
+- Prefer dedicated tools over raw shell when available.
+- Prefer `rg` for text search and `rg --files` for file discovery.
+- Read enough surrounding context before editing; avoid repeated tiny blind edits.
+- Batch related reads/searches when possible instead of exploring one file at a time.
+- Use shell for tasks that truly require execution, repo-wide validation, or tooling not exposed elsewhere.
+
+## Editing Constraints
+- Follow existing code patterns, naming, helpers, and package boundaries before introducing new abstractions.
+- Reuse existing utilities when possible; do not duplicate logic without a good reason.
+- Keep public exports and cross-package contracts stable unless the task explicitly requires breaking changes.
+- Preserve behavior by default; if behavior changes intentionally, make it explicit in the summary and add/update tests when appropriate.
+- Avoid broad catch-all error handling or silent fallbacks that hide failures.
+- Prefer concise, maintainable diffs over cleverness.
 
 ## Coding Conventions
 - Follow existing style via Biome:
@@ -37,8 +61,19 @@ ZeRo OS monorepo (Bun + TypeScript).
   - single quotes
   - no semicolons
   - line width ~100
-- Reuse existing package APIs before introducing new abstractions.
-- Keep public exports stable unless task explicitly requires breaking changes.
+- Keep TypeScript type safety intact; avoid unnecessary casts such as `any`.
+- Add comments only when they clarify non-obvious intent.
+
+## Validation Expectations
+- Validate every code change with at least one relevant command.
+- For TypeScript changes, `bun run check` is the default baseline.
+- Run the narrowest useful validation first, then broaden if risk is higher.
+- Preferred validation choices:
+  - `bun run check` for TS/type-level changes
+  - `bun run test` for logic changes
+  - `bun run test:e2e` for UI/API/session/websocket behavior
+  - targeted test commands if a smaller relevant scope exists
+- If you cannot run a needed validation, say so clearly and explain why.
 
 ## Dev Commands (from repo root)
 - Install deps: `bun install`
@@ -52,19 +87,23 @@ ZeRo OS monorepo (Bun + TypeScript).
   - `bun run build:web`
 
 ## Change Workflow for Agents
-1. Read related files and understand current behavior.
-2. Implement minimal patch.
-3. Run validation (at least one):
-   - `bun run check` (required for TS changes)
-   - `bun run test` (if logic touched)
-   - `bun run test:e2e` (if UI/API/session/ws behavior touched)
-4. Summarize:
+1. Identify the relevant files, then read/search broadly enough to understand current behavior.
+2. Implement the smallest coherent patch that solves the actual problem.
+3. Verify with at least one relevant command; use broader validation for higher-risk changes.
+4. Summarize clearly:
    - files changed
-   - why
-   - verification commands + results
-   - risks / follow-ups
+   - why the change was made
+   - verification commands and results
+   - any risks, assumptions, or follow-ups
 
 ## Task-Specific Guidance
-- If touching session/tool/memory flows (`apps/server`, `packages/core|memory|observe`), prioritize regression safety and logging consistency.
-- If touching websocket or UI routing (`apps/web`, `e2e/websocket*|navigation*`), run relevant e2e.
-- If touching scheduler/channel integrations, preserve backward compatibility and graceful error handling.
+- If touching session, tool, or memory flows (`apps/server`, `packages/core`, `packages/memory`, `packages/observe`), prioritize regression safety and logging consistency.
+- If touching websocket or UI routing (`apps/web`, relevant `e2e/*`), run relevant e2e coverage when feasible.
+- If touching scheduler or channel integrations, preserve backward compatibility and graceful error surfacing.
+- If touching secrets or operational state handling, be extra careful not to expose or mutate local runtime data unintentionally.
+
+## Communication Style for Agents
+- Be concise and concrete.
+- Lead with what changed and why.
+- Do not dump large file contents unless explicitly requested.
+- Mention blockers early if the task cannot be completed safely.
