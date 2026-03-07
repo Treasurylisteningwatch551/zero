@@ -1,6 +1,7 @@
 import { join } from 'node:path'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { generateMasterKey, setMasterKey, getMasterKey, Vault } from '@zero-os/secrets'
+import { DEFAULT_TEMPLATES } from '@zero-os/core'
 import { startZeroOS } from './main'
 
 const ZERO_DIR = join(process.cwd(), '.zero')
@@ -68,6 +69,20 @@ async function init() {
     }
   } else {
     console.log(`  API key: "${apiKeyRef}" already configured`)
+  }
+
+  // 4. Create default bootstrap files for "zero" agent
+  const agentWorkspace = join(ZERO_DIR, 'workspace', 'zero')
+  mkdirSync(agentWorkspace, { recursive: true })
+
+  for (const [name, template] of Object.entries(DEFAULT_TEMPLATES)) {
+    const filePath = join(agentWorkspace, name)
+    if (!existsSync(filePath)) {
+      writeFileSync(filePath, template)
+      console.log(`  Bootstrap: created ${name}`)
+    } else {
+      console.log(`  Bootstrap: ${name} already exists`)
+    }
   }
 
   console.log('\n[ZeRo OS] Init complete. Run `bun zero start` to launch.')

@@ -31,8 +31,12 @@ export type { TaskNode, TaskResult } from './task/orchestrator'
 // Skill
 export { loadSkills } from './skill/loader'
 
+// Bootstrap
+export { loadBootstrapFiles, hasSoulFile } from './bootstrap/loader'
+export { BOOTSTRAP_FILE_NAMES, MINIMAL_BOOTSTRAP_ALLOWLIST, DEFAULT_TEMPLATES } from './bootstrap/templates'
+
 // Context Engineering
-export { buildSystemPrompt, buildSubAgentPrompt, buildSkillsBlock, buildSkillCatalog, buildDynamicContext, buildSkillReminder } from './agent/prompt'
+export { buildSystemPrompt, buildSubAgentPrompt, buildSkillsBlock, buildSkillCatalog, buildDynamicContext, buildSkillReminder, buildSafetyBlock, buildToolCallStyleBlock, buildRuntimeBlock, buildBootstrapContextBlock } from './agent/prompt'
 export { allocateBudget, shouldCompress } from './agent/budget'
 export { truncateToolOutput } from './agent/truncate'
 export { prepareConversationHistory, estimateConversationTokens } from './agent/context'

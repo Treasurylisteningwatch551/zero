@@ -9,10 +9,12 @@ import type {
 import { generateSessionId, generateId, now, Mutex } from '@zero-os/shared'
 import { join } from 'node:path'
 import { mkdirSync, existsSync } from 'node:fs'
+import { hostname } from 'node:os'
 import type { ModelRouter } from '@zero-os/model'
 import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
 import { buildSystemPrompt, buildDynamicContext } from '../agent/prompt'
 import { loadSkills } from '../skill/loader'
+import { loadBootstrapFiles } from '../bootstrap/loader'
 import { allocateBudget } from '../agent/budget'
 import { estimateConversationTokens } from '../agent/context'
 import type { QueuedMessage } from '../agent/queue'
@@ -228,11 +230,25 @@ export class Session {
       const identity = this.deps.identityReader?.(agentName)
       const globalIdentity = identity?.global ?? this.deps.globalIdentity ?? ''
       const agentIdentity = identity?.agent ?? this.deps.agentIdentity ?? ''
+      const promptMode = this.lastAgentConfig?.promptMode ?? 'full'
 
       // Multi-source skill loading: global + workspace
       const globalSkills = loadSkills(join(projectRoot, '.zero', 'skills'))
       const workspaceSkills = loadSkills(join(workspacePath, 'skills'))
       const skills = [...globalSkills, ...workspaceSkills]
+
+      // Load bootstrap files (SOUL.md, USER.md, TOOLS.md) from agent workspace
+      const bootstrapFiles = loadBootstrapFiles(workspacePath, promptMode)
+
+      // Build compact runtime info
+      const runtimeInfo = {
+        agentId: agentName,
+        host: hostname(),
+        os: `${process.platform} (${process.arch})`,
+        model: currentModel?.modelName,
+        shell: process.env.SHELL ?? 'zsh',
+        projectRoot,
+      }
 
       this.cachedSystemPrompt = buildSystemPrompt({
         agentName,
@@ -243,6 +259,9 @@ export class Session {
         agentIdentity,
         workspacePath,
         projectRoot,
+        promptMode,
+        bootstrapFiles,
+        runtimeInfo,
       })
 
       for (const s of skills) this.knownSkillNames.add(s.name)
