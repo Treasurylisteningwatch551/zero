@@ -18,7 +18,7 @@ interface MemoryInput {
  */
 export class MemoryTool extends BaseTool {
   name = 'memory'
-  description = '创建、更新、删除或列出记忆。当用户要求"记住"某事时，使用 create + note 类型。用户偏好用 preference 类型，架构决策用 decision 类型。'
+  description = '显式创建、更新、删除或列出记忆。用于“记住/更新/删除”这类写入维护操作，不用于 recall。用户偏好用 preference 类型，架构决策用 decision 类型。'
   parameters = {
     type: 'object',
     properties: {

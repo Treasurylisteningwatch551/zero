@@ -1,4 +1,5 @@
 import type { SecretFilter } from './config'
+import type { Memory, MemorySearchOptions } from './memory'
 
 /**
  * Minimal interface for structured logging from tools.
@@ -31,12 +32,18 @@ export interface ToolContext {
   secretFilter?: SecretFilter
   observability?: ObservabilityHandle
   secretResolver?: (ref: string) => string | undefined
+  memoryRetriever?: {
+    retrieve(query: string, options?: MemorySearchOptions): Promise<Memory[]>
+    retrieveScored?(query: string, options?: MemorySearchOptions): Promise<Array<{ memory: Memory; score: number }>>
+  }
   memoryStore?: {
     create(type: string, title: string, content: string, options?: Record<string, unknown>): { id: string; type: string; title: string }
     update(type: string, id: string, updates: Record<string, unknown>): { id: string } | undefined
     delete(type: string, id: string): boolean
     list(type: string): Array<{ id: string; type: string; title: string; content: string; tags: string[]; status: string }>
     get(type: string, id: string): { id: string; type: string; title: string; content: string } | undefined
+    getRelativePath?(type: string, id: string): string | undefined
+    readByPath?(path: string, options?: { from?: number; lines?: number }): { path: string; text: string } | undefined
   }
 }
 

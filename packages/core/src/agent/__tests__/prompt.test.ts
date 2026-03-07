@@ -61,36 +61,40 @@ describe('buildRoleBlock', () => {
 })
 
 describe('buildRulesBlock', () => {
-  test('returns 6 rules in <rules> tags', () => {
+  test('returns 7 rules in <rules> tags', () => {
     const result = buildRulesBlock()
 
     expect(result).toStartWith('<rules>')
     expect(result).toEndWith('</rules>')
 
-    // Verify all 6 rules are present
+    // Verify all 7 rules are present
     expect(result).toContain('执行操作前先说明意图')
     expect(result).toContain('工具调用失败时先读错误信息做诊断')
     expect(result).toContain('涉及不可逆操作')
     expect(result).toContain('遇到超出能力范围的问题时如实告知')
     expect(result).toContain('回复使用中文')
     expect(result).toContain('每完成一个阶段性目标后')
+    expect(result).toContain('<system-reminder> 是系统注入的内部运行时提示')
 
-    // Count lines inside the tags (6 rules = 6 lines)
+    // Count lines inside the tags (7 rules = 7 lines)
     const inner = result.replace('<rules>\n', '').replace('\n</rules>', '')
     const lines = inner.split('\n').filter(l => l.trim().length > 0)
-    expect(lines.length).toBe(6)
+    expect(lines.length).toBe(7)
   })
 })
 
 describe('buildToolRulesBlock', () => {
   test('generates rules only for available tools', () => {
-    const tools = [makeTool('Read'), makeTool('Bash')]
+    const tools = [makeTool('Read'), makeTool('Bash'), makeTool('memory_search'), makeTool('memory_get'), makeTool('memory')]
     const result = buildToolRulesBlock(tools)
 
     expect(result).toContain('<tool_rules>')
     expect(result).toContain('</tool_rules>')
     expect(result).toContain('Read：优先使用 Read 查看文件内容')
     expect(result).toContain('Bash：命令在工作目录中执行')
+    expect(result).toContain('Memory Search：回答过往工作')
+    expect(result).toContain('Memory Get：根据 memory_search 返回的 path')
+    expect(result).toContain('不要用它做 recall')
     // Should not contain rules for tools not in the list
     expect(result).not.toContain('Write：')
     expect(result).not.toContain('Edit：')
@@ -239,59 +243,23 @@ describe('buildSkillCatalog', () => {
 })
 
 describe('buildDynamicContext', () => {
-  test('includes currentTime', () => {
+  test('returns empty string when there are no new skills', () => {
     const result = buildDynamicContext({
       currentTime: '2026-03-05T12:00:00Z',
-      memo: '',
-      retrievedMemories: [],
-    })
-
-    expect(result).toContain('<system-reminder>')
-    expect(result).toContain('</system-reminder>')
-    expect(result).toContain('当前时间：2026-03-05T12:00:00Z')
-  })
-
-  test('includes memo when non-empty', () => {
-    const result = buildDynamicContext({
-      currentTime: '2026-03-05T12:00:00Z',
-      memo: '备忘内容',
-      retrievedMemories: [],
-    })
-
-    expect(result).toContain('<memo>')
-    expect(result).toContain('备忘内容')
-    expect(result).toContain('</memo>')
-  })
-
-  test('omits memo when empty', () => {
-    const result = buildDynamicContext({
-      currentTime: '2026-03-05T12:00:00Z',
-      memo: '',
-      retrievedMemories: [],
-    })
-
-    expect(result).not.toContain('<memo>')
-  })
-
-  test('includes retrieved memories when present', () => {
-    const result = buildDynamicContext({
-      currentTime: '2026-03-05T12:00:00Z',
-      memo: '',
+      memo: 'ignored',
       retrievedMemories: [makeMemory()],
     })
 
-    expect(result).toContain('<retrieved_memories>')
-    expect(result).toContain('Test Memory')
+    expect(result).toBe('')
   })
 
   test('includes new skills when present', () => {
     const result = buildDynamicContext({
-      currentTime: '2026-03-05T12:00:00Z',
-      memo: '',
-      retrievedMemories: [],
       newSkills: [makeSkill('awiki')],
     })
 
+    expect(result).toContain('<system-reminder>')
+    expect(result).toContain('</system-reminder>')
     expect(result).toContain('<new_skills>')
     expect(result).toContain('name="awiki"')
     expect(result).toContain('SKILL.md')
@@ -300,11 +268,9 @@ describe('buildDynamicContext', () => {
   test('omits new_skills when undefined', () => {
     const result = buildDynamicContext({
       currentTime: '2026-03-05T12:00:00Z',
-      memo: '',
-      retrievedMemories: [],
     })
 
-    expect(result).not.toContain('<new_skills>')
+    expect(result).toBe('')
   })
 })
 
@@ -339,7 +305,8 @@ describe('buildSystemPrompt', () => {
     // Should NOT contain dynamic content
     expect(result).not.toContain('<memo>')
     expect(result).not.toContain('<retrieved_memories>')
-    expect(result).not.toContain('<system-reminder>')
+    expect(result).not.toContain('<new_skills>')
+    expect(result).not.toContain('当前时间：')
   })
 
   test('includes skill_catalog when skills provided', () => {

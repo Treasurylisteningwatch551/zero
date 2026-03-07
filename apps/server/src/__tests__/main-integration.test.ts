@@ -34,15 +34,17 @@ describe('startZeroOS Integration', () => {
     expect(current!.modelName).toBe('gpt-5.3-codex-medium')
   })
 
-  test('toolRegistry has 7 registered tools', () => {
+  test('toolRegistry has 9 registered tools', () => {
     const tools = zero.toolRegistry.list()
-    expect(tools.length).toBe(7)
+    expect(tools.length).toBe(9)
     const names = tools.map((t) => t.name)
     expect(names).toContain('read')
     expect(names).toContain('write')
     expect(names).toContain('edit')
     expect(names).toContain('bash')
     expect(names).toContain('fetch')
+    expect(names).toContain('memory_search')
+    expect(names).toContain('memory_get')
     expect(names).toContain('memory')
     expect(names).toContain('task')
   })

@@ -20,7 +20,6 @@ import { buildSnapshot } from '../agent/snapshot'
 import type { ToolRegistry } from '../tool/registry'
 import type { JsonlLogger, MetricsDB, Tracer, SessionDB } from '@zero-os/observe'
 import type { MemoryRetriever } from '@zero-os/memory'
-import { buildRetrievalDecisionPrompt, parseRetrievalDecision } from '@zero-os/memory'
 
 /**
  * Dependencies injected into Session for observability, memory, and eventing.
@@ -156,6 +155,7 @@ export class Session {
       secretFilter: this.deps.secretFilter,
       observability: observabilityHandle,
       secretResolver: this.deps.secretResolver,
+      memoryRetriever: this.deps.memoryRetriever,
       memoryStore: this.deps.memoryStore,
     }
 
@@ -253,47 +253,6 @@ export class Session {
 
     // === DYNAMIC: Per-message context ===
 
-    // Hot-reload memo
-    const memoContent = this.deps.memoReader?.() ?? this.deps.memoContent ?? ''
-
-    // Memory retrieval decision
-    let memories: import('@zero-os/shared').Memory[] = []
-    let retrievedMemories: string[] = []
-    if (this.deps.memoryRetriever) {
-      const identity = this.deps.identityReader?.(agentName)
-      const globalIdentity = identity?.global ?? this.deps.globalIdentity ?? ''
-      const adapter = this.modelRouter.getAdapter()
-      const decisionPrompt = buildRetrievalDecisionPrompt(content, globalIdentity)
-      try {
-        const decisionResp = await adapter.complete({
-          messages: [{ id: generateId(), sessionId: this.data.id, role: 'user', messageType: 'message',
-            content: [{ type: 'text', text: decisionPrompt }], createdAt: now() }],
-          system: '你是一个检索决策助手。分析用户消息判断是否需要检索记忆库。返回 JSON。',
-          stream: false, maxTokens: 256,
-        })
-        const decisionText = decisionResp.content
-          .filter(b => b.type === 'text')
-          .map(b => (b as { type: 'text'; text: string }).text)
-          .join('')
-        const decision = parseRetrievalDecision(decisionText)
-
-        if (decision.need && decision.queries) {
-          for (const query of decision.queries) {
-            const results = await this.deps.memoryRetriever.retrieve(query, { topN: 3 })
-            memories.push(...results)
-          }
-          const seen = new Set<string>()
-          memories = memories.filter(m => { if (seen.has(m.id)) return false; seen.add(m.id); return true })
-          memories = memories.slice(0, 5)
-        }
-      } catch {
-        memories = await this.deps.memoryRetriever.retrieve(content, { topN: 5 })
-      }
-      retrievedMemories = memories.map(
-        (m) => `[${m.type}] ${m.title}\n${m.content}`
-      )
-    }
-
     // Detect newly added skills (incremental notification)
     const globalSkills = loadSkills(join(projectRoot, '.zero', 'skills'))
     const workspaceSkills = loadSkills(join(workspacePath, 'skills'))
@@ -303,16 +262,12 @@ export class Session {
 
     // Build dynamic context — injected into API request only, not stored in messages
     const dynamicCtx = buildDynamicContext({
-      currentTime: new Date().toISOString(),
-      memo: memoContent,
-      retrievedMemories: memories,
       newSkills: newSkills.length > 0 ? newSkills : undefined,
     })
 
     const context: AgentContext = {
       systemPrompt,
       identityMemory: this.deps.identityMemory,
-      retrievedMemories,
       dynamicContext: dynamicCtx,
       conversationHistory: this.messages,
       tools,

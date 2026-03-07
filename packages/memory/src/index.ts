@@ -1,6 +1,7 @@
 export { MemoryStore } from './store'
 export { MemoManager } from './memo'
 export { MemoryRetriever } from './retrieval'
+export type { ScoredMemoryMatch } from './retrieval'
 export { MemoryLifecycle } from './lifecycle'
 export { buildRetrievalDecisionPrompt, parseRetrievalDecision } from './retrieval-decision'
 export type { RetrievalDecision } from './retrieval-decision'

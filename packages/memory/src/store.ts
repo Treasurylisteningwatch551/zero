@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'node:fs'
-import { join, basename } from 'node:path'
+import { join, basename, resolve, relative, sep } from 'node:path'
 import matter from 'gray-matter'
 import type { Memory, MemoryType, MemoryStatus } from '@zero-os/shared'
 import { generatePrefixedId, now } from '@zero-os/shared'
@@ -58,6 +58,13 @@ export class MemoryStore {
     const filePath = join(this.typeDir(type), `${id}.md`)
     if (!existsSync(filePath)) return undefined
     return this.parseFile(filePath)
+  }
+
+  /**
+   * Resolve a project-relative path for a stored memory file.
+   */
+  getRelativePath(type: MemoryType, id: string): string {
+    return `.zero/memory/${this.relativeTypeDir(type)}/${id}.md`
   }
 
   /**
@@ -160,7 +167,39 @@ export class MemoryStore {
     return deleted
   }
 
+  /**
+   * Read a memory file via a project-relative or memory-relative path.
+   * Returns empty text for missing files and undefined for invalid paths.
+   */
+  readByPath(path: string, options: { from?: number; lines?: number } = {}): { path: string; text: string } | undefined {
+    const resolved = this.resolveMemoryPath(path)
+    if (!resolved) return undefined
+
+    if (!existsSync(resolved.absolutePath)) {
+      return { path: resolved.projectRelativePath, text: '' }
+    }
+
+    const content = readFileSync(resolved.absolutePath, 'utf-8')
+    if (options.from === undefined && options.lines === undefined) {
+      return { path: resolved.projectRelativePath, text: content }
+    }
+
+    const from = Math.max(1, Math.floor(options.from ?? 1))
+    const lines = options.lines === undefined ? undefined : Math.max(0, Math.floor(options.lines))
+    const allLines = content.split('\n')
+    const startIndex = from - 1
+    const sliced = lines === undefined ? allLines.slice(startIndex) : allLines.slice(startIndex, startIndex + lines)
+    return {
+      path: resolved.projectRelativePath,
+      text: sliced.join('\n'),
+    }
+  }
+
   private typeDir(type: MemoryType): string {
+    return join(this.basePath, this.relativeTypeDir(type))
+  }
+
+  private relativeTypeDir(type: MemoryType): string {
     const dirMap: Record<MemoryType, string> = {
       session: 'sessions',
       incident: 'incidents',
@@ -170,7 +209,40 @@ export class MemoryStore {
       preference: 'preferences',
       inbox: 'inbox',
     }
-    return join(this.basePath, dirMap[type])
+    return dirMap[type]
+  }
+
+  private resolveMemoryPath(path: string): { absolutePath: string; projectRelativePath: string } | undefined {
+    const trimmed = path.trim().replaceAll('\\', '/')
+    if (!trimmed) return undefined
+
+    let relativePath = trimmed
+    if (relativePath.startsWith('./')) {
+      relativePath = relativePath.slice(2)
+    }
+    if (relativePath.startsWith('.zero/memory/')) {
+      relativePath = relativePath.slice('.zero/memory/'.length)
+    } else if (relativePath.startsWith('memory/')) {
+      relativePath = relativePath.slice('memory/'.length)
+    }
+
+    if (!relativePath || !relativePath.endsWith('.md')) return undefined
+    if (relativePath === 'memo.md') return undefined
+
+    const absolutePath = resolve(this.basePath, relativePath)
+    const basePath = resolve(this.basePath)
+    if (absolutePath !== basePath && !absolutePath.startsWith(`${basePath}${sep}`)) {
+      return undefined
+    }
+
+    const normalizedRelativePath = relative(basePath, absolutePath).replaceAll('\\', '/')
+    if (!normalizedRelativePath || normalizedRelativePath.startsWith('..')) return undefined
+    if (normalizedRelativePath === 'memo.md') return undefined
+
+    return {
+      absolutePath,
+      projectRelativePath: `.zero/memory/${normalizedRelativePath}`,
+    }
   }
 
   private parseFile(filePath: string): Memory | undefined {

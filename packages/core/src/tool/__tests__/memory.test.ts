@@ -166,6 +166,7 @@ describe('MemoryTool', () => {
   test('toDefinition returns correct schema', () => {
     const def = tool.toDefinition()
     expect(def.name).toBe('memory')
+    expect(def.description).toContain('不用于 recall')
     expect(def.parameters.properties).toBeDefined()
     expect((def.parameters.properties as Record<string, unknown>).action).toBeDefined()
   })

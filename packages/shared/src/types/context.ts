@@ -24,12 +24,13 @@ export interface PromptComponents {
 }
 
 /**
- * Dynamic context injected into user message as <system-reminder> each turn.
+ * Dynamic context injected into user message as <system-reminder>.
+ * Currently reserved for runtime-discovered skill notifications only.
  */
 export interface DynamicContext {
-  currentTime: string
-  memo: string
-  retrievedMemories: Memory[]
+  currentTime?: string
+  memo?: string
+  retrievedMemories?: Memory[]
   newSkills?: SkillDefinition[]
 }
 

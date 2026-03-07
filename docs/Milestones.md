@@ -265,7 +265,7 @@ packages/core/
 2. Agent tool-use loop 完整：发消息 → 收到 tool_use → 执行工具 → 注入 tool_result → 循环直到 end_turn。
 3. 排队消息注入：tool 执行期间来的消息用 `<queued_message>` XML 包装注入。
 4. 续接机制：LLM 返回 end_turn 但任务未完成 → 注入 `<system_notice>` 续接，最多 2 次。
-5. System Prompt 组装产出正确 XML 结构：`<role>` `<rules>` `<tool_rules>` `<constraints>` `<identity>` `<memo>` `<retrieved_memories>`。
+5. System Prompt 组装产出正确 XML 结构：`<role>` `<rules>` `<tool_rules>` `<constraints>` `<identity>`；`<system-reminder>` 仅在发现新增 Skill 时按需注入。
 6. 上下文预算分配对齐 [ContextEngineering - 预算分配]（claude-opus 200k、gpt-4o 128k、deepseek-r1 65k）。
 7. 历史工具输出衰减：近 3 轮全量、4-8 轮摘要、9+ 轮仅状态。
 8. 对话压缩：85% 预算时触发，用便宜模型生成摘要，保留 70% 近期消息。
@@ -280,7 +280,7 @@ packages/core/
 |------|-----------|------|
 | session.ts | 8 | 创建、handleUserMessage、命令、busy、队列、drain、排序 |
 | agent.ts | 10 | 简单完成、单工具、多工具循环、排队注入、end_turn 续接、最大续接、完成检测、错误处理 |
-| prompt.ts | 6 | 完整组装、各 XML 块、空 retrieved_memories 省略、预算截断 |
+| prompt.ts | 6 | 完整组装、各 XML 块、仅在新增 Skill 时注入 system-reminder、预算截断 |
 | budget.ts | 4 | 各模型预算分配、固定预算强制、截断标记 |
 | compress.ts | 5 | 触发阈值、摘要生成 mock、保留消息数、最少保留 4 轮、快照创建 |
 | base.ts (tool) | 5 | run 管道顺序、fuseCheck 拦截、hooks 调用、错误传播、输出截断 |

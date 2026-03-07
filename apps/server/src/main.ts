@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, appendFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadConfig, loadFuseList } from '@zero-os/core'
 import { ModelRouter } from '@zero-os/model'
-import { ToolRegistry, ReadTool, WriteTool, EditTool, BashTool, FetchTool, TaskTool, MemoryTool } from '@zero-os/core'
+import { ToolRegistry, ReadTool, WriteTool, EditTool, BashTool, FetchTool, TaskTool, MemoryTool, MemorySearchTool, MemoryGetTool } from '@zero-os/core'
 import { SessionManager } from '@zero-os/core'
 import { Vault, generateMasterKey, setMasterKey, getMasterKey } from '@zero-os/secrets'
 import { OutputSecretFilter } from '@zero-os/secrets'
@@ -101,6 +101,8 @@ export async function startZeroOS(): Promise<ZeroOS> {
   toolRegistry.register(new EditTool())
   toolRegistry.register(new BashTool(fuseRules))
   toolRegistry.register(new FetchTool())
+  toolRegistry.register(new MemorySearchTool())
+  toolRegistry.register(new MemoryGetTool())
   toolRegistry.register(new MemoryTool())
   toolRegistry.register(new TaskTool(modelRouter, toolRegistry))
   console.log(`[ZeRo OS] ${toolRegistry.list().length} tools registered`)

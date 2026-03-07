@@ -1,6 +1,11 @@
 import type { Memory, MemorySearchOptions } from '@zero-os/shared'
 import type { MemoryStore } from './store'
 
+export interface ScoredMemoryMatch {
+  memory: Memory
+  score: number
+}
+
 /**
  * Memory retriever — searches memories by relevance.
  * Supports tag-based filtering and confidence thresholds.
@@ -17,6 +22,10 @@ export class MemoryRetriever {
    * Uses tag matching and confidence filtering.
    */
   async retrieve(query: string, options: MemorySearchOptions = {}): Promise<Memory[]> {
+    return (await this.retrieveScored(query, options)).map((entry) => entry.memory)
+  }
+
+  async retrieveScored(query: string, options: MemorySearchOptions = {}): Promise<ScoredMemoryMatch[]> {
     const { topN = 5, confidenceThreshold = 0.6, types, tags, status } = options
 
     // Extract keywords from query for tag matching
@@ -56,7 +65,6 @@ export class MemoryRetriever {
     return scored
       .filter((s) => s.score > 0)
       .slice(0, topN)
-      .map((s) => s.memory)
   }
 }
 

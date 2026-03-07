@@ -11,6 +11,8 @@ export { BashTool } from './tool/bash'
 export { FetchTool } from './tool/fetch'
 export { TaskTool } from './tool/task'
 export { MemoryTool } from './tool/memory'
+export { MemorySearchTool } from './tool/memory-search'
+export { MemoryGetTool } from './tool/memory-get'
 export { ToolRegistry } from './tool/registry'
 
 // Agent

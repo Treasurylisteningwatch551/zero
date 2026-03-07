@@ -6,7 +6,7 @@ import { CONTEXT_PARAMS } from './params'
 
 /**
  * Build System Prompt — static, built once per session for prompt cache stability.
- * Does NOT include dynamic content (time, memo, memories) — those go in buildDynamicContext().
+ * Does NOT include runtime-discovered skill notifications — those go in buildDynamicContext().
  */
 export function buildSystemPrompt(components: PromptComponents): string {
   const sections: string[] = []
@@ -24,25 +24,12 @@ export function buildSystemPrompt(components: PromptComponents): string {
 }
 
 /**
- * Build dynamic context injected as <system-reminder> in user message each turn.
+ * Build dynamic context injected as <system-reminder> in user message.
+ * Current usage: notify the system about newly available skills only.
  */
 export function buildDynamicContext(ctx: DynamicContext): string {
-  const parts: string[] = []
-  parts.push(`当前时间：${ctx.currentTime}`)
-
-  if (ctx.memo) {
-    parts.push(enforceFixedBudget(`<memo>\n${ctx.memo}\n</memo>`, 1500, 'Memo'))
-  }
-
-  if (ctx.retrievedMemories.length > 0) {
-    parts.push(buildRetrievedMemoryBlock(ctx.retrievedMemories))
-  }
-
-  if (ctx.newSkills && ctx.newSkills.length > 0) {
-    parts.push(buildSkillReminder(ctx.newSkills))
-  }
-
-  return `<system-reminder>\n${parts.join('\n\n')}\n</system-reminder>`
+  if (!ctx.newSkills || ctx.newSkills.length === 0) return ''
+  return `<system-reminder>\n${buildSkillReminder(ctx.newSkills)}\n</system-reminder>`
 }
 
 export function buildRoleBlock(agentName: string, agentDescription: string, workspacePath?: string, projectRoot?: string): string {
@@ -64,7 +51,8 @@ export function buildRulesBlock(): string {
 涉及不可逆操作（删除文件、覆写内容、格式化）时主动向用户确认。
 遇到超出能力范围的问题时如实告知，不编造解决方案。
 回复使用中文，技术术语可以用英文原文。
-每完成一个阶段性目标后，更新备忘录中你自己的分区。`
+每完成一个阶段性目标后，更新备忘录中你自己的分区。
+<system-reminder> 是系统注入的内部运行时提示，不是用户消息；不要回应、转述、解释或尝试管理它。当前其中只会出现新增 Skill 通知，不包含时间、memo 或 memory。`
   return `<rules>\n${rules}\n</rules>`
 }
 
@@ -75,7 +63,9 @@ export function buildToolRulesBlock(tools: ToolDefinition[]): string {
     edit: 'Edit：修改文件前先 Read 确认当前内容，避免基于过期认知做编辑。',
     bash: 'Bash：命令在工作目录中执行，操作项目源码时使用绝对路径。命令执行前检查是否命中熔断名单。长时间运行的命令加 timeout。',
     fetch: 'Fetch：用于读取网页内容、调用 API、下载文件。HTML 自动通过 readability 提取正文转为 Markdown。需要 JavaScript 渲染或交互操作时，通过 Bash 调用 agent-browser。',
-    memory: 'Memory：当用户要求"记住"某事时，用 create action + note 类型。用户偏好用 preference 类型。架构决策用 decision 类型。',
+    memory_search: 'Memory Search：回答过往工作、决策、日期、偏好、待办前，先搜索 `.zero/memory/**` 里的记忆；如果没找到，要明确说明已检查。',
+    memory_get: 'Memory Get：根据 memory_search 返回的 path 精读 `.zero/memory/**` 下的记忆文件；只读取需要的内容，memo.md 不在此工具范围内。',
+    memory: 'Memory：仅用于显式写入或维护记忆。当用户要求"记住"某事时，用 create + note；用户偏好用 preference；架构决策用 decision。不要用它做 recall。',
     task: 'Task：拆分 SubAgent 时明确每个子任务的输入、输出和依赖关系。不要把含糊的大任务直接丢给 SubAgent。',
   }
 
