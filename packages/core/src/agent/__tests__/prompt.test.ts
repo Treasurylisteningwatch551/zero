@@ -104,7 +104,8 @@ describe('buildExecutionModeBlock', () => {
     expect(result).toContain('默认工作模式：连续自治执行')
     expect(result).toContain('不要因为完成了一个子步骤')
     expect(result).toContain('只有在以下情况才暂停并请求用户介入')
-    expect(result).toContain('不要以“如果你要，我下一步可以……”')
+    expect(result).toContain('低成本后续验证')
+    expect(result).toContain('用户明确要求你列出后续选项')
   })
 })
 

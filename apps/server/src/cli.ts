@@ -3,6 +3,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { generateMasterKey, setMasterKey, getMasterKey, Vault } from '@zero-os/secrets'
 import { DEFAULT_TEMPLATES } from '@zero-os/core'
 import { startZeroOS } from './main'
+import { rebuildWebBundle } from './web-build'
 
 const ZERO_DIR = join(process.cwd(), '.zero')
 const SECRETS_PATH = join(ZERO_DIR, 'secrets.enc')
@@ -23,7 +24,7 @@ switch (command) {
     await status()
     break
   case 'restart':
-    restart()
+    await restart()
     break
   default:
     printHelp()
@@ -204,12 +205,20 @@ async function status() {
   console.log(`  Web Build: ${webBuild ? '✓ built' : '○ not built (run bun run build:web)'}`)
 }
 
-function restart() {
+async function restart() {
   const heartbeatPath = join(ZERO_DIR, 'heartbeat.json')
   if (!existsSync(heartbeatPath)) {
     console.error('[ZeRo OS] No heartbeat file found. Is the server running?')
     process.exit(1)
   }
+
+  console.log('[ZeRo OS] Rebuilding web UI before restart...')
+  const build = rebuildWebBundle()
+  if (!build.ok) {
+    console.error('[ZeRo OS] Web rebuild failed:', build.error)
+    process.exit(1)
+  }
+
   try {
     const data = JSON.parse(readFileSync(heartbeatPath, 'utf-8'))
     const pid = data.pid as number

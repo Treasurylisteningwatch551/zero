@@ -172,6 +172,24 @@ export function createRoutes(zero: ZeroOS) {
       return c.json({ traces })
     })
 
+    .get('/api/sessions/:id/task-closure-events', (c) => {
+      const id = c.req.param('id')
+      const entries = zero.logger
+        .readEntries<Record<string, unknown>>('operations.jsonl')
+        .filter((entry) => {
+          const sessionId = (entry.sessionId as string | undefined) ?? (entry.session_id as string | undefined)
+          const event = entry.event as string | undefined
+          return sessionId === id && (
+            event === 'task_closure_decision' ||
+            event === 'task_closure_skipped' ||
+            event === 'task_closure_trim_failed'
+          )
+        })
+        .sort((left, right) => String(left.ts ?? '').localeCompare(String(right.ts ?? '')))
+
+      return c.json({ events: entries })
+    })
+
     .post('/api/sessions/:id/archive', (c) => {
       const id = c.req.param('id')
       const session = zero.sessionManager.get(id)

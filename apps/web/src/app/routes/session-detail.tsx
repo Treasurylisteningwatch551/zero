@@ -6,7 +6,13 @@ import { useNavigate, useParams } from '@tanstack/react-router'
 import { apiFetch } from '../lib/api'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { MetadataBar } from '../components/session/MetadataBar'
-import { TimelineView, buildTimeline, extractFilesTouched } from '../components/session/TimelineView'
+import { TimelineView } from '../components/session/TimelineView'
+import {
+  buildTimeline,
+  extractFilesTouched,
+  type PersistedTaskClosureEvent,
+  type TraceSpan,
+} from '../components/session/timeline'
 import { ContextPanel } from '../components/session/ContextPanel'
 
 interface ContentBlock {
@@ -56,19 +62,30 @@ export function SessionDetailPage() {
   const sessionId = params.id ?? selectedSessionId
 
   const [session, setSession] = useState<SessionDetail | null>(null)
+  const [traces, setTraces] = useState<TraceSpan[]>([])
+  const [taskClosureEvents, setTaskClosureEvents] = useState<PersistedTaskClosureEvent[]>([])
   const [loading, setLoading] = useState(true)
+  const [traceLoading, setTraceLoading] = useState(true)
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null)
+  const [highlightedAssistantMessageId, setHighlightedAssistantMessageId] = useState<string | null>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
   const lastKeyRef = useRef<string>('')
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const wasAtBottomRef = useRef(true)
 
-  const fetchSession = useCallback(() => {
-    if (!sessionId) return
-    apiFetch<SessionDetail>(`/api/sessions/${sessionId}`)
-      .then((data) => {
+  const fetchSession = useCallback((showLoading = false) => {
+    if (!sessionId) return Promise.resolve()
+    if (showLoading) setLoading(true)
+    setTraceLoading(true)
+    return Promise.all([
+      apiFetch<SessionDetail>(`/api/sessions/${sessionId}`),
+      apiFetch<{ traces: TraceSpan[] }>(`/api/sessions/${sessionId}/traces`),
+      apiFetch<{ events: PersistedTaskClosureEvent[] }>(`/api/sessions/${sessionId}/task-closure-events`),
+    ])
+      .then(([data, traceResponse, taskClosureResponse]) => {
         setSession(data)
-        // Auto-scroll if user was already at the bottom
+        setTraces(traceResponse.traces ?? [])
+        setTaskClosureEvents(taskClosureResponse.events ?? [])
         if (wasAtBottomRef.current) {
           requestAnimationFrame(() => {
             const el = timelineRef.current
@@ -77,16 +94,16 @@ export function SessionDetailPage() {
         }
       })
       .catch(() => {})
+      .finally(() => {
+        setTraceLoading(false)
+        if (showLoading) setLoading(false)
+      })
   }, [sessionId])
 
   useEffect(() => {
     if (!sessionId) return
-    setLoading(true)
-    apiFetch<SessionDetail>(`/api/sessions/${sessionId}`)
-      .then(setSession)
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [sessionId])
+    void fetchSession(true)
+  }, [sessionId, fetchSession])
 
   // Track whether user is scrolled to the bottom
   useEffect(() => {
@@ -121,8 +138,8 @@ export function SessionDetailPage() {
   }
 
   const timelineItems = useMemo(
-    () => (session ? buildTimeline(session.messages) : []),
-    [session]
+    () => (session ? buildTimeline(session.messages, traces, taskClosureEvents) : []),
+    [session, traces, taskClosureEvents]
   )
 
   const toolCalls = useMemo(
@@ -140,6 +157,22 @@ export function SessionDetailPage() {
   )
 
   const filesTouched = useMemo(() => extractFilesTouched(timelineItems), [timelineItems])
+
+  const jumpToAssistantMessage = useCallback((messageId: string) => {
+    setHighlightedAssistantMessageId(messageId)
+
+    requestAnimationFrame(() => {
+      const container = timelineRef.current
+      const target = container?.querySelector(`[data-assistant-message-id="${messageId}"]`) as HTMLElement | null
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!highlightedAssistantMessageId) return
+    const timer = setTimeout(() => setHighlightedAssistantMessageId(null), 3000)
+    return () => clearTimeout(timer)
+  }, [highlightedAssistantMessageId])
 
   // Keyboard navigation
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -273,7 +306,10 @@ export function SessionDetailPage() {
           ) : (
             <TimelineView
               messages={session.messages}
+              traces={traces}
+              taskClosureEvents={taskClosureEvents}
               selectedToolId={selectedToolId}
+              highlightedAssistantMessageId={highlightedAssistantMessageId}
               onSelectTool={setSelectedToolId}
             />
           )}
@@ -281,6 +317,7 @@ export function SessionDetailPage() {
 
         {/* Context panel */}
         <ContextPanel
+          sessionId={session.id}
           summary={session.summary}
           systemPrompt={session.systemPrompt}
           modelHistory={session.modelHistory}
@@ -290,6 +327,10 @@ export function SessionDetailPage() {
           inputTokens={session.inputTokens}
           outputTokens={session.outputTokens}
           selectedToolId={selectedToolId}
+          traces={traces}
+          taskClosureEvents={taskClosureEvents}
+          traceLoading={traceLoading}
+          onJumpToAssistantMessage={jumpToAssistantMessage}
         />
       </div>
     </div>

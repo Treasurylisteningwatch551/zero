@@ -7,6 +7,7 @@ import { SessionManager } from '@zero-os/core'
 import { Vault, generateMasterKey, setMasterKey, getMasterKey } from '@zero-os/secrets'
 import { OutputSecretFilter } from '@zero-os/secrets'
 import { JsonlLogger, MetricsDB, Tracer, SessionDB } from '@zero-os/observe'
+import { rebuildWebBundle } from './web-build'
 import { MemoryStore, MemoManager, MemoryRetriever } from '@zero-os/memory'
 import { RepairEngine } from '@zero-os/supervisor'
 import { HeartbeatWriter } from '@zero-os/supervisor'
@@ -445,12 +446,24 @@ export async function startZeroOS(): Promise<ZeroOS> {
             return
           }
 
-          const reply = 'Restarting ZeRo OS...'
+          const reply = 'Rebuilding web UI and restarting ZeRo OS...'
           if (messageId) {
             await telegramChannel.replyRich(chatId, messageId, reply)
           } else {
             await telegramChannel.sendRich(chatId, reply)
           }
+
+          const build = rebuildWebBundle()
+          if (!build.ok) {
+            const failureReply = `Web rebuild failed, restart cancelled: ${build.error ?? 'unknown error'}`
+            if (messageId) {
+              await telegramChannel.replyRich(chatId, messageId, failureReply)
+            } else {
+              await telegramChannel.sendRich(chatId, failureReply)
+            }
+            return
+          }
+
           setTimeout(() => shutdown(), 500)
           return
         }

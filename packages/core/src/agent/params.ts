@@ -73,4 +73,9 @@ export const CONTEXT_PARAMS = {
     maxContinuationRetries: 2,
     maxRetainMessages: 5,
   },
+
+  /** Ordinary end_turn task closure */
+  completion: {
+    maxTaskClosureRetries: 1,
+  },
 } as const

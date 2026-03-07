@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { HeartbeatChecker } from '@zero-os/supervisor'
 import { RepairEngine } from '@zero-os/supervisor'
+import { rebuildWebBundle } from '../../server/src/web-build'
 
 const PROJECT_ROOT = join(import.meta.dirname, '..', '..', '..')
 const ZERO_DIR = join(PROJECT_ROOT, '.zero')
@@ -37,6 +38,11 @@ setInterval(async () => {
       async (diagnosis) => {
         // Repair: attempt to restart the main process
         console.log(`[Supervisor] Diagnosis: ${diagnosis}`)
+        console.log('[Supervisor] Rebuilding web UI before restart...')
+        const build = rebuildWebBundle()
+        if (!build.ok) {
+          throw new Error(`web rebuild failed: ${build.error ?? 'unknown error'}`)
+        }
         console.log('[Supervisor] Attempting restart via Bun...')
         const proc = Bun.spawn(['bun', 'run', join(PROJECT_ROOT, 'apps/server/src/cli.ts'), 'start'], {
           cwd: PROJECT_ROOT,

@@ -19,6 +19,17 @@ import { truncateToolOutput } from './truncate'
 import { prepareConversationHistory, estimateConversationTokens } from './context'
 import { allocateBudget, shouldCompress } from './budget'
 import { type QueuedMessage, injectQueuedMessages, CONTINUATION_PROMPT, isTaskComplete } from './queue'
+import {
+  TASK_CLOSURE_PROMPT,
+  buildTaskClosureDecisionPrompt,
+  extractAssistantTail,
+  extractAssistantText,
+  hasAssistantText,
+  parseTaskClosureDecision,
+  stripAssistantTrimFrom,
+  type TaskClosureDecision,
+  type TaskClosurePromptContext,
+} from './task-closure'
 import { CONTEXT_PARAMS } from './params'
 
 class ToolInputParseError extends Error {
@@ -32,6 +43,8 @@ export interface AgentConfig {
   name: string
   systemPrompt: string
   identityMemory?: string
+  /** Controls which prompt sections are included. Defaults to 'full'. */
+  promptMode?: import('@zero-os/shared').PromptMode
 }
 
 export interface AgentContext {
@@ -66,6 +79,24 @@ export interface AgentObservability {
 /**
  * Agent execution engine — runs the tool use loop.
  */
+interface TaskClosureEventPayload {
+  event: 'task_closure_decision' | 'task_closure_skipped'
+  action?: string
+  reason?: string
+  skipReason?: string
+  trimFromPreview?: string
+  userMessagePreview?: string
+  assistantTailPreview?: string
+  rawClassifierResponse?: string
+  error?: string
+}
+
+interface TaskClosureEvaluation {
+  decision: TaskClosureDecision | null
+  eventPayload: TaskClosureEventPayload | null
+  traceSpanId?: string
+}
+
 export class Agent {
   private config: AgentConfig
   private adapter: ProviderAdapter
@@ -100,6 +131,7 @@ export class Agent {
     getQueuedMessages?: () => QueuedMessage[]
   ): Promise<Message[]> {
     let continuationCount = 0
+    let taskClosureRetryCount = 0
     const messages: Message[] = [...prepareConversationHistory(context.conversationHistory)]
     const newMessages: Message[] = []
 
@@ -161,8 +193,24 @@ export class Agent {
       // Log LLM request to observability
       this.logLLMRequest(response, userMessage, llmDurationMs)
 
+      const taskClosureEvaluation = await this.decideTaskClosure(
+        userMessage,
+        messages,
+        response,
+        hadQueuedMessages,
+        rootSpan?.id,
+      )
+      const taskClosureDecision = taskClosureEvaluation.decision
+      const displayContent =
+        taskClosureDecision?.action === 'continue' && taskClosureDecision.trimFrom
+          ? stripAssistantTrimFrom(response.content, taskClosureDecision.trimFrom) ?? response.content
+          : response.content
+      const shouldAutoContinueTaskClosure =
+        taskClosureDecision?.action === 'continue' &&
+        displayContent !== response.content
+
       // Create assistant message — filter secrets from text blocks
-      const filteredContent = this.filterContent(response.content)
+      const filteredContent = this.filterContent(displayContent)
 
       const assistantMsg: Message = {
         id: generateId(),
@@ -176,6 +224,58 @@ export class Agent {
       messages.push(assistantMsg)
       newMessages.push(assistantMsg)
       onNewMessage?.(assistantMsg)
+
+      const assistantMessagePreview = extractAssistantTail(filteredContent, 240)
+        || extractAssistantText(filteredContent).slice(-240)
+
+      if (taskClosureEvaluation.traceSpanId) {
+        const taskClosureSpan = this.obs.tracer?.getSpan(taskClosureEvaluation.traceSpanId)
+        if (taskClosureSpan) {
+          taskClosureSpan.metadata = {
+            ...taskClosureSpan.metadata,
+            assistantMessageId: assistantMsg.id,
+            assistantMessageCreatedAt: assistantMsg.createdAt,
+            assistantMessagePreview,
+          }
+        }
+      }
+
+      if (taskClosureEvaluation.eventPayload) {
+        this.obs.bus?.emit('session:update', {
+          sessionId: this.toolContext.sessionId,
+          ...taskClosureEvaluation.eventPayload,
+          assistantMessageId: assistantMsg.id,
+          assistantMessageCreatedAt: assistantMsg.createdAt,
+          assistantMessagePreview,
+        })
+      }
+
+      if (taskClosureDecision?.action === 'continue' && !shouldAutoContinueTaskClosure) {
+        const trimFailedSpan = this.obs.tracer?.startSpan(
+          this.toolContext.sessionId,
+          'task_closure_trim_failed',
+          rootSpan?.id,
+        )
+        if (trimFailedSpan) {
+          this.obs.tracer?.endSpan(trimFailedSpan.id, 'error', {
+            action: 'continue',
+            reason: 'trim_from_not_found',
+            trimFromPreview: taskClosureDecision.trimFrom.slice(0, 120),
+            assistantMessageId: assistantMsg.id,
+            assistantMessageCreatedAt: assistantMsg.createdAt,
+            assistantMessagePreview,
+          })
+        }
+        this.obs.bus?.emit('session:update', {
+          sessionId: this.toolContext.sessionId,
+          event: 'task_closure_trim_failed',
+          reason: 'trim_from_not_found',
+          trimFromPreview: taskClosureDecision.trimFrom.slice(0, 120),
+          assistantMessageId: assistantMsg.id,
+          assistantMessageCreatedAt: assistantMsg.createdAt,
+          assistantMessagePreview,
+        })
+      }
 
       // Emit session update event
       this.obs.bus?.emit('session:update', {
@@ -202,6 +302,22 @@ export class Agent {
           hadQueuedMessages = false
           continue
         }
+
+        if (shouldAutoContinueTaskClosure && taskClosureRetryCount < CONTEXT_PARAMS.completion.maxTaskClosureRetries) {
+          const contMsg: Message = {
+            id: generateId(),
+            sessionId: this.toolContext.sessionId,
+            role: 'user',
+            messageType: 'message',
+            content: [{ type: 'text', text: TASK_CLOSURE_PROMPT }],
+            createdAt: now(),
+          }
+          messages.push(contMsg)
+          newMessages.push(contMsg)
+          taskClosureRetryCount++
+          continue
+        }
+
         break
       }
 
@@ -459,7 +575,7 @@ export class Agent {
 
       if (event.type === 'tool_use_end') {
         const data = this.toRecord(event.data)
-        const endedId = typeof data.id === 'string' ? data.id : currentToolId
+        const endedId: string | null = typeof data.id === 'string' ? data.id : currentToolId
         if (endedId) currentToolId = endedId === currentToolId ? null : currentToolId
         continue
       }
@@ -524,6 +640,184 @@ export class Agent {
       stopReason,
       usage,
       model,
+    }
+  }
+
+  private async decideTaskClosure(
+    userMessage: string,
+    messages: Message[],
+    response: CompletionResponse,
+    hadQueuedMessages: boolean,
+    parentSpanId?: string,
+  ): Promise<TaskClosureEvaluation> {
+    const taskClosureSpan = this.obs.tracer?.startSpan(
+      this.toolContext.sessionId,
+      'task_closure_decision',
+      parentSpanId,
+    )
+
+    const endSkipped = (skipReason: string): TaskClosureEvaluation => {
+      if (taskClosureSpan) {
+        this.obs.tracer?.endSpan(taskClosureSpan.id, 'success', {
+          called: false,
+          skipReason,
+          stopReason: response.stopReason,
+        })
+      }
+      return {
+        decision: null,
+        eventPayload: {
+          event: 'task_closure_skipped',
+          skipReason,
+        },
+        traceSpanId: taskClosureSpan?.id,
+      }
+    }
+
+    if (response.stopReason === 'tool_use') return endSkipped('tool_use')
+    if (hadQueuedMessages) return endSkipped('queued_messages')
+    if (!hasAssistantText(response.content)) return endSkipped('no_assistant_text')
+
+    const assistantText = extractAssistantText(response.content)
+    const assistantTail = extractAssistantTail(response.content)
+    if (!assistantText || !assistantTail) return endSkipped('empty_assistant_tail')
+
+    const userMessagePreview = userMessage.slice(0, 240)
+    const assistantTailPreview = assistantTail.slice(0, 400)
+    const promptContext = this.buildTaskClosurePromptContext(userMessage, messages)
+    const prompt = buildTaskClosureDecisionPrompt(userMessage, assistantText, assistantTail, promptContext)
+
+    const classifierMessage: Message = {
+      id: generateId(),
+      sessionId: this.toolContext.sessionId,
+      role: 'user',
+      messageType: 'message',
+      content: [{ type: 'text', text: prompt }],
+      createdAt: now(),
+    }
+
+    try {
+      const result = await this.adapter.complete({
+        messages: [classifierMessage],
+        stream: false,
+        maxTokens: 200,
+      })
+
+      const text = extractAssistantText(result.content)
+      const decision = parseTaskClosureDecision(text)
+
+      const rawClassifierResponse = text.slice(0, 400)
+      const trimFromPreview = decision?.trimFrom ? decision.trimFrom.slice(0, 120) : ''
+
+      if (taskClosureSpan) {
+        this.obs.tracer?.endSpan(taskClosureSpan.id, decision ? 'success' : 'error', {
+          called: true,
+          classifierModel: result.model,
+          action: decision?.action ?? 'invalid',
+          reason: decision?.reason ?? 'invalid_classifier_output',
+          userMessagePreview,
+          assistantTailPreview,
+          rawClassifierResponse,
+          trimFromPreview,
+        })
+      }
+
+      return {
+        decision,
+        eventPayload: {
+          event: 'task_closure_decision',
+          action: decision?.action ?? 'invalid',
+          reason: decision?.reason ?? 'invalid_classifier_output',
+          userMessagePreview,
+          assistantTailPreview,
+          rawClassifierResponse,
+          trimFromPreview,
+        },
+        traceSpanId: taskClosureSpan?.id,
+      }
+    } catch (error) {
+      this.toolContext.logger.warn('task_closure_classifier_failed', {
+        sessionId: this.toolContext.sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      if (taskClosureSpan) {
+        this.obs.tracer?.endSpan(taskClosureSpan.id, 'error', {
+          called: true,
+          action: 'error',
+          reason: 'classifier_failed',
+          userMessagePreview,
+          assistantTailPreview,
+          error: errorMessage,
+        })
+      }
+      return {
+        decision: null,
+        eventPayload: {
+          event: 'task_closure_decision',
+          action: 'error',
+          reason: 'classifier_failed',
+          userMessagePreview,
+          assistantTailPreview,
+          error: errorMessage,
+        },
+        traceSpanId: taskClosureSpan?.id,
+      }
+    }
+  }
+
+  private buildTaskClosurePromptContext(
+    userMessage: string,
+    messages: Message[],
+  ): TaskClosurePromptContext {
+    const isResearchTask = /(https?:\/\/|reddit|analy|analysis|research|investig|verify|核验|分析|研究|调查|看看)/i.test(userMessage)
+    const wantsDepth = /(相关信息|相关线索|尽可能|深入|深挖|详细|交叉验证|多源|in depth|thorough|related info|cross)/i.test(userMessage)
+
+    const externalSourceDomains = new Set<string>()
+    let externalLookupCount = 0
+
+    for (const message of messages) {
+      for (const block of message.content) {
+        if (block.type !== 'tool_use') continue
+        const toolName = block.name.toLowerCase()
+        const input = block.input as Record<string, unknown>
+        const url = typeof input.url === 'string' ? input.url : ''
+        const looksExternal = toolName === 'fetch'
+          || toolName.includes('search')
+          || toolName.includes('browser')
+          || url.startsWith('http://')
+          || url.startsWith('https://')
+
+        if (!looksExternal) continue
+        externalLookupCount++
+
+        if (url) {
+          try {
+            externalSourceDomains.add(new URL(url).hostname)
+          } catch {}
+        }
+      }
+    }
+
+    let coverageHint = 'general'
+    if (isResearchTask && externalLookupCount === 0) {
+      coverageHint = 'research_no_external_lookup'
+    } else if (isResearchTask && externalLookupCount === 1) {
+      coverageHint = 'research_single_source_or_first_pass'
+    } else if (isResearchTask && externalLookupCount >= 2) {
+      coverageHint = 'research_multi_source_attempted'
+    }
+
+    if (wantsDepth && externalLookupCount < 2) {
+      coverageHint = 'depth_requested_but_multi_source_not_reached'
+    }
+
+    return {
+      isResearchTask,
+      wantsDepth,
+      externalLookupCount,
+      externalSourceDomains: Array.from(externalSourceDomains).slice(0, 6),
+      coverageHint,
     }
   }
 

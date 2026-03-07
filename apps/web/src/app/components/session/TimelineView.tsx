@@ -3,35 +3,35 @@ import { UserMessageBlock } from './UserMessageBlock'
 import { AgentMessageBlock } from './AgentMessageBlock'
 import { ToolCallBlock } from './ToolCallBlock'
 import { Warning, ArrowsClockwise } from '@phosphor-icons/react'
-
-interface ContentBlock {
-  type: string
-  [key: string]: unknown
-}
-
-interface Message {
-  id: string
-  role: string
-  messageType: string
-  content: ContentBlock[]
-  model?: string
-  createdAt: string
-}
-
-export type TimelineItem =
-  | { type: 'user-message'; text: string; images?: Array<{ mediaType: string; data: string }>; createdAt: string }
-  | { type: 'agent-text'; text: string; model?: string; createdAt: string }
-  | { type: 'tool-call'; id: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean; createdAt: string }
-  | { type: 'system-event'; variant: 'warning' | 'info'; text: string; createdAt: string }
+import {
+  buildTimeline,
+  type Message,
+  type PersistedTaskClosureEvent,
+  type TimelineItem,
+  type TraceSpan,
+} from './timeline'
 
 interface Props {
   messages: Message[]
+  traces?: TraceSpan[]
+  taskClosureEvents?: PersistedTaskClosureEvent[]
   selectedToolId: string | null
+  highlightedAssistantMessageId?: string | null
   onSelectTool: (id: string | null) => void
 }
 
-export function TimelineView({ messages, selectedToolId, onSelectTool }: Props) {
-  const items = useMemo(() => buildTimeline(messages), [messages])
+export function TimelineView({
+  messages,
+  traces,
+  taskClosureEvents,
+  selectedToolId,
+  highlightedAssistantMessageId,
+  onSelectTool,
+}: Props) {
+  const items = useMemo(
+    () => buildTimeline(messages, traces, taskClosureEvents),
+    [messages, traces, taskClosureEvents],
+  )
 
   return (
     <div className="space-y-2">
@@ -40,7 +40,15 @@ export function TimelineView({ messages, selectedToolId, onSelectTool }: Props) 
           case 'user-message':
             return <UserMessageBlock key={i} text={item.text} images={item.images} createdAt={item.createdAt} />
           case 'agent-text':
-            return <AgentMessageBlock key={i} text={item.text} model={item.model} />
+            return (
+              <AgentMessageBlock
+                key={`${item.messageId}-${i}`}
+                messageId={item.messageId}
+                text={item.text}
+                model={item.model}
+                highlighted={highlightedAssistantMessageId === item.messageId}
+              />
+            )
           case 'tool-call':
             return (
               <ToolCallBlock
@@ -64,92 +72,6 @@ export function TimelineView({ messages, selectedToolId, onSelectTool }: Props) 
   )
 }
 
-export function buildTimeline(messages: Message[]): TimelineItem[] {
-  const items: TimelineItem[] = []
-  // Collect tool results by toolUseId
-  const toolResults = new Map<string, { content: string; isError: boolean }>()
-
-  for (const msg of messages) {
-    if (msg.role === 'user' || msg.role === 'system') {
-      for (const block of msg.content) {
-        if (block.type === 'tool_result') {
-          toolResults.set(
-            block.toolUseId as string,
-            { content: block.content as string, isError: !!(block.isError) }
-          )
-        }
-      }
-    }
-  }
-
-  for (const msg of messages) {
-    // System event / notification
-    if (msg.messageType === 'notification') {
-      const text = msg.content
-        .filter((b) => b.type === 'text')
-        .map((b) => b.text as string)
-        .join('\n')
-      if (text) {
-        const isWarning = text.toLowerCase().includes('timeout') ||
-          text.toLowerCase().includes('error') ||
-          text.toLowerCase().includes('degrad')
-        items.push({
-          type: 'system-event',
-          variant: isWarning ? 'warning' : 'info',
-          text,
-          createdAt: msg.createdAt,
-        })
-      }
-      continue
-    }
-
-    // User messages
-    if (msg.role === 'user') {
-      const textBlocks = msg.content.filter((b) => b.type === 'text')
-      const imageBlocks = msg.content
-        .filter((b) => b.type === 'image')
-        .map((b) => ({
-          mediaType: b.mediaType as string,
-          data: b.data as string,
-        }))
-
-      if (textBlocks.length > 0 || imageBlocks.length > 0) {
-        const text = textBlocks.map((b) => b.text as string).join('\n')
-        items.push({
-          type: 'user-message',
-          text,
-          images: imageBlocks.length > 0 ? imageBlocks : undefined,
-          createdAt: msg.createdAt,
-        })
-      }
-      // tool_result blocks are already collected above
-      continue
-    }
-
-    // Assistant messages
-    if (msg.role === 'assistant') {
-      for (const block of msg.content) {
-        if (block.type === 'text') {
-          items.push({ type: 'agent-text', text: block.text as string, model: msg.model, createdAt: msg.createdAt })
-        } else if (block.type === 'tool_use') {
-          const result = toolResults.get(block.id as string)
-          items.push({
-            type: 'tool-call',
-            id: block.id as string,
-            name: block.name as string,
-            input: (block.input as Record<string, unknown>) ?? {},
-            result: result?.content,
-            isError: result?.isError,
-            createdAt: msg.createdAt,
-          })
-        }
-      }
-    }
-  }
-
-  return items
-}
-
 function SystemEventBanner({ variant, text }: { variant: 'warning' | 'info'; text: string }) {
   const isWarning = variant === 'warning'
   const Icon = isWarning ? Warning : ArrowsClockwise
@@ -167,16 +89,5 @@ function SystemEventBanner({ variant, text }: { variant: 'warning' | 'info'; tex
   )
 }
 
-/** Extract all file paths touched by tool calls */
-export function extractFilesTouched(items: TimelineItem[]): string[] {
-  const files = new Set<string>()
-  for (const item of items) {
-    if (item.type === 'tool-call') {
-      const input = item.input
-      if (input.file_path && typeof input.file_path === 'string') {
-        files.add(input.file_path)
-      }
-    }
-  }
-  return Array.from(files)
-}
+export type { TimelineItem, Message, PersistedTaskClosureEvent, TraceSpan } from './timeline'
+export { buildTimeline, extractFilesTouched } from './timeline'

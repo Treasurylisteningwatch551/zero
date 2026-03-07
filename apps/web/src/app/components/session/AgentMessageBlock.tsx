@@ -1,13 +1,18 @@
 import { Robot } from '@phosphor-icons/react'
 
 interface Props {
+  messageId?: string
   text: string
   model?: string
+  highlighted?: boolean
 }
 
-export function AgentMessageBlock({ text, model }: Props) {
+export function AgentMessageBlock({ messageId, text, model, highlighted = false }: Props) {
   return (
-    <div className="px-4 py-3">
+    <div
+      data-assistant-message-id={messageId}
+      className={`px-4 py-3 rounded-lg transition-all ${highlighted ? 'bg-cyan-400/10 ring-1 ring-cyan-400/40' : ''}`}
+    >
       <div className="flex items-start gap-2">
         <Robot size={16} weight="bold" className="text-[var(--color-accent)] mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1">

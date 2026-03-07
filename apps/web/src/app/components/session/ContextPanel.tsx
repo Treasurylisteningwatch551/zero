@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { formatModelHistory, formatNumber } from '../../lib/format'
+import { useState, useEffect, useMemo } from 'react'
+import { formatModelHistory, formatNumber, formatTimeAgo } from '../../lib/format'
 import { toolColors } from '../../lib/colors'
 import { apiFetch } from '../../lib/api'
 
@@ -24,7 +24,37 @@ interface MemoryResult {
   snippet: string
 }
 
+interface PersistedTaskClosureEvent {
+  ts: string
+  event: string
+  action?: string
+  reason?: string
+  skipReason?: string
+  trimFromPreview?: string
+  userMessagePreview?: string
+  assistantTailPreview?: string
+  rawClassifierResponse?: string
+  assistantMessageId?: string
+  assistantMessageCreatedAt?: string
+  assistantMessagePreview?: string
+  error?: string
+}
+
+interface TraceSpan {
+  id: string
+  parentId?: string
+  sessionId: string
+  name: string
+  startTime: string
+  endTime?: string
+  durationMs?: number
+  status: 'running' | 'success' | 'error'
+  metadata?: Record<string, unknown>
+  children: TraceSpan[]
+}
+
 interface Props {
+  sessionId: string
   summary?: string
   systemPrompt?: string
   modelHistory: ModelHistoryEntry[]
@@ -34,14 +64,32 @@ interface Props {
   inputTokens?: number
   outputTokens?: number
   selectedToolId: string | null
+  traces?: TraceSpan[]
+  taskClosureEvents?: PersistedTaskClosureEvent[]
+  traceLoading?: boolean
+  onJumpToAssistantMessage?: (messageId: string) => void
 }
 
-export function ContextPanel({ summary, systemPrompt, modelHistory, toolCalls, filesTouched, totalTokens, inputTokens, outputTokens, selectedToolId }: Props) {
+export function ContextPanel({
+  sessionId,
+  summary,
+  systemPrompt,
+  modelHistory,
+  toolCalls,
+  filesTouched,
+  totalTokens,
+  inputTokens,
+  outputTokens,
+  selectedToolId,
+  traces = [],
+  taskClosureEvents = [],
+  traceLoading = false,
+  onJumpToAssistantMessage,
+}: Props) {
   const [tab, setTab] = useState<'summary' | 'trace'>('summary')
   const [promptExpanded, setPromptExpanded] = useState(false)
   const [relatedMemory, setRelatedMemory] = useState<MemoryResult[]>([])
 
-  // Fetch related memory based on session summary
   useEffect(() => {
     if (!summary) return
     apiFetch<{ results: MemoryResult[] }>(`/api/memory/search?q=${encodeURIComponent(summary.slice(0, 100))}`)
@@ -49,16 +97,26 @@ export function ContextPanel({ summary, systemPrompt, modelHistory, toolCalls, f
       .catch(() => {})
   }, [summary])
 
+
   const selectedTool = selectedToolId
     ? toolCalls.find((t) => t.id === selectedToolId)
     : null
 
-  // Tool call distribution
   const toolDist = new Map<string, number>()
   for (const tc of toolCalls) {
     toolDist.set(tc.name, (toolDist.get(tc.name) ?? 0) + 1)
   }
   const totalCalls = toolCalls.length
+
+  const taskClosureSpans = useMemo(
+    () => flattenTraceSpans(traces).filter((span) => span.name === 'task_closure_decision'),
+    [traces],
+  )
+
+  const persistedTaskClosureCards = useMemo(
+    () => taskClosureEvents.map(mapPersistedTaskClosureEventToCard),
+    [taskClosureEvents],
+  )
 
   if (selectedTool) {
     return (
@@ -92,7 +150,6 @@ export function ContextPanel({ summary, systemPrompt, modelHistory, toolCalls, f
 
   return (
     <div className="card p-4 h-full overflow-y-auto animate-fade-up">
-      {/* Tabs */}
       <div className="flex gap-2 mb-4">
         {(['summary', 'trace'] as const).map((t) => (
           <button
@@ -111,14 +168,12 @@ export function ContextPanel({ summary, systemPrompt, modelHistory, toolCalls, f
 
       {tab === 'summary' && (
         <div className="space-y-4">
-          {/* Summary */}
           {summary && (
             <Section title="Summary">
               <p className="text-[12px] text-[var(--color-text-secondary)]">{summary}</p>
             </Section>
           )}
 
-          {/* System Prompt */}
           {systemPrompt && (
             <Section title="System Prompt">
               <button
@@ -135,14 +190,12 @@ export function ContextPanel({ summary, systemPrompt, modelHistory, toolCalls, f
             </Section>
           )}
 
-          {/* Model History */}
           <Section title="Model History">
             <p className="text-[12px] font-mono text-[var(--color-text-muted)]">
               {formatModelHistory(modelHistory)}
             </p>
           </Section>
 
-          {/* Model Usage — token breakdown */}
           <Section title="Model Usage">
             <div className="space-y-1">
               <div className="flex items-center justify-between text-[12px]">
@@ -176,7 +229,6 @@ export function ContextPanel({ summary, systemPrompt, modelHistory, toolCalls, f
             </div>
           </Section>
 
-          {/* Tool Calls Distribution */}
           {totalCalls > 0 && (
             <Section title="Tool Calls">
               <div className="space-y-1.5">
@@ -202,7 +254,6 @@ export function ContextPanel({ summary, systemPrompt, modelHistory, toolCalls, f
             </Section>
           )}
 
-          {/* Files Touched */}
           {filesTouched.length > 0 && (
             <Section title="Files Touched">
               <div className="space-y-0.5">
@@ -213,7 +264,6 @@ export function ContextPanel({ summary, systemPrompt, modelHistory, toolCalls, f
             </Section>
           )}
 
-          {/* Related Memory */}
           {relatedMemory.length > 0 && (
             <Section title="Related Memory">
               <div className="space-y-1.5">
@@ -233,12 +283,248 @@ export function ContextPanel({ summary, systemPrompt, modelHistory, toolCalls, f
       )}
 
       {tab === 'trace' && (
-        <div className="text-[12px] text-[var(--color-text-disabled)] text-center py-8">
-          Trace panel — coming soon
+        <div className="space-y-4">
+          <Section title="Task Closure">
+            {traceLoading ? (
+              <p className="text-[12px] text-[var(--color-text-disabled)]">Loading trace…</p>
+            ) : taskClosureSpans.length === 0 && persistedTaskClosureCards.length === 0 ? (
+              <p className="text-[12px] text-[var(--color-text-disabled)]">
+                No `task_closure_decision` span yet for this session.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {taskClosureSpans.map((span) => (
+                  <TraceSummaryCard key={span.id} span={span} />
+                ))}
+                {persistedTaskClosureCards.map((card, index) => (
+                  <PersistedTaskClosureCard
+                    key={`${card.createdAt}-${index}`}
+                    card={card}
+                    onJumpToAssistantMessage={onJumpToAssistantMessage}
+                  />
+                ))}
+              </div>
+            )}
+          </Section>
+
+          <Section title="Full Trace">
+            {traceLoading ? (
+              <p className="text-[12px] text-[var(--color-text-disabled)]">Loading trace…</p>
+            ) : traces.length === 0 ? (
+              <p className="text-[12px] text-[var(--color-text-disabled)]">No trace spans for this session.</p>
+            ) : (
+              <div className="space-y-2">
+                {traces.map((span) => (
+                  <TraceTree key={span.id} span={span} depth={0} />
+                ))}
+              </div>
+            )}
+          </Section>
         </div>
       )}
     </div>
   )
+}
+
+
+function mapPersistedTaskClosureEventToCard(event: PersistedTaskClosureEvent) {
+  return {
+    createdAt: event.ts,
+    action: event.event === 'task_closure_skipped' ? 'skipped' : event.action,
+    reason: event.reason,
+    skipReason: event.skipReason,
+    trimFromPreview: event.trimFromPreview,
+    userMessagePreview: event.userMessagePreview,
+    assistantTailPreview: event.assistantTailPreview,
+    rawClassifierResponse: event.rawClassifierResponse,
+    assistantMessageId: event.assistantMessageId,
+    assistantMessageCreatedAt: event.assistantMessageCreatedAt,
+    assistantMessagePreview: event.assistantMessagePreview,
+    error: event.error,
+  }
+}
+
+function PersistedTaskClosureCard({
+  card,
+  onJumpToAssistantMessage,
+}: {
+  card: ReturnType<typeof mapPersistedTaskClosureEventToCard>
+  onJumpToAssistantMessage?: (messageId: string) => void
+}) {
+  return (
+    <div className="rounded border border-white/8 bg-white/[0.02] p-3">
+      <div className="flex items-center justify-between gap-3 mb-1.5">
+        <div className="flex items-center gap-2">
+          <code className="text-[11px] text-cyan-300">task_closure_event</code>
+          <span className="rounded px-1.5 py-0.5 text-[10px] text-cyan-200 bg-cyan-400/10">persisted</span>
+        </div>
+        <span className="text-[10px] font-mono text-[var(--color-text-disabled)]">
+          {formatTimeAgo(card.createdAt)}
+        </span>
+      </div>
+      <div className="space-y-1 text-[11px] text-[var(--color-text-secondary)]">
+        {card.action && <p><span className="text-[var(--color-text-disabled)]">action:</span> {card.action}</p>}
+        {card.reason && <p><span className="text-[var(--color-text-disabled)]">reason:</span> {card.reason}</p>}
+        {card.skipReason && <p><span className="text-[var(--color-text-disabled)]">skip:</span> {card.skipReason}</p>}
+        {card.assistantMessageId && <p><span className="text-[var(--color-text-disabled)]">assistant_message_id:</span> {card.assistantMessageId}</p>}
+        {card.assistantMessageId && onJumpToAssistantMessage && (
+          <button
+            type="button"
+            className="text-[10px] text-[var(--color-accent)] hover:underline"
+            onClick={() => onJumpToAssistantMessage(card.assistantMessageId!)}
+          >
+            Jump to assistant
+          </button>
+        )}
+        {card.error && <p><span className="text-[var(--color-text-disabled)]">error:</span> {card.error}</p>}
+      </div>
+      {(card.userMessagePreview || card.assistantTailPreview || card.rawClassifierResponse || card.trimFromPreview || card.assistantMessagePreview) && (
+        <details className="mt-2 rounded bg-black/15 p-2">
+          <summary className="cursor-pointer text-[10px] text-[var(--color-accent)] select-none">
+            Raw Decision Details
+          </summary>
+          <div className="mt-2 space-y-2">
+            {card.assistantMessagePreview && <TracePreview label="assistant_message" value={card.assistantMessagePreview} />}
+            {card.userMessagePreview && <TracePreview label="user_message" value={card.userMessagePreview} />}
+            {card.assistantTailPreview && <TracePreview label="assistant_tail" value={card.assistantTailPreview} />}
+            {card.rawClassifierResponse && <TracePreview label="classifier_raw" value={card.rawClassifierResponse} />}
+            {card.trimFromPreview && <TracePreview label="trim_from" value={card.trimFromPreview} />}
+          </div>
+        </details>
+      )}
+    </div>
+  )
+}
+
+export function TraceSummaryCard({ span }: { span: TraceSpan }) {
+  const metadata = span.metadata ?? {}
+  const action = typeof metadata.action === 'string' ? metadata.action : undefined
+  const reason = typeof metadata.reason === 'string' ? metadata.reason : undefined
+  const skipReason = typeof metadata.skipReason === 'string' ? metadata.skipReason : undefined
+  const trimFromPreview = typeof metadata.trimFromPreview === 'string'
+    ? metadata.trimFromPreview
+    : undefined
+  const userMessagePreview = typeof metadata.userMessagePreview === 'string'
+    ? metadata.userMessagePreview
+    : undefined
+  const assistantTailPreview = typeof metadata.assistantTailPreview === 'string'
+    ? metadata.assistantTailPreview
+    : undefined
+  const rawClassifierResponse = typeof metadata.rawClassifierResponse === 'string'
+    ? metadata.rawClassifierResponse
+    : undefined
+  const assistantMessageId = typeof metadata.assistantMessageId === 'string' ? metadata.assistantMessageId : undefined
+  const assistantMessagePreview = typeof metadata.assistantMessagePreview === 'string' ? metadata.assistantMessagePreview : undefined
+  const error = typeof metadata.error === 'string' ? metadata.error : undefined
+
+  return (
+    <div className="rounded border border-white/8 bg-white/[0.02] p-3">
+      <div className="flex items-center justify-between gap-3 mb-1.5">
+        <div className="flex items-center gap-2">
+          <code className="text-[11px] text-cyan-300">{span.name}</code>
+          <StatusBadge status={span.status} />
+        </div>
+        <span className="text-[10px] font-mono text-[var(--color-text-disabled)]">
+          {span.durationMs !== undefined ? `${span.durationMs}ms` : formatTimeAgo(span.startTime)}
+        </span>
+      </div>
+      <div className="space-y-1 text-[11px] text-[var(--color-text-secondary)]">
+        {action && <p><span className="text-[var(--color-text-disabled)]">action:</span> {action}</p>}
+        {reason && <p><span className="text-[var(--color-text-disabled)]">reason:</span> {reason}</p>}
+        {skipReason && <p><span className="text-[var(--color-text-disabled)]">skip:</span> {skipReason}</p>}
+        {assistantMessageId && <p><span className="text-[var(--color-text-disabled)]">assistant_message_id:</span> {assistantMessageId}</p>}
+        {error && <p><span className="text-[var(--color-text-disabled)]">error:</span> {error}</p>}
+      </div>
+      {(assistantMessagePreview || userMessagePreview || assistantTailPreview || rawClassifierResponse || trimFromPreview) && (
+        <details className="mt-2 rounded bg-black/15 p-2">
+          <summary className="cursor-pointer text-[10px] text-[var(--color-accent)] select-none">
+            Raw Decision Details
+          </summary>
+          <div className="mt-2 space-y-2">
+            {assistantMessagePreview && <TracePreview label="assistant_message" value={assistantMessagePreview} />}
+            {userMessagePreview && <TracePreview label="user_message" value={userMessagePreview} />}
+            {assistantTailPreview && <TracePreview label="assistant_tail" value={assistantTailPreview} />}
+            {rawClassifierResponse && <TracePreview label="classifier_raw" value={rawClassifierResponse} />}
+            {trimFromPreview && <TracePreview label="trim_from" value={trimFromPreview} />}
+          </div>
+        </details>
+      )}
+    </div>
+  )
+}
+
+function TracePreview({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="mb-1 text-[10px] uppercase tracking-wide text-[var(--color-text-disabled)]">{label}</div>
+      <pre className="whitespace-pre-wrap break-words rounded bg-black/20 p-2 text-[10px] text-[var(--color-text-muted)]">
+        {value}
+      </pre>
+    </div>
+  )
+}
+
+function TraceTree({ span, depth }: { span: TraceSpan; depth: number }) {
+  return (
+    <div className="space-y-2">
+      <div
+        className="rounded border border-white/8 bg-white/[0.02] p-3"
+        style={{ marginLeft: `${depth * 14}px` }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <code className="text-[11px] text-[var(--color-text-secondary)] truncate">{span.name}</code>
+            <StatusBadge status={span.status} />
+          </div>
+          <span className="text-[10px] font-mono text-[var(--color-text-disabled)]">
+            {span.durationMs !== undefined ? `${span.durationMs}ms` : 'running'}
+          </span>
+        </div>
+        {span.metadata && Object.keys(span.metadata).length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {Object.entries(span.metadata).slice(0, 6).map(([key, value]) => (
+              <span
+                key={key}
+                className="rounded bg-black/20 px-2 py-1 text-[10px] text-[var(--color-text-muted)]"
+                title={`${key}: ${String(value)}`}
+              >
+                {key}: {formatMetadataValue(value)}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {span.children.map((child) => (
+        <TraceTree key={child.id} span={child} depth={depth + 1} />
+      ))}
+    </div>
+  )
+}
+
+function StatusBadge({ status }: { status: TraceSpan['status'] }) {
+  const cls = status === 'success'
+    ? 'text-emerald-300 bg-emerald-400/10'
+    : status === 'error'
+      ? 'text-rose-300 bg-rose-400/10'
+      : 'text-amber-300 bg-amber-400/10'
+
+  return (
+    <span className={`rounded px-1.5 py-0.5 text-[10px] ${cls}`}>
+      {status}
+    </span>
+  )
+}
+
+function flattenTraceSpans(spans: TraceSpan[]): TraceSpan[] {
+  return spans.flatMap((span) => [span, ...flattenTraceSpans(span.children ?? [])])
+}
+
+function formatMetadataValue(value: unknown): string {
+  if (typeof value === 'string') return value.length > 36 ? `${value.slice(0, 33)}…` : value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (value === null || value === undefined) return '-'
+  return '…'
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

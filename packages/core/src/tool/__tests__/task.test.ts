@@ -1,4 +1,6 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
+import { mkdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { TaskTool } from '../task'
 import { ToolRegistry } from '../registry'
 import { ReadTool } from '../read'
@@ -34,9 +36,20 @@ const config: SystemConfig = {
 
 const secrets = new Map([['openai_codex_api_key', API_KEY]])
 
+const TEST_WORK_DIR = join(import.meta.dir, '__test_task_workdir__')
+
+beforeAll(() => {
+  mkdirSync(TEST_WORK_DIR, { recursive: true })
+})
+
+afterAll(() => {
+  rmSync(TEST_WORK_DIR, { recursive: true, force: true })
+})
+
 const ctx = {
   sessionId: 'test_task_session',
-  workDir: process.cwd(),
+  workDir: TEST_WORK_DIR,
+  projectRoot: process.cwd(),
   logger: {
     info: () => {},
     warn: () => {},
