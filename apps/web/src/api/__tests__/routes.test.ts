@@ -17,7 +17,7 @@ describe('API Routes (Real)', () => {
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data.status).toBe('running')
-    expect(data.currentModel).toBe('gpt-5.3-codex-medium')
+    expect(data.currentModel).toBe('gpt-5.4-medium')
     expect(data.version).toBe('0.1.0')
   })
 
@@ -80,7 +80,7 @@ describe('API Routes (Real)', () => {
     const res = await app.request('/api/config')
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.defaultModel).toBe('gpt-5.3-codex-medium')
+    expect(data.defaultModel).toBe('gpt-5.4-medium')
     expect(data.providers).toBeDefined()
   })
 
@@ -96,7 +96,7 @@ describe('API Routes (Real)', () => {
     const res = await app.request('/api/tools')
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.tools.length).toBe(7)
+    expect(data.tools.length).toBe(9)
     const names = data.tools.map((t: { name: string }) => t.name)
     expect(names).toContain('read')
     expect(names).toContain('write')
@@ -104,6 +104,8 @@ describe('API Routes (Real)', () => {
     expect(names).toContain('bash')
     expect(names).toContain('fetch')
     expect(names).toContain('memory')
+    expect(names).toContain('memory_search')
+    expect(names).toContain('memory_get')
     expect(names).toContain('task')
   })
 

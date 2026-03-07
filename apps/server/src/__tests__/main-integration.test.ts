@@ -31,7 +31,7 @@ describe('startZeroOS Integration', () => {
   test('modelRouter has initialized adapters', () => {
     const current = zero.modelRouter.getCurrentModel()
     expect(current).toBeDefined()
-    expect(current!.modelName).toBe('gpt-5.3-codex-medium')
+    expect(current!.modelName).toBe('gpt-5.4-medium')
   })
 
   test('toolRegistry has 9 registered tools', () => {
