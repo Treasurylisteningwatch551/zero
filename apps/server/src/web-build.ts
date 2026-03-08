@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process'
+import { join } from 'node:path'
+import { getBunExecutable, getRuntimeEnv } from './runtime'
 
 export interface WebBuildResult {
   ok: boolean
@@ -6,9 +8,9 @@ export interface WebBuildResult {
 }
 
 export function rebuildWebBundle(): WebBuildResult {
-  const result = spawnSync('bun', ['run', 'build:web'], {
-    cwd: process.cwd(),
-    env: process.env,
+  const result = spawnSync(getBunExecutable(), ['run', 'build'], {
+    cwd: join(process.cwd(), 'apps/web'),
+    env: getRuntimeEnv(),
     stdio: 'inherit',
   })
 

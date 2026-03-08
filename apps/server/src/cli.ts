@@ -1,7 +1,9 @@
+import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { generateMasterKey, setMasterKey, getMasterKey, Vault } from '@zero-os/secrets'
 import { DEFAULT_TEMPLATES } from '@zero-os/core'
+import { getSupervisorLaunchAgentStatus, installSupervisorLaunchAgent, uninstallSupervisorLaunchAgent } from './launchd'
 import { startZeroOS } from './main'
 import { rebuildWebBundle } from './web-build'
 
@@ -19,6 +21,13 @@ switch (command) {
     break
   case 'secret':
     await secret()
+    break
+  case 'launchctl':
+  case 'launchd':
+    await launchctl()
+    break
+  case 'logs':
+    await logs()
     break
   case 'status':
     await status()
@@ -87,6 +96,16 @@ async function init() {
   }
 
   console.log('\n[ZeRo OS] Init complete. Run `bun zero start` to launch.')
+
+  if (process.platform === 'darwin') {
+    try {
+      const launchAgent = installSupervisorLaunchAgent()
+      console.log(`  LaunchAgent: installed at ${launchAgent.plistPath}`)
+    } catch (err) {
+      console.log(`  LaunchAgent: not installed automatically (${err instanceof Error ? err.message : err})`)
+      console.log('               Run `bun zero launchctl install` after fixing the issue.')
+    }
+  }
 }
 
 async function start() {
@@ -203,6 +222,138 @@ async function status() {
   // Web build
   const webBuild = existsSync(join(process.cwd(), 'apps/web/dist'))
   console.log(`  Web Build: ${webBuild ? '✓ built' : '○ not built (run bun run build:web)'}`)
+
+  if (process.platform === 'darwin') {
+    const launchAgent = getSupervisorLaunchAgentStatus()
+    console.log(`  LaunchCtl: ${launchAgent.loaded ? '✓ loaded' : launchAgent.installed ? '○ installed, not loaded' : '✗ not installed'}`)
+    console.log(`  Agent:     ${launchAgent.plistPath}`)
+  }
+}
+
+async function launchctl() {
+  if (process.platform !== 'darwin') {
+    console.error('[ZeRo OS] launchctl integration is only available on macOS.')
+    process.exit(1)
+  }
+
+  const action = process.argv[3] ?? 'install'
+
+  try {
+    switch (action) {
+      case 'install': {
+        const launchAgent = installSupervisorLaunchAgent()
+        console.log('[ZeRo OS] Supervisor LaunchAgent installed.')
+        console.log(`  Label: ${'com.zero-os.supervisor'}`)
+        console.log(`  Plist: ${launchAgent.plistPath}`)
+        break
+      }
+
+      case 'uninstall': {
+        const launchAgent = uninstallSupervisorLaunchAgent()
+        console.log('[ZeRo OS] Supervisor LaunchAgent removed.')
+        console.log(`  Plist: ${launchAgent.plistPath}`)
+        break
+      }
+
+      case 'status': {
+        const launchAgent = getSupervisorLaunchAgentStatus()
+        console.log('[ZeRo OS] Supervisor LaunchAgent status')
+        console.log(`  Label:      ${'com.zero-os.supervisor'}`)
+        console.log(`  Installed:  ${launchAgent.installed ? 'yes' : 'no'}`)
+        console.log(`  Loaded:     ${launchAgent.loaded ? 'yes' : 'no'}`)
+        console.log(`  Plist:      ${launchAgent.plistPath}`)
+        if (launchAgent.details) {
+          console.log(`  Details:    ${launchAgent.details.split('\n')[0]}`)
+        }
+        break
+      }
+
+      default:
+        console.error('Usage: bun zero launchctl <install|uninstall|status>')
+        process.exit(1)
+    }
+  } catch (err) {
+    console.error('[ZeRo OS] launchctl command failed:', err instanceof Error ? err.message : err)
+    process.exit(1)
+  }
+}
+
+async function logs() {
+  const args = process.argv.slice(3)
+  const follow = args.includes('--follow') || args.includes('-f')
+  const lines = getLogsLineCount(args)
+
+  const target = args.find((arg) => !arg.startsWith('-') && !/^\d+$/.test(arg)) ?? 'all'
+  const logFiles = getLogFiles(target)
+
+  const existingFiles = logFiles.filter((file) => existsSync(file))
+
+  if (existingFiles.length === 0) {
+    console.log('[ZeRo OS] No supervisor log files found yet.')
+    for (const file of logFiles) {
+      console.log(`  - ${file}`)
+    }
+    return
+  }
+
+  const tailArgs = ['-n', String(lines), ...existingFiles]
+
+  if (follow) {
+    console.log(`[ZeRo OS] Following ${existingFiles.length} log file(s)...`)
+    const proc = Bun.spawn(['tail', '-f', ...tailArgs], {
+      stdout: 'inherit',
+      stderr: 'inherit',
+      stdin: 'inherit',
+    })
+    await proc.exited
+    return
+  }
+
+  const result = spawnSync('tail', tailArgs, {
+    stdio: 'inherit',
+  })
+
+  if (result.status !== 0) {
+    console.error('[ZeRo OS] Failed to read logs.')
+    process.exit(result.status ?? 1)
+  }
+}
+
+function getLogsLineCount(args: string[]) {
+  const lineFlagIndex = args.findIndex((arg) => arg === '--lines' || arg === '-n')
+
+  if (lineFlagIndex === -1) {
+    return 100
+  }
+
+  const rawValue = args[lineFlagIndex + 1]
+  const parsedValue = Number(rawValue)
+
+  if (!rawValue || !Number.isInteger(parsedValue) || parsedValue <= 0) {
+    console.error('Usage: bun zero logs [supervisor|error|all] [--lines <n>] [--follow]')
+    process.exit(1)
+  }
+
+  return parsedValue
+}
+
+function getLogFiles(target: string) {
+  const stdoutPath = join(ZERO_DIR, 'logs', 'supervisor.log')
+  const stderrPath = join(ZERO_DIR, 'logs', 'supervisor.error.log')
+
+  switch (target) {
+    case 'supervisor':
+    case 'out':
+      return [stdoutPath]
+    case 'error':
+    case 'err':
+      return [stderrPath]
+    case 'all':
+      return [stdoutPath, stderrPath]
+    default:
+      console.error('Usage: bun zero logs [supervisor|error|all] [--lines <n>] [--follow]')
+      process.exit(1)
+  }
 }
 
 async function restart() {
@@ -241,6 +392,10 @@ Commands:
   init [api-key]     Initialize ZeRo OS (Keychain, vault, directories)
   start              Start ZeRo OS (server + web UI)
   restart            Graceful restart (requires Supervisor running)
+  launchctl install  Install/update macOS LaunchAgent for Supervisor
+  launchctl status   Show macOS LaunchAgent status
+  launchctl uninstall Remove macOS LaunchAgent for Supervisor
+  logs [target]      View supervisor logs (supervisor | error | all)
   secret set <k> <v> Store a secret in the vault
   secret list        List all stored secret keys
   secret delete <k>  Delete a secret
@@ -250,6 +405,8 @@ Examples:
   bun zero init sk-your-api-key-here
   bun zero start
   bun zero restart
+  bun zero launchctl install
+  bun zero logs all --follow
   bun zero secret set openai_codex_api_key sk-xxx
   bun zero status
 `)
