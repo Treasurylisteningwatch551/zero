@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { Telegraf } from 'telegraf'
 import type { Channel, IncomingMessage, MessageHandler, ImageAttachment } from '../base'
 import { chunkTelegramRichText, markdownToTelegramRichText, type TelegramRichText } from '../richtext'
@@ -428,12 +429,8 @@ export class TelegramChannel implements Channel {
         const filePath = (info as any)?.file_path
         if (!filePath) continue
 
-        const stream = await this.bot.telegram.getFileStream(filePath)
-        const chunks: Buffer[] = []
-        for await (const chunk of stream as any) {
-          chunks.push(Buffer.from(chunk))
-        }
-        const buf = Buffer.concat(chunks)
+        const fileUrl = await this.bot.telegram.getFileLink(info as any)
+        const buf = await this.downloadTelegramFile(fileUrl)
 
         const mediaType = this.inferImageMediaType(filePath, message.document?.mime_type)
         downloaded.push({ mediaType, data: buf.toString('base64') })
@@ -453,5 +450,18 @@ export class TelegramChannel implements Channel {
     if (lower.endsWith('.webp')) return 'image/webp'
     if (lower.endsWith('.gif')) return 'image/gif'
     return 'image/jpeg'
+  }
+
+  private async downloadTelegramFile(fileUrl: URL): Promise<Buffer> {
+    if (fileUrl.protocol === 'file:') {
+      return await readFile(fileUrl)
+    }
+
+    const response = await fetch(fileUrl)
+    if (!response.ok) {
+      throw new Error(`Telegram file download failed with status ${response.status}`)
+    }
+
+    return Buffer.from(await response.arrayBuffer())
   }
 }

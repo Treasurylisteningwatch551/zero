@@ -232,39 +232,52 @@ describe('TelegramChannel contract', () => {
   test('message handler keeps caption and downloads highest-resolution photo', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
 
-    const requested: string[] = []
+    const requestedFileIds: string[] = []
+    const requestedUrls: string[] = []
+    const originalFetch = globalThis.fetch
+
+    ;(globalThis as any).fetch = async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input))
+      return new Response(Buffer.from('img-binary'), { status: 200 })
+    }
+
     ;(channel as any).bot = {
       telegram: {
         getFile: async (fileId: string) => {
-          requested.push(fileId)
+          requestedFileIds.push(fileId)
           return {
             file_id: fileId,
             file_path: 'photos/pic.jpg',
           }
         },
-        getFileStream: async () => Readable.from([Buffer.from('img-binary')]),
+        getFileLink: async () => new URL('https://api.telegram.org/file/bot-token/photos/pic.jpg'),
       },
     }
 
-    const msg = await (channel as any).buildIncomingMessage({
-      from: { id: 1, username: 'u', first_name: 'n' },
-      chat: { id: 123, type: 'private' },
-      message: {
-        date: 1,
-        message_id: 10,
-        caption: 'look',
-        photo: [
-          { file_id: 'small', width: 100, height: 80 },
-          { file_id: 'large', width: 1200, height: 800 },
-        ],
-      },
-    })
+    try {
+      const msg = await (channel as any).buildIncomingMessage({
+        from: { id: 1, username: 'u', first_name: 'n' },
+        chat: { id: 123, type: 'private' },
+        message: {
+          date: 1,
+          message_id: 10,
+          caption: 'look',
+          photo: [
+            { file_id: 'small', width: 100, height: 80 },
+            { file_id: 'large', width: 1200, height: 800 },
+          ],
+        },
+      })
 
-    expect(requested).toEqual(['large'])
-    expect(msg.content).toBe('look')
-    expect(msg.images?.length).toBe(1)
-    expect(msg.images?.[0].mediaType).toBe('image/jpeg')
-    expect(typeof msg.images?.[0].data).toBe('string')
+      expect(requestedFileIds).toEqual(['large'])
+      expect(requestedUrls).toEqual(['https://api.telegram.org/file/bot-token/photos/pic.jpg'])
+      expect(msg.content).toBe('look')
+      expect(msg.images?.length).toBe(1)
+      expect(msg.images?.[0].mediaType).toBe('image/jpeg')
+      expect(typeof msg.images?.[0].data).toBe('string')
+    } finally {
+      ;(globalThis as any).fetch = originalFetch
+    }
   })
 
   test('message handler sets media hint for non-image media', async () => {
@@ -273,7 +286,7 @@ describe('TelegramChannel contract', () => {
     ;(channel as any).bot = {
       telegram: {
         getFile: async () => ({ file_path: '' }),
-        getFileStream: async () => Readable.from([]),
+        getFileLink: async () => new URL('https://api.telegram.org/file/bot-token/unused'),
       },
     }
 
@@ -295,25 +308,33 @@ describe('TelegramChannel contract', () => {
   test('extractImages supports image document mime type', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
 
+    const originalFetch = globalThis.fetch
+
+    ;(globalThis as any).fetch = async () => new Response(Buffer.from('png-binary'), { status: 200 })
+
     ;(channel as any).bot = {
       telegram: {
         getFile: async () => ({ file_path: 'docs/pic.png' }),
-        getFileStream: async () => Readable.from([Buffer.from('png-binary')]),
+        getFileLink: async () => new URL('https://api.telegram.org/file/bot-token/docs/pic.png'),
       },
     }
 
-    const msg = await (channel as any).buildIncomingMessage({
-      from: { id: 3 },
-      chat: { id: 789, type: 'private' },
-      message: {
-        date: 3,
-        message_id: 12,
-        document: { file_id: 'doc1', mime_type: 'image/png' },
-      },
-    })
+    try {
+      const msg = await (channel as any).buildIncomingMessage({
+        from: { id: 3 },
+        chat: { id: 789, type: 'private' },
+        message: {
+          date: 3,
+          message_id: 12,
+          document: { file_id: 'doc1', mime_type: 'image/png' },
+        },
+      })
 
-    expect(msg.images?.length).toBe(1)
-    expect(msg.images?.[0].mediaType).toBe('image/png')
+      expect(msg.images?.length).toBe(1)
+      expect(msg.images?.[0].mediaType).toBe('image/png')
+    } finally {
+      ;(globalThis as any).fetch = originalFetch
+    }
   })
 
   test('buildIncomingMessage is robust when from/chat/date are missing', async () => {
@@ -322,7 +343,7 @@ describe('TelegramChannel contract', () => {
     ;(channel as any).bot = {
       telegram: {
         getFile: async () => ({ file_path: '' }),
-        getFileStream: async () => Readable.from([]),
+        getFileLink: async () => new URL('https://api.telegram.org/file/bot-token/unused'),
       },
     }
 
