@@ -16,30 +16,66 @@ export function SessionChannelDetailPage() {
 
   const [candidates, setCandidates] = useState<ChannelSessionCandidate[]>([])
   const [loading, setLoading] = useState(true)
+  const [inferredSource, setInferredSource] = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
-  const fetchCandidates = useCallback((showLoading = true) => {
+  const activeSource = search.source ?? inferredSource
+
+  const fetchCandidatesByChannel = useCallback((showLoading = true) => {
     if (showLoading) setLoading(true)
     return apiFetch<{ sessions: ChannelSessionCandidate[] }>(
       `/api/sessions/channel/${encodeURIComponent(channel)}/active`,
     )
-      .then((res) => setCandidates(res.sessions ?? []))
-      .catch(() => setCandidates([]))
+      .then((res) => {
+        const sessions = res.sessions ?? []
+        setCandidates(sessions)
+        setInferredSource(sessions[0]?.source ?? null)
+      })
+      .catch(() => {
+        setCandidates([])
+        setInferredSource(null)
+      })
       .finally(() => setLoading(false))
   }, [channel])
 
+  const fetchCandidatesBySource = useCallback((source: string, showLoading = true) => {
+    if (showLoading) setLoading(true)
+    return apiFetch<{ sessions: ChannelSessionCandidate[] }>(
+      `/api/sessions/source/${encodeURIComponent(source)}/active`,
+    )
+      .then((res) => setCandidates(res.sessions ?? []))
+      .catch(() => setCandidates([]))
+      .finally(() => setLoading(false))
+  }, [])
+
   useEffect(() => {
-    void fetchCandidates()
-  }, [fetchCandidates])
+    if (search.source) {
+      void fetchCandidatesBySource(search.source)
+      return
+    }
+
+    void fetchCandidatesByChannel()
+  }, [fetchCandidatesByChannel, fetchCandidatesBySource, search.source])
+
+  useEffect(() => {
+    if (search.source) {
+      setInferredSource(null)
+    }
+  }, [search.source])
 
   useEffect(() => () => clearTimeout(debounceRef.current), [])
 
   const onSessionEvent = useCallback(() => {
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      void fetchCandidates(false)
+      if (activeSource) {
+        void fetchCandidatesBySource(activeSource, false)
+        return
+      }
+
+      void fetchCandidatesByChannel(false)
     }, 300)
-  }, [fetchCandidates])
+  }, [activeSource, fetchCandidatesByChannel, fetchCandidatesBySource])
 
   useWebSocket({
     url: `ws://${window.location.host}/ws`,
@@ -48,40 +84,45 @@ export function SessionChannelDetailPage() {
   })
 
   const selectedCandidate = useMemo(
-    () => resolveChannelSessionCandidate(candidates, search.source),
-    [candidates, search.source],
+    () => resolveChannelSessionCandidate(candidates, channel),
+    [candidates, channel],
   )
 
   useEffect(() => {
-    if (loading || !selectedCandidate || search.source === selectedCandidate.source) return
-    navigate({
-      to: '/sessions/channel/$channel/detail',
-      params: { channel },
-      search: { source: selectedCandidate.source },
-      replace: true,
-    })
+    if (loading || !selectedCandidate) return
+
+    if (search.source !== selectedCandidate.source || channel !== selectedCandidate.channelId) {
+      navigate({
+        to: '/sessions/channel/$channel/detail',
+        params: { channel: selectedCandidate.channelId },
+        search: { source: selectedCandidate.source },
+        replace: true,
+      })
+    }
   }, [channel, loading, navigate, search.source, selectedCandidate])
 
   const selector = (
     <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-[10px] text-[var(--color-text-disabled)] uppercase tracking-wide">Channel</span>
-      <span className="text-[11px] font-mono text-[var(--color-text-secondary)]">{channel}</span>
-      <span className="text-[10px] text-[var(--color-text-disabled)] uppercase tracking-wide ml-2">Source</span>
+      <span className="text-[10px] text-[var(--color-text-disabled)] uppercase tracking-wide">Source</span>
+      <span className="text-[11px] font-mono text-[var(--color-text-secondary)]">
+        {selectedCandidate?.source ?? activeSource ?? '—'}
+      </span>
+      <span className="text-[10px] text-[var(--color-text-disabled)] uppercase tracking-wide ml-2">Channel ID</span>
       <select
-        className="input-field py-1.5 px-2.5 min-w-[180px]"
-        value={selectedCandidate?.source ?? ''}
+        className="input-field py-1.5 px-2.5 min-w-[220px]"
+        value={selectedCandidate?.channelId ?? ''}
         disabled={loading || candidates.length === 0}
         onChange={(e) => {
           navigate({
             to: '/sessions/channel/$channel/detail',
-            params: { channel },
-            search: { source: e.target.value },
+            params: { channel: e.target.value },
+            search: { source: selectedCandidate?.source ?? activeSource ?? undefined },
           })
         }}
       >
         {candidates.map((candidate) => (
-          <option key={`${candidate.source}-${candidate.id}`} value={candidate.source}>
-            {candidate.source} · {candidate.status} · {formatTimeAgo(candidate.updatedAt)}
+          <option key={`${candidate.channelId}-${candidate.id}`} value={candidate.channelId}>
+            {candidate.channelId} · {candidate.status} · {formatTimeAgo(candidate.updatedAt)}
           </option>
         ))}
       </select>
@@ -97,7 +138,7 @@ export function SessionChannelDetailPage() {
           <div className="card p-8 text-center text-[13px] text-[var(--color-text-muted)]">
             {loading
               ? 'Loading active channel sessions...'
-              : `No active or idle sessions found for channel ${channel}.`}
+              : `No active or idle sessions found${activeSource ? ` for source ${activeSource}` : ''}.`}
           </div>
         </div>
       }

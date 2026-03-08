@@ -9,10 +9,10 @@ export interface ChannelSessionCandidate {
 
 export function resolveChannelSessionCandidate(
   candidates: ChannelSessionCandidate[],
-  preferredSource?: string,
+  preferredChannelId?: string,
 ) {
-  if (preferredSource) {
-    const preferred = candidates.find((candidate) => candidate.source === preferredSource)
+  if (preferredChannelId) {
+    const preferred = candidates.find((candidate) => candidate.channelId === preferredChannelId)
     if (preferred) return preferred
   }
 

@@ -136,6 +136,25 @@ export function createRoutes(zero: ZeroOS) {
       return c.json({ sessions })
     })
 
+    .get('/api/sessions/source/:source/active', (c) => {
+      const source = c.req.param('source')
+
+      const sessions = zero.sessionManager
+        .listActive()
+        .filter((session) => session.data.source === source && session.data.channelId)
+        .sort((left, right) => right.data.updatedAt.localeCompare(left.data.updatedAt))
+        .map((session) => ({
+          id: session.data.id,
+          source: session.data.source,
+          channelId: session.data.channelId as string,
+          status: session.getStatus(),
+          updatedAt: session.data.updatedAt,
+          summary: session.data.summary,
+        }))
+
+      return c.json({ sessions })
+    })
+
     .get('/api/sessions/:id', (c) => {
       const id = c.req.param('id')
       const session = zero.sessionManager.get(id)

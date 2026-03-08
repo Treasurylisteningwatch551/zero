@@ -13,7 +13,6 @@ beforeAll(async () => {
 
 describe('API Routes Extended', () => {
   test('POST /api/chat with existing sessionId reuses session', async () => {
-    // First create a session
     const res1 = await app.request('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -23,7 +22,6 @@ describe('API Routes Extended', () => {
     const data1 = await res1.json()
     const sessionId = data1.sessionId
 
-    // Second request with same sessionId
     const res2 = await app.request('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -45,7 +43,6 @@ describe('API Routes Extended', () => {
   })
 
   test('GET /api/sessions?q=web searches by source', async () => {
-    // Create a web session first
     zero.sessionManager.create('web')
     const res = await app.request('/api/sessions?q=web')
     expect(res.status).toBe(200)
@@ -63,7 +60,6 @@ describe('API Routes Extended', () => {
     const data = await res.json()
     expect(data.ok).toBe(true)
 
-    // Verify archived
     const getRes = await app.request(`/api/sessions/${session.data.id}`)
     const sessionData = await getRes.json()
     expect(sessionData.status).toBe('archived')
@@ -160,5 +156,32 @@ describe('API Routes Extended', () => {
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data.sessions).toEqual([])
+  })
+
+  test('GET /api/sessions/source/:source/active returns source-scoped active channels', async () => {
+    const newest = zero.sessionManager.getOrCreateForChannel('scheduler', 'sched_room_2').session
+    newest.setStatus('idle')
+    newest.data.updatedAt = '2026-03-09T00:00:03.000Z'
+
+    const older = zero.sessionManager.getOrCreateForChannel('scheduler', 'sched_room_1').session
+    older.data.updatedAt = '2026-03-09T00:00:02.000Z'
+
+    const otherSource = zero.sessionManager.getOrCreateForChannel('telegram', 'chat_tg_1').session
+    otherSource.data.updatedAt = '2026-03-09T00:00:04.000Z'
+
+    const completed = zero.sessionManager.getOrCreateForChannel('scheduler', 'sched_room_done').session
+    completed.setStatus('completed')
+    completed.data.updatedAt = '2026-03-09T00:00:05.000Z'
+
+    const res = await app.request('/api/sessions/source/scheduler/active')
+    expect(res.status).toBe(200)
+    const data = await res.json()
+
+    expect(data.sessions.map((session: { channelId: string }) => session.channelId)).toEqual([
+      'sched_room_2',
+      'sched_room_1',
+    ])
+    expect(data.sessions.every((session: { source: string }) => session.source === 'scheduler')).toBe(true)
+    expect(data.sessions.every((session: { status: string }) => ['active', 'idle'].includes(session.status))).toBe(true)
   })
 })
