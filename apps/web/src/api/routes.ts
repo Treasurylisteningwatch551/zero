@@ -62,6 +62,7 @@ export function createRoutes(zero: ZeroOS) {
           messageCount: msgs.length,
           tags: s.data.tags,
           summary: s.data.summary,
+          channelId: s.data.channelId,
           modelHistory: s.data.modelHistory,
           toolCallCount,
           totalTokens: stats?.totalTokens ?? 0,
@@ -94,6 +95,7 @@ export function createRoutes(zero: ZeroOS) {
             messageCount: 0,
             tags: row.tags,
             summary: row.summary,
+            channelId: row.channelId,
             modelHistory: row.modelHistory,
             toolCallCount: 0,
             totalTokens: stats?.totalTokens ?? 0,
@@ -107,11 +109,31 @@ export function createRoutes(zero: ZeroOS) {
             (s.id as string).toLowerCase().includes(q) ||
             (s.source as string).toLowerCase().includes(q) ||
             (s.currentModel as string).toLowerCase().includes(q) ||
-            ((s.summary as string)?.toLowerCase().includes(q) ?? false)
+            ((s.summary as string)?.toLowerCase().includes(q) ?? false) ||
+            ((s.channelId as string)?.toLowerCase().includes(q) ?? false)
           )
         : result
 
       return c.json({ sessions: filtered })
+    })
+
+    .get('/api/sessions/channel/:channel/active', (c) => {
+      const channel = c.req.param('channel')
+
+      const sessions = zero.sessionManager
+        .listActive()
+        .filter((session) => session.data.channelId === channel)
+        .sort((left, right) => right.data.updatedAt.localeCompare(left.data.updatedAt))
+        .map((session) => ({
+          id: session.data.id,
+          source: session.data.source,
+          channelId: session.data.channelId ?? channel,
+          status: session.getStatus(),
+          updatedAt: session.data.updatedAt,
+          summary: session.data.summary,
+        }))
+
+      return c.json({ sessions })
     })
 
     .get('/api/sessions/:id', (c) => {

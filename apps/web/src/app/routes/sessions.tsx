@@ -25,6 +25,7 @@ interface SessionInfo {
   messageCount: number
   tags: string[]
   summary?: string
+  channelId?: string
   modelHistory: ModelHistoryEntry[]
   toolCallCount: number
   totalTokens: number
@@ -36,6 +37,10 @@ function mapStatusToDot(status: string): 'active' | 'idle' | 'error' | 'warning'
   if (status === 'idle' || status === 'completed' || status === 'archived') return 'idle'
   if (status === 'failed') return 'error'
   return 'idle'
+}
+
+function canOpenChannelDetail(session: SessionInfo) {
+  return Boolean(session.channelId && (session.status === 'active' || session.status === 'idle'))
 }
 
 const SOURCE_FILTERS = ['all', 'web', 'feishu', 'telegram', 'scheduler'] as const
@@ -67,7 +72,9 @@ export function SessionsPage() {
     apiFetch<{ sessions: SessionInfo[] }>(`/api/sessions${qs ? `?${qs}` : ''}`)
       .then((res) => setSessions(res.sessions))
       .catch(() => {})
-      .finally(() => { if (showLoading) setLoading(false) })
+      .finally(() => {
+        if (showLoading) setLoading(false)
+      })
   }
 
   useEffect(() => {
@@ -85,12 +92,19 @@ export function SessionsPage() {
     navigate({ to: '/sessions/$id', params: { id } })
   }
 
-  // Apply source filter client-side
+  function openChannelDetail(session: SessionInfo) {
+    if (!session.channelId) return
+    navigate({
+      to: '/sessions/channel/$channel/detail',
+      params: { channel: session.channelId },
+      search: { source: session.source },
+    })
+  }
+
   const filteredSessions = sourceFilter === 'all'
     ? sessions
     : sessions.filter((s) => s.source === sourceFilter)
 
-  // Keyboard navigation
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const tag = (e.target as HTMLElement).tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA') return
@@ -119,7 +133,6 @@ export function SessionsPage() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
 
-  // WebSocket: auto-refresh session list on session events
   const onSessionEvent = useCallback(() => {
     clearTimeout(wsDebounceRef.current)
     wsDebounceRef.current = setTimeout(() => {
@@ -137,7 +150,6 @@ export function SessionsPage() {
     <div className="p-6 max-w-[1400px] mx-auto">
       <h1 className="text-[20px] font-bold tracking-tight mb-4">Sessions</h1>
 
-      {/* Filters */}
       <div className="card p-4 mb-4 animate-fade-up">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex gap-2">
@@ -156,7 +168,10 @@ export function SessionsPage() {
             ))}
           </div>
           <div className="relative">
-            <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-disabled)]" />
+            <MagnifyingGlass
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-disabled)]"
+            />
             <input
               type="text"
               placeholder="Search sessions..."
@@ -167,7 +182,6 @@ export function SessionsPage() {
           </div>
         </div>
 
-        {/* Source filters */}
         <div className="flex gap-1.5 mt-3 pt-3 border-t border-[var(--color-border)]">
           <span className="text-[11px] text-[var(--color-text-disabled)] mr-1 self-center">Source:</span>
           {SOURCE_FILTERS.map((sf) => (
@@ -186,7 +200,6 @@ export function SessionsPage() {
         </div>
       </div>
 
-      {/* Session list */}
       {loading ? (
         <div className="space-y-2">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -214,51 +227,69 @@ export function SessionsPage() {
         </div>
       ) : (
         <div ref={listRef} className="space-y-2 animate-fade-up" style={{ animationDelay: '60ms' }}>
-          {filteredSessions.map((s, idx) => (
-            <div
-              key={s.id}
-              onClick={() => openSession(s.id)}
-              className={`card p-4 cursor-pointer hover:bg-white/[0.02] transition-colors ${
-                idx === focusIndex ? 'border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]/30' : ''
-              }`}
-            >
-              {/* Line 1: Status + ID + Summary */}
-              <div className="flex items-center gap-3">
-                <PulseDot status={mapStatusToDot(s.status)} />
-                <span className="text-[13px] font-mono text-[var(--color-text-primary)]">{s.id}</span>
-                {s.summary && (
-                  <span className="text-[13px] text-[var(--color-text-secondary)] truncate">{s.summary}</span>
-                )}
-                <span className="flex-1" />
-                <span className={`text-[11px] ${statusColors[s.status] ?? 'text-slate-400'}`}>
-                  {s.status}
-                </span>
-              </div>
+          {filteredSessions.map((s, idx) => {
+            const showChannelButton = canOpenChannelDetail(s)
 
-              {/* Line 2: Source · Model history · Time */}
-              <div className="ml-7 mt-1 text-[11px] text-[var(--color-text-muted)]">
-                <span className="capitalize">{s.source}</span>
-                {' · '}
-                <span className="font-mono">
-                  {s.modelHistory && s.modelHistory.length > 0
-                    ? formatModelHistory(s.modelHistory)
-                    : s.currentModel}
-                </span>
-                {' · '}
-                <span>{formatTimeAgo(s.createdAt)}</span>
-                {s.status === 'active' && ' - ongoing'}
-              </div>
+            return (
+              <div
+                key={s.id}
+                onClick={() => openSession(s.id)}
+                className={`card p-4 cursor-pointer hover:bg-white/[0.02] transition-colors ${
+                  idx === focusIndex ? 'border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]/30' : ''
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <PulseDot status={mapStatusToDot(s.status)} />
+                  <span className="text-[13px] font-mono text-[var(--color-text-primary)]">{s.id}</span>
+                  {s.summary && (
+                    <span className="text-[13px] text-[var(--color-text-secondary)] truncate">{s.summary}</span>
+                  )}
+                  <span className="flex-1" />
+                  {showChannelButton && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openChannelDetail(s)
+                      }}
+                      className="px-2 py-0.5 rounded text-[10px] border border-[var(--color-border)] text-[var(--color-accent)] hover:bg-[var(--color-accent-glow)] transition-colors"
+                    >
+                      Channel
+                    </button>
+                  )}
+                  <span className={`text-[11px] ${statusColors[s.status] ?? 'text-slate-400'}`}>
+                    {s.status}
+                  </span>
+                </div>
 
-              {/* Line 3: Tool calls · Tokens · Cost */}
-              <div className="ml-7 mt-0.5 text-[11px] text-[var(--color-text-disabled)]">
-                {s.toolCallCount} tool calls
-                {' · '}
-                {formatNumber(s.totalTokens)} tokens
-                {' · '}
-                {formatCost(s.totalCost)}
+                <div className="ml-7 mt-1 text-[11px] text-[var(--color-text-muted)] flex items-center gap-1.5 flex-wrap">
+                  <span className="capitalize">{s.source}</span>
+                  <span>·</span>
+                  {s.channelId && (
+                    <>
+                      <span className="font-mono text-[var(--color-text-disabled)]">{s.channelId}</span>
+                      <span>·</span>
+                    </>
+                  )}
+                  <span className="font-mono">
+                    {s.modelHistory && s.modelHistory.length > 0
+                      ? formatModelHistory(s.modelHistory)
+                      : s.currentModel}
+                  </span>
+                  <span>·</span>
+                  <span>{formatTimeAgo(s.createdAt)}</span>
+                  {s.status === 'active' && <span>- ongoing</span>}
+                </div>
+
+                <div className="ml-7 mt-0.5 text-[11px] text-[var(--color-text-disabled)]">
+                  {s.toolCallCount} tool calls
+                  {' · '}
+                  {formatNumber(s.totalTokens)} tokens
+                  {' · '}
+                  {formatCost(s.totalCost)}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

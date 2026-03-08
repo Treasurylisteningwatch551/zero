@@ -120,7 +120,7 @@ export function ContextPanel({
 
   if (selectedTool) {
     return (
-      <div className="card p-4 h-full overflow-y-auto animate-fade-up">
+      <div className="card p-4 h-full min-h-0 overflow-y-auto animate-fade-up">
         <h3 className="text-[13px] font-semibold text-[var(--color-text-primary)] mb-3">Tool Detail</h3>
         <div className="space-y-3">
           <div>
@@ -131,7 +131,7 @@ export function ContextPanel({
           </div>
           <div>
             <span className="text-[10px] font-semibold text-[var(--color-text-disabled)] tracking-wide">INPUT</span>
-            <pre className="text-[11px] font-mono text-[var(--color-text-secondary)] mt-1 whitespace-pre-wrap break-all bg-black/20 rounded p-2">
+            <pre className="text-[11px] font-mono text-[var(--color-text-secondary)] mt-1 whitespace-pre-wrap break-all bg-black/20 rounded p-2 max-h-[320px] overflow-y-auto">
               {JSON.stringify(selectedTool.input, null, 2)}
             </pre>
           </div>
@@ -149,7 +149,7 @@ export function ContextPanel({
   }
 
   return (
-    <div className="card p-4 h-full overflow-y-auto animate-fade-up">
+    <div className="card p-4 h-full min-h-0 overflow-y-auto animate-fade-up">
       <div className="flex gap-2 mb-4">
         {(['summary', 'trace'] as const).map((t) => (
           <button

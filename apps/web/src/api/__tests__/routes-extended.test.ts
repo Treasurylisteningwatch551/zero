@@ -135,4 +135,30 @@ describe('API Routes Extended', () => {
     const data = await res.json()
     expect(Array.isArray(data.traces)).toBe(true)
   })
+
+  test('GET /api/sessions/channel/:channel/active returns active candidates only', async () => {
+    const feishu = zero.sessionManager.getOrCreateForChannel('feishu', 'shared-room').session
+    feishu.data.updatedAt = '2026-03-08T00:00:02.000Z'
+
+    const telegram = zero.sessionManager.getOrCreateForChannel('telegram', 'shared-room').session
+    telegram.data.updatedAt = '2026-03-08T00:00:03.000Z'
+
+    const web = zero.sessionManager.getOrCreateForChannel('web', 'shared-room').session
+    web.setStatus('completed')
+    web.data.updatedAt = '2026-03-08T00:00:04.000Z'
+
+    const res = await app.request('/api/sessions/channel/shared-room/active')
+    expect(res.status).toBe(200)
+    const data = await res.json()
+
+    expect(data.sessions.map((session: { source: string }) => session.source)).toEqual(['telegram', 'feishu'])
+    expect(data.sessions.every((session: { status: string }) => ['active', 'idle'].includes(session.status))).toBe(true)
+  })
+
+  test('GET /api/sessions/channel/:channel/active returns empty array for missing channel', async () => {
+    const res = await app.request('/api/sessions/channel/no-such-channel/active')
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.sessions).toEqual([])
+  })
 })

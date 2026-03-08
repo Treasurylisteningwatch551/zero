@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { TraceSummaryCard } from './ContextPanel'
+import { ContextPanel, TraceSummaryCard } from './ContextPanel'
 
 describe('TraceSummaryCard', () => {
   test('renders assistant preview from span metadata without throwing', () => {
@@ -28,5 +28,43 @@ describe('TraceSummaryCard', () => {
 
     expect(html).toContain('assistant_message')
     expect(html).toContain('latest assistant message')
+  })
+
+  test('keeps context panel height constrained', () => {
+    const html = renderToStaticMarkup(
+      <ContextPanel
+        sessionId="sess_1"
+        modelHistory={[]}
+        toolCalls={[]}
+        filesTouched={[]}
+        totalTokens={0}
+        selectedToolId={null}
+      />,
+    )
+
+    expect(html).toContain('h-full min-h-0 overflow-y-auto')
+  })
+
+  test('keeps selected tool detail scrollable', () => {
+    const html = renderToStaticMarkup(
+      <ContextPanel
+        sessionId="sess_1"
+        modelHistory={[]}
+        toolCalls={[
+          {
+            id: 'tool_1',
+            name: 'bash',
+            input: { command: 'echo test' },
+            result: 'done',
+          },
+        ]}
+        filesTouched={[]}
+        totalTokens={0}
+        selectedToolId="tool_1"
+      />,
+    )
+
+    expect(html).toContain('h-full min-h-0 overflow-y-auto')
+    expect(html).toContain('max-h-[320px] overflow-y-auto')
   })
 })

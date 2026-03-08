@@ -8,6 +8,7 @@ import { RootLayout } from './RootLayout'
 import { DashboardPage } from './routes/dashboard'
 import { SessionsPage } from './routes/sessions'
 import { SessionDetailPage } from './routes/session-detail'
+import { SessionChannelDetailPage } from './routes/session-channel-detail'
 import { MemoryPage } from './routes/memory'
 import { MemoPage } from './routes/memo'
 import { ToolsPage } from './routes/tools'
@@ -35,6 +36,15 @@ const sessionDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/sessions/$id',
   component: SessionDetailPage,
+})
+
+const sessionChannelDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/sessions/channel/$channel/detail',
+  validateSearch: (search: Record<string, unknown>) => ({
+    source: typeof search.source === 'string' ? search.source : undefined,
+  }),
+  component: SessionChannelDetailPage,
 })
 
 const memoryRoute = createRoute({
@@ -77,6 +87,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   sessionsRoute,
   sessionDetailRoute,
+  sessionChannelDetailRoute,
   memoryRoute,
   memoRoute,
   toolsRoute,
