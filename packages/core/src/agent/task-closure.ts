@@ -24,6 +24,9 @@ export const TASK_CLOSURE_PROMPT = `<system_notice>
 当前进度可参考上方的工具调用历史。
 </system_notice>`
 
+
+export const TASK_CLOSURE_CLASSIFIER_SYSTEM_PROMPT = '你是一个严格的任务收尾判定器。你只输出合法 JSON，不要输出解释、代码块或额外文本。'
+
 export function buildTaskClosureDecisionPrompt(
   userMessage: string,
   assistantText: string,

@@ -21,6 +21,7 @@ import { allocateBudget, shouldCompress } from './budget'
 import { type QueuedMessage, injectQueuedMessages, CONTINUATION_PROMPT, isTaskComplete } from './queue'
 import {
   TASK_CLOSURE_PROMPT,
+  TASK_CLOSURE_CLASSIFIER_SYSTEM_PROMPT,
   buildTaskClosureDecisionPrompt,
   extractAssistantTail,
   extractAssistantText,
@@ -699,6 +700,7 @@ export class Agent {
     try {
       const result = await this.adapter.complete({
         messages: [classifierMessage],
+        system: TASK_CLOSURE_CLASSIFIER_SYSTEM_PROMPT,
         stream: false,
         maxTokens: 200,
       })

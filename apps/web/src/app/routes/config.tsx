@@ -5,18 +5,26 @@ import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { apiFetch, apiPost } from '../lib/api'
 import { useUIStore } from '../stores/ui'
 
-interface ConfigData {
-  providers: Record<string, {
-    apiType: string
-    baseUrl: string
-    models: Record<string, {
-      modelId: string
-      maxContext: number
-      maxOutput: number
-      capabilities: string[]
-      tags: string[]
-    }>
+interface ProviderView {
+  apiType: string
+  baseUrl: string
+  authType?: string
+  secretRef?: string
+  configured?: boolean
+  authorized?: boolean
+  oauthState?: string
+  requiresRestart?: boolean
+  models: Record<string, {
+    modelId: string
+    maxContext: number
+    maxOutput: number
+    capabilities: string[]
+    tags: string[]
   }>
+}
+
+interface ConfigData {
+  providers: Record<string, ProviderView>
   defaultModel: string
   fallbackChain: string[]
   schedules: { name: string; cron: string; task: string }[]
@@ -45,6 +53,7 @@ const TABS: { key: Tab; label: string }[] = [
 
 export function ConfigPage() {
   const [config, setConfig] = useState<ConfigData | null>(null)
+  const [chatgptConnecting, setChatgptConnecting] = useState(false)
   const [channels, setChannels] = useState<ChannelConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('models')
@@ -129,6 +138,42 @@ export function ConfigPage() {
     }
   }
 
+  async function handleConnectChatgpt() {
+    setChatgptConnecting(true)
+    try {
+      const start = await apiPost<{ url: string }>('/api/providers/chatgpt/oauth/start', {})
+      window.open(start.url, '_blank', 'noopener,noreferrer')
+
+      for (let attempt = 0; attempt < 120; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        const status = await apiFetch<{ state: string; error?: string; authorized: boolean; requiresRestart: boolean }>('/api/providers/chatgpt/oauth/status')
+        if (status.state === 'connected' && status.authorized) {
+          await loadConfig()
+          addToast('success', status.requiresRestart ? 'ChatGPT 已授权，重启 ZeRo 后可使用。' : 'ChatGPT 已授权。')
+          return
+        }
+        if (status.state === 'error') {
+          throw new Error(status.error ?? 'ChatGPT OAuth failed')
+        }
+      }
+
+      addToast('error', '等待 ChatGPT OAuth 回调超时，请重试或使用 CLI。')
+    } catch (error) {
+      addToast('error', error instanceof Error ? error.message : 'ChatGPT OAuth failed')
+    } finally {
+      setChatgptConnecting(false)
+    }
+  }
+
+  function getProviderBadge(prov?: ProviderView) {
+    if (!prov) return { label: 'Not connected', className: 'bg-white/[0.05] text-[var(--color-text-disabled)]' }
+    if (prov.oauthState === 'error') return { label: 'Error', className: 'bg-red-400/10 text-red-400' }
+    if (prov.oauthState === 'expired') return { label: 'Expired', className: 'bg-amber-400/10 text-amber-400' }
+    if (prov.authorized) return { label: 'Connected', className: 'bg-emerald-400/10 text-emerald-400' }
+    if (prov.configured) return { label: 'Configured', className: 'bg-sky-400/10 text-sky-400' }
+    return { label: 'Not connected', className: 'bg-white/[0.05] text-[var(--color-text-disabled)]' }
+  }
+
   function toggleReveal(key: string) {
     setRevealedKeys((prev) => {
       const next = new Set(prev)
@@ -139,6 +184,7 @@ export function ConfigPage() {
   }
 
   const providers = config?.providers ?? {}
+  const chatgptProvider = providers.chatgpt
   const models = Object.entries(providers).flatMap(([provName, prov]) =>
     Object.entries(prov.models).map(([mName, model]) => ({ provName, mName, ...model }))
   )
@@ -179,18 +225,52 @@ export function ConfigPage() {
               <div className="card p-5 animate-fade-up">
                 <h3 className="text-[14px] font-semibold mb-3 text-[var(--color-text-secondary)]">Providers</h3>
                 <div className="space-y-3">
-                  {Object.entries(providers).map(([name, prov]) => (
-                    <div key={name} className="flex items-center justify-between py-2 border-b border-[var(--color-border)]">
-                      <div>
-                        <p className="text-[13px] text-[var(--color-text-primary)]">{name}</p>
-                        <p className="text-[11px] font-mono text-[var(--color-text-muted)]">{prov.apiType}</p>
+                  {Object.entries(providers).map(([name, prov]) => {
+                    const badge = getProviderBadge(prov)
+                    const isChatgpt = name === 'chatgpt'
+                    return (
+                      <div key={name} className="flex items-center justify-between py-2 border-b border-[var(--color-border)] gap-3">
+                        <div>
+                          <p className="text-[13px] text-[var(--color-text-primary)]">{name}</p>
+                          <p className="text-[11px] font-mono text-[var(--color-text-muted)]">{prov.apiType} · {prov.authType ?? 'unknown'}</p>
+                          {isChatgpt && prov.requiresRestart && (
+                            <p className="text-[11px] text-amber-400 mt-1">Authorized. Restart ZeRo to use new models.</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[11px] px-2 py-0.5 rounded-md ${badge.className}`}>
+                            {badge.label}
+                          </span>
+                          {isChatgpt && (
+                            <button
+                              onClick={handleConnectChatgpt}
+                              disabled={chatgptConnecting}
+                              className="text-[11px] px-2 py-1 rounded-md bg-[var(--color-accent-glow)] text-[var(--color-accent)] hover:opacity-90 disabled:opacity-50"
+                            >
+                              {chatgptConnecting ? 'Connecting...' : prov.authorized ? 'Reconnect' : 'Connect'}
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-400/10 text-emerald-400">
-                        Active
-                      </span>
+                    )
+                  })}
+                  {!chatgptProvider && (
+                    <div className="flex items-center justify-between py-2 border-b border-[var(--color-border)] gap-3">
+                      <div>
+                        <p className="text-[13px] text-[var(--color-text-primary)]">chatgpt</p>
+                        <p className="text-[11px] font-mono text-[var(--color-text-muted)]">openai_responses · oauth2</p>
+                        <p className="text-[11px] text-[var(--color-text-disabled)] mt-1">Connect ChatGPT OAuth to add ChatGPT/Codex models.</p>
+                      </div>
+                      <button
+                        onClick={handleConnectChatgpt}
+                        disabled={chatgptConnecting}
+                        className="text-[11px] px-2 py-1 rounded-md bg-[var(--color-accent-glow)] text-[var(--color-accent)] hover:opacity-90 disabled:opacity-50"
+                      >
+                        {chatgptConnecting ? 'Connecting...' : 'Connect ChatGPT'}
+                      </button>
                     </div>
-                  ))}
-                  {Object.keys(providers).length === 0 && (
+                  )}
+                  {Object.keys(providers).length === 0 && !chatgptProvider && (
                     <p className="text-[13px] text-[var(--color-text-muted)]">No providers configured</p>
                   )}
                 </div>

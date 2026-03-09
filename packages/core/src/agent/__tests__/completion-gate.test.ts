@@ -70,6 +70,7 @@ class TaskClosureAdapter implements ProviderAdapter {
   normalCalls = 0
   classifierCalls = 0
   lastClassifierPrompt = ''
+  lastClassifierSystem = ''
 
   constructor(private readonly mode: ClassifierMode) {}
 
@@ -91,6 +92,7 @@ class TaskClosureAdapter implements ProviderAdapter {
 
       const prompt = getTextFromRequest(request)
       this.lastClassifierPrompt = prompt
+      this.lastClassifierSystem = request.system ?? ''
       if (this.mode === 'continue' && prompt.includes(OPTIONAL_TAIL)) {
         return createTextResponse(
           JSON.stringify({
@@ -254,6 +256,21 @@ describe('Agent task closure gate', () => {
     expect(taskClosureSpan?.metadata?.rawClassifierResponse).toContain('"action":"continue"')
   })
 
+
+
+  test('passes explicit system prompt into the classifier request', async () => {
+    const registry = new ToolRegistry()
+    const adapter = new TaskClosureAdapter('finish')
+    const agent = new Agent(
+      { name: 'test-agent', systemPrompt: 'Test prompt' },
+      adapter,
+      registry,
+      createToolContext(),
+    )
+
+    await agent.run(createContext(registry), '先给我几个下一步选项')
+    expect(adapter.lastClassifierSystem).toContain('严格的任务收尾判定器')
+  })
 
   test('passes research-depth context into the classifier prompt', async () => {
     const registry = new ToolRegistry()
