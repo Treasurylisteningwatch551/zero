@@ -56,14 +56,37 @@ function normalizeConfig(raw: Record<string, unknown>): SystemConfig {
     .map(normalizeChannelConfig)
     .filter((channel): channel is ChannelInstanceConfig => channel !== null)
 
+  const defaultModel = normalizeModelReference((raw.default_model as string) ?? '', providers)
+  const fallbackChain = ((raw.fallback_chain as string[]) ?? []).map((model) =>
+    normalizeModelReference(model, providers)
+  )
+
   return {
     providers,
-    defaultModel: (raw.default_model as string) ?? '',
-    fallbackChain: (raw.fallback_chain as string[]) ?? [],
+    defaultModel,
+    fallbackChain,
     schedules: (raw.schedules as SystemConfig['schedules']) ?? [],
     fuseList: (raw.fuse_list as FuseRule[]) ?? [],
     ...(raw.channels !== undefined ? { channels } : {}),
   }
+}
+
+function normalizeModelReference(
+  value: string,
+  providers: SystemConfig['providers']
+): string {
+  if (!value) return value
+  if (value.includes('/')) {
+    return value
+  }
+
+  const matches = Object.entries(providers).flatMap(([providerName, provider]) =>
+    Object.entries(provider.models)
+      .filter(([modelName, model]) => modelName === value || model.modelId === value)
+      .map(([modelName]) => `${providerName}/${modelName}`)
+  )
+
+  return matches.length === 1 ? matches[0] : value
 }
 
 function normalizeChannelConfig(raw: Record<string, unknown>): ChannelInstanceConfig | null {

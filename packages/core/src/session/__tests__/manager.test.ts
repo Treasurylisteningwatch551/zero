@@ -22,6 +22,13 @@ const config: SystemConfig = {
           capabilities: ['tools', 'vision', 'reasoning'],
           tags: ['powerful', 'coding'],
         },
+        'gpt-5.4-medium': {
+          modelId: 'gpt-5.4-medium',
+          maxContext: 400000,
+          maxOutput: 128000,
+          capabilities: ['tools', 'vision', 'reasoning'],
+          tags: ['powerful', 'coding'],
+        },
       },
     },
   },
@@ -209,5 +216,28 @@ describe('SessionManager', () => {
     const result = manager.getOrCreateForChannel('feishu', 'channel-4')
     expect(result.isNew).toBe(true)
     expect(result.session.data.id).not.toBe(sessionId)
+  })
+
+  test('channel model preference stays isolated per channel scope', async () => {
+    const manager = createManager()
+    const ops = manager.getOrCreateForChannel('feishu', 'room-1', 'feishu:ops')
+    const hr = manager.getOrCreateForChannel('feishu', 'room-2', 'feishu:hr')
+
+    await ops.session.switchModel('gpt-5.4-medium')
+
+    expect(ops.session.data.currentModel).toBe('openai-codex/gpt-5.4-medium')
+    expect(hr.session.data.currentModel).toBe('openai-codex/gpt-5.3-codex-medium')
+    expect(manager.getPreferredModel('feishu', 'room-1', 'feishu:ops')).toBe('openai-codex/gpt-5.4-medium')
+    expect(manager.getPreferredModel('feishu', 'room-2', 'feishu:hr')).toBe('openai-codex/gpt-5.3-codex-medium')
+  })
+
+  test('startNewForChannel inherits the scope model preference', async () => {
+    const manager = createManager()
+    const first = manager.getOrCreateForChannel('telegram', 'room-scope')
+
+    await first.session.switchModel('gpt-5.4-medium')
+
+    const rotated = manager.startNewForChannel('telegram', 'room-scope')
+    expect(rotated.session.data.currentModel).toBe('openai-codex/gpt-5.4-medium')
   })
 })

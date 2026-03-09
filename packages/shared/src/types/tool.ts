@@ -26,6 +26,7 @@ export interface ObservabilityHandle {
 
 export interface ToolContext {
   sessionId: string
+  currentModel?: string
   workDir: string
   projectRoot?: string
   logger: ToolLogger

@@ -283,7 +283,7 @@ export function ConfigPage() {
                   {models.map((m) => (
                     <div key={`${m.provName}/${m.mName}`} className="flex items-center justify-between py-2 border-b border-[var(--color-border)]">
                       <div>
-                        <p className="text-[13px] text-[var(--color-text-primary)]">{m.mName}</p>
+                        <p className="text-[13px] text-[var(--color-text-primary)]">{`${m.provName}/${m.mName}`}</p>
                         <p className="text-[11px] font-mono text-[var(--color-text-muted)]">
                           {(m.maxContext / 1000).toFixed(0)}K context / {(m.maxOutput / 1000).toFixed(0)}K output
                         </p>
@@ -297,7 +297,7 @@ export function ConfigPage() {
                           </div>
                         )}
                       </div>
-                      {config?.defaultModel === m.mName && (
+                      {config?.defaultModel === `${m.provName}/${m.mName}` && (
                         <span className="text-[11px] px-2 py-0.5 rounded-md bg-[var(--color-accent-glow)] text-[var(--color-accent)]">
                           Default
                         </span>

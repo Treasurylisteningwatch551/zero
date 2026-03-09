@@ -164,13 +164,13 @@ export function ensureChatgptProviderConfig(): { changed: boolean; config: Syste
       changed = true
     }
 
-    if (raw.default_model === oldName) {
-      raw.default_model = newName
+    if (raw.default_model === newName) {
+      raw.default_model = oldName
       changed = true
     }
 
     if (Array.isArray(raw.fallback_chain)) {
-      const nextFallback = raw.fallback_chain.map((value) => value === oldName ? newName : value)
+      const nextFallback = raw.fallback_chain.map((value) => value === newName ? oldName : value)
       if (JSON.stringify(nextFallback) !== JSON.stringify(raw.fallback_chain)) {
         raw.fallback_chain = nextFallback
         changed = true

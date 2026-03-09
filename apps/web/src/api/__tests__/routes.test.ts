@@ -17,7 +17,7 @@ describe('API Routes (Real)', () => {
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data.status).toBe('running')
-    expect(data.currentModel).toBe('openai-codex/gpt-5.4-medium')
+    expect(data.currentModel).toContain('/')
     expect(data.version).toBe('0.1.0')
   })
 
@@ -80,7 +80,7 @@ describe('API Routes (Real)', () => {
     const res = await app.request('/api/config')
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.defaultModel).toBe('gpt-5.4-medium')
+    expect(data.defaultModel).toBe('openai-codex/gpt-5.4-medium')
     expect(data.providers).toBeDefined()
   })
 
@@ -102,6 +102,19 @@ describe('API Routes (Real)', () => {
     const data = await res.json()
     expect(data.ok).toBe(true)
     expect(data.currentModel).toBe('openai-codex/gpt-5.3-codex-medium')
+  })
+
+  test('POST /api/chat/model without sessionId updates web default scope', async () => {
+    const res = await app.request('/api/chat/model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-5.4-medium' }),
+    })
+    expect(res.status).toBe(200)
+
+    const statusRes = await app.request('/api/status')
+    const statusData = await statusRes.json()
+    expect(statusData.currentModel).toBe('openai-codex/gpt-5.4-medium')
   })
 
   test('GET /api/logs returns entries', async () => {

@@ -51,12 +51,11 @@ export function createRoutes(zero: ZeroOS) {
 
     // System status
     .get('/api/status', (c) => {
-      const current = zero.modelRouter.getCurrentModel()
       const activeSessions = zero.sessionManager.listActive()
       return c.json({
         status: 'running',
         uptime: process.uptime(),
-        currentModel: current ? formatModelLabel(current.providerName, current.modelName) : 'unknown',
+        currentModel: zero.sessionManager.getPreferredModel('web'),
         version: '0.1.0',
         heartbeatAge: 3,
         activeSessions: activeSessions.length,
@@ -74,17 +73,36 @@ export function createRoutes(zero: ZeroOS) {
     })
 
     .post('/api/chat/model', async (c) => {
-      const body = await c.req.json<{ model: string }>()
+      const body = await c.req.json<{ model: string; sessionId?: string }>()
       if (!body.model) {
         return c.json({ error: 'model is required' }, 400)
       }
 
-      const result = zero.modelRouter.switchModel(body.model)
-      if (!result.success) {
+      if (body.sessionId) {
+        const session = zero.sessionManager.get(body.sessionId)
+        if (!session) {
+          return c.json({ error: 'Session not found' }, 404)
+        }
+
+        const result = await session.switchModel(body.model)
+        if (!result.success) {
+          return c.json({ error: result.message }, 400)
+        }
+
+        return c.json({
+          ok: true,
+          currentModel: session.data.currentModel,
+          message: result.message,
+        })
+      }
+
+      const result = zero.modelRouter.selectModel(body.model)
+      if (!result.success || !result.model) {
         return c.json({ error: result.message }, 400)
       }
 
-      return c.json({ ok: true, currentModel: result.model ? formatModelLabel(result.model.providerName, result.model.modelName) : body.model, message: result.message })
+      const currentModel = zero.sessionManager.setPreferredModel('web', 'default', body.model, 'web')
+      return c.json({ ok: true, currentModel, message: result.message })
     })
 
     // Sessions

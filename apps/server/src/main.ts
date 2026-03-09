@@ -356,11 +356,11 @@ export async function startZeroOS(): Promise<ZeroOS> {
 
             const newCommand = parseNewSessionCommand(msg.content)
             if (newCommand) {
-              const modelResult = newCommand.modelArg
-                ? modelRouter.switchModel(newCommand.modelArg)
-                : undefined
               const { session } = sessionManager.startNewForChannel('feishu', chatId, { channelName })
               activeSessionId = session.data.id
+              const modelResult = newCommand.modelArg
+                ? await session.switchModel(newCommand.modelArg)
+                : undefined
               session.initAgent({
                 name: agentName,
                 systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
@@ -514,11 +514,11 @@ export async function startZeroOS(): Promise<ZeroOS> {
 
           const newCommand = parseNewSessionCommand(msg.content)
           if (newCommand) {
-            const modelResult = newCommand.modelArg
-              ? modelRouter.switchModel(newCommand.modelArg)
-              : undefined
             const { session } = sessionManager.startNewForChannel('telegram', chatId, { channelName })
             activeSessionId = session.data.id
+            const modelResult = newCommand.modelArg
+              ? await session.switchModel(newCommand.modelArg)
+              : undefined
             session.initAgent({
               name: agentName,
               systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',

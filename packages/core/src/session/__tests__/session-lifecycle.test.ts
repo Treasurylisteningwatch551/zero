@@ -101,7 +101,7 @@ describe('Session Lifecycle', () => {
     const session = new Session('feishu', router, registry)
     expect(session.data.id).toMatch(/^sess_/)
     expect(session.data.source).toBe('feishu')
-    expect(session.data.currentModel).toBe('gpt-5.3-codex-medium')
+    expect(session.data.currentModel).toBe('openai-codex/gpt-5.3-codex-medium')
     expect(session.data.createdAt).toBeDefined()
     expect(session.data.updatedAt).toBeDefined()
   })

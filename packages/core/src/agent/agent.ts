@@ -73,6 +73,8 @@ export interface AgentObservability {
   }
   /** Provider name for logging, e.g. "openai-codex" */
   providerName?: string
+  /** Provider-qualified model label, e.g. "openai-codex/gpt-5.4-medium" */
+  modelLabel?: string
   /** ModelPricing from config for cost calculation */
   pricing?: import('@zero-os/shared').ModelPricing
 }
@@ -219,7 +221,7 @@ export class Agent {
         role: 'assistant',
         messageType: 'message',
         content: filteredContent,
-        model: response.model,
+        model: this.obs.modelLabel ?? response.model,
         createdAt: now(),
       }
       messages.push(assistantMsg)
@@ -282,7 +284,7 @@ export class Agent {
       this.obs.bus?.emit('session:update', {
         sessionId: this.toolContext.sessionId,
         event: 'assistant_response',
-        model: response.model,
+        model: this.obs.modelLabel ?? response.model,
       })
 
       // If no tool use, check if continuation is needed after queued message response
@@ -481,7 +483,7 @@ export class Agent {
           role: 'assistant',
           messageType: 'message',
           content: finalContent,
-          model: finalResponse.model,
+          model: this.obs.modelLabel ?? finalResponse.model,
           createdAt: now(),
         }
         messages.push(finalMsg)
@@ -886,7 +888,7 @@ export class Agent {
     this.obs.logger?.logRequest({
       id: response.id,
       sessionId: this.toolContext.sessionId,
-      model: response.model,
+      model: this.obs.modelLabel ?? response.model,
       provider: this.obs.providerName ?? 'unknown',
       userPrompt: userPrompt.slice(0, 500),
       response: responseText.slice(0, 500),
@@ -902,7 +904,7 @@ export class Agent {
     this.obs.metrics?.recordRequest({
       id: response.id,
       sessionId: this.toolContext.sessionId,
-      model: response.model,
+      model: this.obs.modelLabel ?? response.model,
       provider: this.obs.providerName ?? 'unknown',
       inputTokens: response.usage.input,
       outputTokens: response.usage.output,

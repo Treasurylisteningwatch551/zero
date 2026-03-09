@@ -5,12 +5,23 @@ import { Session, type SessionDeps } from './session'
 import type { SessionDB, SessionRow, MetricsDB } from '@zero-os/observe'
 import type { MemoryStore } from '@zero-os/memory'
 
+interface SessionCreateOptions {
+  channelId?: string
+  channelName?: string
+  initialModel?: string
+  modelScope?: {
+    channelId: string
+    channelName?: string
+  }
+}
+
 /**
  * Manages all active sessions.
  */
 export class SessionManager {
   private sessions: Map<string, Session> = new Map()
   private channelSessions: Map<string, string> = new Map()
+  private channelModelPreferences: Map<string, string> = new Map()
   private modelRouter: ModelRouter
   private toolRegistry: ToolRegistry
   private deps: SessionDeps
@@ -21,13 +32,25 @@ export class SessionManager {
     this.toolRegistry = toolRegistry
     this.deps = deps
     this.sessionDb = sessionDb
+    this.loadChannelModelPreferences()
   }
 
   /**
    * Create a new session.
    */
-  create(source: SessionSource): Session {
-    const session = new Session(source, this.modelRouter, this.toolRegistry, this.deps)
+  create(source: SessionSource, options: SessionCreateOptions = {}): Session {
+    const modelScope = options.modelScope ?? this.getDefaultModelScope(source)
+    const initialModel = options.initialModel ?? this.getPreferredModel(source, modelScope?.channelId, modelScope?.channelName)
+    const sessionDeps = this.createSessionDeps(source, modelScope)
+    const session = new Session(source, this.modelRouter, this.toolRegistry, sessionDeps, initialModel)
+
+    if (options.channelName) {
+      session.data.channelName = options.channelName
+    }
+    if (options.channelId) {
+      session.data.channelId = options.channelId
+    }
+
     this.sessions.set(session.data.id, session)
     return session
   }
@@ -55,6 +78,78 @@ export class SessionManager {
     return Array.from(this.sessions.values())
   }
 
+  getPreferredModel(source: SessionSource, channelId?: string, channelName?: string): string {
+    const scope = this.getModelScope(source, channelId, channelName)
+    if (scope) {
+      const key = this.getChannelSessionKey(source, scope.channelId, scope.channelName)
+      const preferred = this.channelModelPreferences.get(key)
+      if (preferred) return preferred
+    }
+
+    return this.modelRouter.getDefaultModelLabel()
+  }
+
+  setPreferredModel(source: SessionSource, channelId: string, model: string, channelName?: string): string {
+    const normalized = this.modelRouter.normalizeModelReference(model) ?? model
+    const key = this.getChannelSessionKey(source, channelId, channelName)
+    this.channelModelPreferences.set(key, normalized)
+    this.sessionDb?.saveChannelModel(source, channelId, normalized, channelName)
+    return normalized
+  }
+
+  private createSessionDeps(
+    source: SessionSource,
+    modelScope?: { channelId: string; channelName?: string }
+  ): SessionDeps {
+    if (!modelScope) return this.deps
+
+    return {
+      ...this.deps,
+      persistModelPreference: (model: string) => {
+        this.setPreferredModel(source, modelScope.channelId, model, modelScope.channelName)
+      },
+    }
+  }
+
+  private getDefaultModelScope(source: SessionSource): { channelId: string; channelName?: string } | undefined {
+    if (source === 'web') {
+      return { channelId: 'default', channelName: 'web' }
+    }
+    return undefined
+  }
+
+  private getModelScope(
+    source: SessionSource,
+    channelId?: string,
+    channelName?: string
+  ): { channelId: string; channelName?: string } | undefined {
+    if (channelId) {
+      return { channelId, channelName }
+    }
+    return this.getDefaultModelScope(source)
+  }
+
+  private loadChannelModelPreferences(): void {
+    if (!this.sessionDb) return
+
+    for (const row of this.sessionDb.loadChannelModels()) {
+      const normalized = this.modelRouter.normalizeModelReference(row.model) ?? row.model
+      const key = this.getChannelSessionKey(row.source, row.channelId, row.channelName)
+      this.channelModelPreferences.set(key, normalized)
+    }
+  }
+
+  private normalizeRow(row: SessionRow): SessionRow {
+    return {
+      ...row,
+      currentModel: this.modelRouter.normalizeModelReference(row.currentModel) ?? row.currentModel,
+      modelHistory: row.modelHistory.map((entry) => ({
+        ...entry,
+        model: this.modelRouter.normalizeModelReference(entry.model) ?? entry.model,
+      })),
+    }
+  }
+
   private getChannelSessionKey(source: SessionSource, channelId: string, channelName?: string): string {
     return `${source}:${channelName ?? source}:${channelId}`
   }
@@ -77,9 +172,12 @@ export class SessionManager {
       }
       this.channelSessions.delete(key)
     }
-    const session = this.create(source)
-    session.data.channelName = channelName
-    session.data.channelId = channelId
+
+    const session = this.create(source, {
+      channelId,
+      channelName,
+      modelScope: { channelId, channelName },
+    })
     this.channelSessions.set(key, session.data.id)
     return { session, isNew: true }
   }
@@ -112,9 +210,11 @@ export class SessionManager {
       }
     }
 
-    const session = this.create(source)
-    session.data.channelName = channelName
-    session.data.channelId = channelId
+    const session = this.create(source, {
+      channelId,
+      channelName,
+      modelScope: { channelId, channelName },
+    })
     this.channelSessions.set(key, session.data.id)
     return { session, previousSessionId }
   }
@@ -146,7 +246,8 @@ export class SessionManager {
   restoreFromDB(): number {
     if (!this.sessionDb) return 0
 
-    const rows = this.sessionDb.loadActiveSessions()
+    this.loadChannelModelPreferences()
+    const rows = this.sessionDb.loadActiveSessions().map((row) => this.normalizeRow(row))
     let restored = 0
 
     for (const row of rows) {
@@ -165,9 +266,16 @@ export class SessionManager {
       }
 
       const messages = this.sessionDb.loadSessionMessages(row.id)
-      const session = Session.restore(data, messages, this.modelRouter, this.toolRegistry, this.deps, row.systemPrompt)
+      const modelScope = this.getModelScope(row.source, row.channelId, row.channelName)
+      const session = Session.restore(
+        data,
+        messages,
+        this.modelRouter,
+        this.toolRegistry,
+        this.createSessionDeps(row.source, modelScope),
+        row.systemPrompt
+      )
 
-      // Re-initialize agent if config was saved
       if (row.agentConfigJson) {
         try {
           const agentConfig = JSON.parse(row.agentConfigJson)
@@ -179,7 +287,6 @@ export class SessionManager {
 
       this.sessions.set(session.data.id, session)
 
-      // Restore channel mapping
       if (row.channelId) {
         this.channelSessions.set(
           this.getChannelSessionKey(row.source, row.channelId, row.channelName),
@@ -223,7 +330,8 @@ export class SessionManager {
   // --- DB query proxies (for API routes to access historical sessions) ---
 
   getFromDB(id: string): SessionRow | null {
-    return this.sessionDb?.getSession(id) ?? null
+    const row = this.sessionDb?.getSession(id)
+    return row ? this.normalizeRow(row) : null
   }
 
   getMessagesFromDB(id: string): Message[] {
@@ -231,6 +339,6 @@ export class SessionManager {
   }
 
   listAllFromDB(filter?: { status?: SessionStatus; limit?: number; offset?: number }): SessionRow[] {
-    return this.sessionDb?.loadAllSessions(filter) ?? []
+    return (this.sessionDb?.loadAllSessions(filter) ?? []).map((row) => this.normalizeRow(row))
   }
 }

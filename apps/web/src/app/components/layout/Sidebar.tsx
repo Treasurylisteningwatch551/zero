@@ -23,7 +23,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
   const { toggleChatDrawer, toggleSidebar, sidebarCollapsed, addToast } = useUIStore()
   const navigate = useNavigate()
   const location = useLocation()
-  const [currentModel, setCurrentModel] = useState('gpt-5.3-codex-medium')
+  const [currentModel, setCurrentModel] = useState('openai-codex/gpt-5.3-codex-medium')
   const [models, setModels] = useState<string[]>([])
   const [showModelPicker, setShowModelPicker] = useState(false)
   const pickerRef = useRef<HTMLDivElement>(null)
@@ -52,10 +52,10 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
 
   async function switchModel(name: string) {
     try {
-      await apiPost('/api/chat/model', { model: name })
-      setCurrentModel(name)
+      const result = await apiPost<{ currentModel: string }>('/api/chat/model', { model: name })
+      setCurrentModel(result.currentModel)
       setShowModelPicker(false)
-      addToast('success', `模型已切换至 ${name}`)
+      addToast('success', `模型已切换至 ${result.currentModel}`)
     } catch {
       // Error toast handled by api layer
     }

@@ -46,6 +46,14 @@ interface RawMessagesRow {
   updated_at: string
 }
 
+interface RawChannelModelRow {
+  source: string
+  channel_name: string
+  channel_id: string
+  model: string
+  updated_at: string
+}
+
 /**
  * SQLite-based session persistence for ZeRo OS.
  * Stores session metadata and conversation messages.
@@ -85,6 +93,17 @@ export class SessionDB {
       )
     `)
 
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS channel_models (
+        source TEXT NOT NULL,
+        channel_name TEXT NOT NULL DEFAULT '',
+        channel_id TEXT NOT NULL,
+        model TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (source, channel_name, channel_id)
+      )
+    `)
+
     // Migration: add system_prompt column
     try {
       this.db.run(`ALTER TABLE sessions ADD COLUMN system_prompt TEXT`)
@@ -102,6 +121,7 @@ export class SessionDB {
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_channel ON sessions(source, channel_id)`)
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_channel_instance ON sessions(source, channel_name, channel_id)`)
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at)`)
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_channel_models_updated ON channel_models(updated_at)`)
   }
 
   /**
@@ -144,6 +164,34 @@ export class SessionDB {
         new Date().toISOString(),
       ]
     )
+  }
+
+  saveChannelModel(source: SessionSource, channelId: string, model: string, channelName?: string): void {
+    this.db.run(
+      `INSERT OR REPLACE INTO channel_models (source, channel_name, channel_id, model, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [source, channelName ?? '', channelId, model, new Date().toISOString()]
+    )
+  }
+
+  getChannelModel(source: SessionSource, channelId: string, channelName?: string): string | undefined {
+    const row = this.db
+      .query(`SELECT model FROM channel_models WHERE source = ? AND channel_name = ? AND channel_id = ?`)
+      .get(source, channelName ?? '', channelId) as { model: string } | null
+    return row?.model ?? undefined
+  }
+
+  loadChannelModels(): Array<{ source: SessionSource; channelName?: string; channelId: string; model: string }> {
+    const rows = this.db
+      .query(`SELECT source, channel_name, channel_id, model, updated_at FROM channel_models ORDER BY updated_at DESC`)
+      .all() as RawChannelModelRow[]
+
+    return rows.map((row) => ({
+      source: row.source as SessionSource,
+      channelName: row.channel_name || undefined,
+      channelId: row.channel_id,
+      model: row.model,
+    }))
   }
 
   /**

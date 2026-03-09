@@ -10,7 +10,7 @@ import { generateSessionId, generateId, now, Mutex } from '@zero-os/shared'
 import { join } from 'node:path'
 import { mkdirSync, existsSync } from 'node:fs'
 import { hostname } from 'node:os'
-import type { ModelRouter } from '@zero-os/model'
+import type { ModelRouter, ModelSwitchResult, ResolvedModel } from '@zero-os/model'
 import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
 import { buildSystemPrompt, buildDynamicContext } from '../agent/prompt'
 import { loadSkills } from '../skill/loader'
@@ -43,6 +43,7 @@ export interface SessionDeps {
   bus?: {
     emit(topic: string, data: Record<string, unknown>): void
   }
+  persistModelPreference?: (model: string) => void
   sessionDb?: SessionDB
 }
 
@@ -67,6 +68,7 @@ export class Session {
   private modelRouter: ModelRouter
   private toolRegistry: ToolRegistry
   private agent: Agent | null = null
+  private activeModel: ResolvedModel | undefined
   private deps: SessionDeps
   private mutex = new Mutex()
   private interruptFlag = false
@@ -80,19 +82,22 @@ export class Session {
     source: SessionSource,
     modelRouter: ModelRouter,
     toolRegistry: ToolRegistry,
-    deps: SessionDeps = {}
+    deps: SessionDeps = {},
+    initialModel?: string
   ) {
-    const currentModel = modelRouter.getCurrentModel()
+    const currentModel = initialModel
+      ? modelRouter.resolveModel(initialModel) ?? modelRouter.getDefaultModel() ?? modelRouter.getCurrentModel()
+      : modelRouter.getDefaultModel() ?? modelRouter.getCurrentModel()
     this.data = {
       id: generateSessionId(),
       createdAt: now(),
       updatedAt: now(),
       source,
       status: 'active',
-      currentModel: currentModel?.modelName ?? 'unknown',
+      currentModel: currentModel ? modelRouter.getModelLabel(currentModel) : 'unknown',
       modelHistory: [
         {
-          model: currentModel?.modelName ?? 'unknown',
+          model: currentModel ? modelRouter.getModelLabel(currentModel) : 'unknown',
           from: now(),
           to: null,
         },
@@ -101,6 +106,7 @@ export class Session {
     }
     this.modelRouter = modelRouter
     this.toolRegistry = toolRegistry
+    this.activeModel = currentModel
     this.deps = deps
 
     // Emit session:create event
@@ -126,8 +132,11 @@ export class Session {
    */
   initAgent(config: AgentConfig): void {
     this.lastAgentConfig = config
-    const adapter = this.modelRouter.getAdapter()
-    const resolved = this.modelRouter.getCurrentModel()
+    const resolved = this.activeModel ?? this.modelRouter.getDefaultModel() ?? this.modelRouter.getCurrentModel()
+    if (!resolved) {
+      throw new Error('No active model available for session.')
+    }
+    const adapter = resolved.adapter
 
     const projectRoot = process.cwd()
     const workspacePath = join(projectRoot, '.zero', 'workspace', config.name)
@@ -144,6 +153,7 @@ export class Session {
 
     const toolContext = {
       sessionId: this.data.id,
+      currentModel: this.modelRouter.getModelLabel(resolved),
       workDir: workspacePath,
       projectRoot,
       logger: {
@@ -168,6 +178,7 @@ export class Session {
       secretFilter: this.deps.secretFilter,
       bus: this.deps.bus,
       providerName: resolved?.providerName,
+      modelLabel: this.modelRouter.getModelLabel(resolved),
       pricing: resolved?.modelConfig.pricing,
     }
 
@@ -183,7 +194,9 @@ export class Session {
   async handleMessage(content: string, options?: HandleMessageOptions): Promise<Message[]> {
     // Check for commands
     if (content.startsWith('/')) {
-      return await this.handleCommand(content)
+      const replies = await this.handleCommand(content)
+      this.persistState()
+      return replies
     }
 
     if (!this.agent) {
@@ -205,21 +218,12 @@ export class Session {
       return await this.processMessage(content, options)
     } finally {
       this.mutex.release(lockId)
-      // Persist messages and system prompt after processing completes
-      this.deps.sessionDb?.saveMessages(this.data.id, this.messages)
-      if (this.lastSystemPrompt) {
-        const agentConfig = this.lastAgentConfig
-        this.deps.sessionDb?.saveSession(
-          this.data,
-          agentConfig ? JSON.stringify(agentConfig) : undefined,
-          this.lastSystemPrompt
-        )
-      }
+      this.persistState()
     }
   }
 
   private async processMessage(content: string, options?: HandleMessageOptions): Promise<Message[]> {
-    const currentModel = this.modelRouter.getCurrentModel()
+    const currentModel = this.activeModel
     const tools = this.toolRegistry.getDefinitions()
     const agentName = this.lastAgentConfig?.name ?? 'zero'
     const projectRoot = process.cwd()
@@ -245,7 +249,7 @@ export class Session {
         agentId: agentName,
         host: hostname(),
         os: `${process.platform} (${process.arch})`,
-        model: currentModel?.modelName,
+        model: currentModel ? this.modelRouter.getModelLabel(currentModel) : undefined,
         shell: process.env.SHELL ?? 'zsh',
         projectRoot,
       }
@@ -330,6 +334,59 @@ export class Session {
   /**
    * Handle session commands (/new, /model, etc.).
    */
+  async switchModel(target: string): Promise<ModelSwitchResult> {
+    const oldModel = this.data.currentModel
+    const result = this.modelRouter.selectModel(target)
+    if (!result.success || !result.model) {
+      return result
+    }
+
+    const nextModelLabel = this.modelRouter.getModelLabel(result.model)
+    this.activeModel = result.model
+    this.data.currentModel = nextModelLabel
+    if (this.data.modelHistory.length > 0) {
+      this.data.modelHistory[this.data.modelHistory.length - 1].to = now()
+    }
+    this.data.modelHistory.push({ model: nextModelLabel, from: now(), to: null })
+    this.data.updatedAt = now()
+    this.deps.persistModelPreference?.(nextModelLabel)
+
+    this.deps.bus?.emit('model:switch', {
+      sessionId: this.data.id,
+      from: oldModel,
+      to: nextModelLabel,
+    })
+
+    this.deps.logger?.logSnapshot?.(buildSnapshot({
+      sessionId: this.data.id,
+      trigger: 'model_switch',
+      tools: this.toolRegistry.getDefinitions().map(t => t.name),
+    }))
+
+    if (this.messages.length > 0) {
+      const newBudget = allocateBudget(
+        result.model.modelConfig.maxContext,
+        result.model.modelConfig.maxOutput,
+      )
+      const currentTokens = estimateConversationTokens(this.messages)
+      if (currentTokens > newBudget.conversation) {
+        const { compressConversation } = await import('../agent/compress')
+        const compResult = await compressConversation(
+          this.messages,
+          newBudget.conversation,
+          result.model.adapter,
+          this.data.id,
+        )
+        this.messages.length = 0
+        this.messages.push(...compResult.retainedMessages)
+      }
+    }
+
+    this.reinitializeAgent()
+    this.persistState()
+    return result
+  }
+
   private async handleCommand(command: string): Promise<Message[]> {
     const parts = command.trim().split(/\s+/)
     const cmd = parts[0].toLowerCase()
@@ -338,8 +395,7 @@ export class Session {
     switch (cmd) {
       case '/model': {
         if (!args) {
-          const current = this.modelRouter.getCurrentModel()
-          return [this.makeSystemMessage(`Current model: ${current ? `${current.providerName}/${current.modelName}` : 'none'}`)]
+          return [this.makeSystemMessage(`Current model: ${this.data.currentModel}`)]
         }
         if (args.toLowerCase() === 'list') {
           const available = this.modelRouter.getRegistry()
@@ -348,76 +404,40 @@ export class Session {
             .join('\n')
           return [this.makeSystemMessage(`Available models:\n${available}`)]
         }
-        const oldModel = this.data.currentModel
-        const result = this.modelRouter.switchModel(args)
-        if (result.success && result.model) {
-          this.data.currentModel = result.model.modelName
-          this.data.modelHistory[this.data.modelHistory.length - 1].to = now()
-          this.data.modelHistory.push({ model: result.model.modelName, from: now(), to: null })
-          // Emit model:switch event
-          this.deps.bus?.emit('model:switch', {
-            sessionId: this.data.id,
-            from: oldModel,
-            to: result.model.modelName,
-          })
-
-          // Log model switch snapshot
-          this.deps.logger?.logSnapshot?.(buildSnapshot({
-            sessionId: this.data.id,
-            trigger: 'model_switch',
-            tools: this.toolRegistry.getDefinitions().map(t => t.name),
-          }))
-
-          // Context migration: check if conversation exceeds new model's budget
-          if (this.messages.length > 0 && result.model.modelConfig) {
-            const newBudget = allocateBudget(
-              result.model.modelConfig.maxContext,
-              result.model.modelConfig.maxOutput,
-            )
-            const currentTokens = estimateConversationTokens(this.messages)
-            if (currentTokens > newBudget.conversation) {
-              const adapter = this.modelRouter.getAdapter()
-              const { compressConversation } = await import('../agent/compress')
-              const compResult = await compressConversation(
-                this.messages, newBudget.conversation, adapter, this.data.id,
-              )
-              this.messages.length = 0
-              this.messages.push(...compResult.retainedMessages)
-            }
-          }
-
-          // Re-initialize agent with new adapter
-          if (this.agent) {
-            this.initAgent({ name: 'zero', systemPrompt: 'You are ZeRo OS, an AI agent system running on macOS.' })
-          }
-        }
+        const result = await this.switchModel(args)
         return [this.makeSystemMessage(result.message)]
       }
       case '/new': {
         // Reset conversation, optionally switch model
         this.messages = []
         if (args) {
-          const result = this.modelRouter.switchModel(args)
-          if (result.success && result.model) {
-            this.data.currentModel = result.model.modelName
-            this.data.modelHistory[this.data.modelHistory.length - 1].to = now()
-            this.data.modelHistory.push({ model: result.model.modelName, from: now(), to: null })
-          }
-          // Re-initialize agent with current model
-          if (this.agent) {
-            this.initAgent({ name: 'zero', systemPrompt: 'You are ZeRo OS, an AI agent system running on macOS.' })
+          const result = await this.switchModel(args)
+          if (!result.success) {
+            return [this.makeSystemMessage(result.message)]
           }
           return [this.makeSystemMessage(`New conversation started with model: ${this.data.currentModel}`)]
         }
-        // Re-initialize agent
-        if (this.agent) {
-          this.initAgent({ name: 'zero', systemPrompt: 'You are ZeRo OS, an AI agent system running on macOS.' })
-        }
+        this.reinitializeAgent()
         return [this.makeSystemMessage('New conversation started.')]
       }
       default:
         return [this.makeSystemMessage(`Unknown command: ${cmd}`)]
     }
+  }
+
+  private reinitializeAgent(): void {
+    if (!this.agent || !this.lastAgentConfig) return
+    this.initAgent(this.lastAgentConfig)
+  }
+
+  private persistState(): void {
+    this.deps.sessionDb?.saveMessages(this.data.id, this.messages)
+    const agentConfig = this.lastAgentConfig
+    this.deps.sessionDb?.saveSession(
+      this.data,
+      agentConfig ? JSON.stringify(agentConfig) : undefined,
+      this.lastSystemPrompt || undefined
+    )
   }
 
   private makeSystemMessage(text: string): Message {
@@ -442,11 +462,23 @@ export class Session {
     deps: SessionDeps = {},
     systemPrompt?: string
   ): Session {
+    const normalizedCurrentModel = modelRouter.normalizeModelReference(data.currentModel) ?? data.currentModel
+    const normalizedHistory = data.modelHistory.map((entry) => ({
+      ...entry,
+      model: modelRouter.normalizeModelReference(entry.model) ?? entry.model,
+    }))
+    const activeModel = modelRouter.resolveModel(normalizedCurrentModel)
+
     const session = Object.create(Session.prototype) as Session
-    ;(session as any).data = data
+    ;(session as any).data = {
+      ...data,
+      currentModel: normalizedCurrentModel,
+      modelHistory: normalizedHistory,
+    }
     ;(session as any).messages = messages
     ;(session as any).modelRouter = modelRouter
     ;(session as any).toolRegistry = toolRegistry
+    ;(session as any).activeModel = activeModel
     ;(session as any).deps = deps
     ;(session as any).mutex = new Mutex()
     ;(session as any).interruptFlag = false

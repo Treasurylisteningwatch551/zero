@@ -158,7 +158,10 @@ export class TaskTool extends BaseTool {
       const scopedRegistry = this.buildScopedRegistry(spec)
 
       // Create SubAgent with isolated workspace
-      const adapter = this.modelRouter.getAdapter()
+      const resolvedModel = ctx.currentModel
+        ? this.modelRouter.resolveModel(ctx.currentModel)
+        : this.modelRouter.getCurrentModel()
+      const adapter = resolvedModel?.adapter ?? this.modelRouter.getAdapter()
       const subAgentName = spec?.name ?? spec?.preset ?? node.id
       const subWorkDir = join(ctx.workDir, subAgentName)
       if (!existsSync(subWorkDir)) {
@@ -166,6 +169,7 @@ export class TaskTool extends BaseTool {
       }
       const toolContext: ToolContext = {
         sessionId: `${ctx.sessionId}_sub_${node.id}`,
+        currentModel: resolvedModel ? this.modelRouter.getModelLabel(resolvedModel) : ctx.currentModel,
         workDir: subWorkDir,
         projectRoot: ctx.projectRoot,
         logger: ctx.logger,

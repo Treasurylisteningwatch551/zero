@@ -106,9 +106,9 @@ export function ChatDrawer() {
     if (modelMatch) {
       const newModel = modelMatch[1].trim()
       try {
-        await apiPost('/api/chat/model', { model: newModel, sessionId })
-        setModelName(newModel)
-        setMessages((prev) => [...prev, { role: 'assistant', content: `Model switched to ${newModel}` }])
+        const result = await apiPost<{ currentModel: string }>('/api/chat/model', { model: newModel, sessionId })
+        setModelName(result.currentModel)
+        setMessages((prev) => [...prev, { role: 'assistant', content: `Model switched to ${result.currentModel}` }])
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : 'Unknown error'
         setMessages((prev) => [...prev, { role: 'assistant', content: `Failed to switch model: ${errMsg}` }])

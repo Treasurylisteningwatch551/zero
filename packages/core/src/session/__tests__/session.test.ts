@@ -23,6 +23,13 @@ const config: SystemConfig = {
           capabilities: ['tools', 'vision', 'reasoning'],
           tags: ['powerful', 'coding'],
         },
+        'gpt-5.4-medium': {
+          modelId: 'gpt-5.4-medium',
+          maxContext: 400000,
+          maxOutput: 128000,
+          capabilities: ['tools', 'vision', 'reasoning'],
+          tags: ['powerful', 'coding'],
+        },
       },
     },
   },
@@ -56,7 +63,7 @@ describe('Session', () => {
     expect(session.data.id).toMatch(/^sess_/)
     expect(session.data.source).toBe('web')
     expect(session.data.status).toBe('active')
-    expect(session.data.currentModel).toBe('gpt-5.3-codex-medium')
+    expect(session.data.currentModel).toBe('openai-codex/gpt-5.3-codex-medium')
   })
 
   test('/model command returns current model', async () => {
@@ -84,6 +91,19 @@ describe('Session', () => {
     expect(reply.messageType).toBe('notification')
     expect((reply.content[0] as { type: string; text: string }).text).toContain('Available models:')
     expect((reply.content[0] as { type: string; text: string }).text).toContain('- openai-codex/gpt-5.3-codex-medium')
+    expect((reply.content[0] as { type: string; text: string }).text).toContain('- openai-codex/gpt-5.4-medium')
+  })
+
+  test('switchModel updates the session model label', async () => {
+    const router = createRouter()
+    const registry = createToolRegistry()
+    const session = new Session('web', router, registry)
+
+    const result = await session.switchModel('gpt-5.4-medium')
+
+    expect(result.success).toBe(true)
+    expect(session.data.currentModel).toBe('openai-codex/gpt-5.4-medium')
+    expect(session.data.modelHistory.at(-1)?.model).toBe('openai-codex/gpt-5.4-medium')
   })
 
   test('handles real conversation with AI (real API)', async () => {
