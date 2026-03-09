@@ -6,6 +6,8 @@ import { DEFAULT_TEMPLATES } from '@zero-os/core'
 import { getSupervisorLaunchAgentStatus, installSupervisorLaunchAgent, uninstallSupervisorLaunchAgent } from './launchd'
 import { startZeroOS } from './main'
 import { rebuildWebBundle } from './web-build'
+import { ChatGptOAuthBroker } from './chatgpt-oauth'
+import { ensureChatgptProviderConfig, getChatgptOAuthTokenRef } from './chatgpt-provider'
 
 const ZERO_DIR = join(process.cwd(), '.zero')
 const SECRETS_PATH = join(ZERO_DIR, 'secrets.enc')
@@ -34,6 +36,9 @@ switch (command) {
     break
   case 'restart':
     await restart()
+    break
+  case 'provider':
+    await provider()
     break
   default:
     printHelp()
@@ -182,6 +187,84 @@ async function secret() {
   }
 }
 
+async function provider() {
+  const action = process.argv[3]
+  const target = process.argv[4]
+
+  if (action !== 'login' || target !== 'chatgpt') {
+    console.error('Usage: bun zero provider login chatgpt')
+    process.exit(1)
+  }
+
+  let masterKey: Buffer
+  try {
+    masterKey = await getMasterKey()
+  } catch {
+    console.error('[ZeRo OS] No master key found. Run `bun zero init` first.')
+    process.exit(1)
+  }
+
+  const vault = new Vault(masterKey, SECRETS_PATH)
+  vault.load()
+
+  try {
+    ensureChatgptProviderConfig()
+  } catch (error) {
+    console.error('[ZeRo OS] Failed to prepare ChatGPT provider config:', error instanceof Error ? error.message : error)
+    process.exit(1)
+  }
+
+  const broker = new ChatGptOAuthBroker(vault)
+
+  try {
+    const { url } = await broker.start()
+    console.log('[ZeRo OS] Starting ChatGPT OAuth login...')
+    console.log(`  URL: ${url}`)
+
+    tryOpenBrowser(url)
+
+    const status = await broker.waitForCompletion(120_000)
+    if (status.state === 'connected') {
+      console.log('[ZeRo OS] ChatGPT OAuth configured. Run `bun zero restart` to use the new provider.')
+      return
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!message.toLowerCase().includes('timed out')) {
+      console.log(`[ZeRo OS] Browser callback not completed automatically: ${message}`)
+    }
+  }
+
+  const pasted = prompt('Paste the callback URL or authorization code:')
+  if (!pasted) {
+    console.error('[ZeRo OS] OAuth login cancelled.')
+    process.exit(1)
+  }
+
+  try {
+    const status = await broker.completeFromInput(pasted)
+    if (status.state !== 'connected') {
+      throw new Error(status.error ?? 'Authentication failed')
+    }
+    console.log('[ZeRo OS] ChatGPT OAuth configured. Run `bun zero restart` to use the new provider.')
+  } catch (error) {
+    console.error('[ZeRo OS] ChatGPT OAuth login failed:', error instanceof Error ? error.message : error)
+    process.exit(1)
+  }
+}
+
+function tryOpenBrowser(url: string) {
+  const openCommand = process.platform === 'darwin'
+    ? ['open', url]
+    : process.platform === 'win32'
+      ? ['cmd', '/c', 'start', '', url]
+      : ['xdg-open', url]
+
+  try {
+    Bun.spawn(openCommand, { stdout: 'ignore', stderr: 'ignore' })
+  } catch {}
+}
+
 async function status() {
   console.log('[ZeRo OS] Status\n')
 
@@ -208,7 +291,9 @@ async function status() {
       const vault = new Vault(masterKey, SECRETS_PATH)
       vault.load()
       const hasApiKey = vault.get('openai_codex_api_key')
+      const hasChatGptOauth = vault.get(getChatgptOAuthTokenRef())
       console.log(`  API Key:   ${hasApiKey ? '✓ configured' : '✗ not set'}`)
+      console.log(`  ChatGPT:   ${hasChatGptOauth ? '✓ OAuth configured' : '✗ not set'}`)
       console.log(`  Keys:      ${vault.keys().length} total`)
     } catch {
       console.log('  API Key:   ? cannot read vault')
@@ -399,6 +484,7 @@ Commands:
   secret set <k> <v> Store a secret in the vault
   secret list        List all stored secret keys
   secret delete <k>  Delete a secret
+  provider login chatgpt  Authenticate ChatGPT OAuth
   status             Show system status
 
 Examples:
@@ -408,6 +494,7 @@ Examples:
   bun zero launchctl install
   bun zero logs all --follow
   bun zero secret set openai_codex_api_key sk-xxx
+  bun zero provider login chatgpt
   bun zero status
 `)
 }

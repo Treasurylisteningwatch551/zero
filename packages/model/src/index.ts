@@ -9,5 +9,11 @@ export type { ProviderAdapter, AdapterConfig } from './adapters/base'
 export { collectStream, consumeStream } from './stream'
 export { OAuth2Client } from './auth/oauth'
 export type { OAuthTokens, OAuthConfig } from './auth/oauth'
+export {
+  parseChatGptOAuthSession,
+  serializeChatGptOAuthSession,
+  decodeChatGptAccountId,
+} from './auth/chatgpt'
+export type { ChatGptOAuthSession } from './auth/chatgpt'
 export { createApiKeyAuth } from './auth/api-key'
 export { computeCost } from './cost'

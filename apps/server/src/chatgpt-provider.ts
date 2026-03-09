@@ -1,0 +1,203 @@
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { loadConfig } from '@zero-os/core'
+import { readYaml, writeYaml } from '@zero-os/shared'
+import type { ModelConfig, ProviderConfig, SystemConfig } from '@zero-os/shared'
+
+const ZERO_DIR = join(process.cwd(), '.zero')
+const CONFIG_PATH = join(ZERO_DIR, 'config.yaml')
+
+const CHATGPT_PROVIDER = 'chatgpt'
+const CHATGPT_OAUTH_TOKEN_REF = 'chatgpt_oauth_token'
+
+const CHATGPT_MODELS = [
+  'gpt-5.3-codex-medium',
+  'gpt-5.4-medium',
+] as const
+
+const DEFAULT_MODEL_TEMPLATES: Record<(typeof CHATGPT_MODELS)[number], ModelConfig> = {
+  'gpt-5.3-codex-medium': {
+    modelId: 'gpt-5.3-codex-medium',
+    maxContext: 400000,
+    maxOutput: 128000,
+    capabilities: ['tools', 'vision', 'reasoning'],
+    tags: ['powerful', 'coding'],
+    pricing: {
+      input: 1.75,
+      output: 14.0,
+      cacheRead: 0.175,
+    },
+  },
+  'gpt-5.4-medium': {
+    modelId: 'gpt-5.4-medium',
+    maxContext: 400000,
+    maxOutput: 128000,
+    capabilities: ['tools', 'vision', 'reasoning'],
+    tags: ['powerful', 'coding'],
+    pricing: {
+      input: 1.75,
+      output: 14.0,
+      cacheRead: 0.175,
+    },
+  },
+}
+
+function loadRawConfig(): Record<string, unknown> {
+  if (!existsSync(CONFIG_PATH)) {
+    throw new Error(`Config file not found: ${CONFIG_PATH}`)
+  }
+
+  return readYaml<Record<string, unknown>>(CONFIG_PATH)
+}
+
+function modelToYaml(model: ModelConfig): Record<string, unknown> {
+  return {
+    model_id: model.modelId,
+    max_context: model.maxContext,
+    max_output: model.maxOutput,
+    capabilities: [...model.capabilities],
+    tags: [...model.tags],
+    ...(model.pricing
+      ? {
+          pricing: {
+            input: model.pricing.input,
+            output: model.pricing.output,
+            ...(model.pricing.cacheWrite !== undefined ? { cache_write: model.pricing.cacheWrite } : {}),
+            ...(model.pricing.cacheRead !== undefined ? { cache_read: model.pricing.cacheRead } : {}),
+          },
+        }
+      : {}),
+  }
+}
+
+function deriveModelTemplate(config: SystemConfig, modelName: keyof typeof DEFAULT_MODEL_TEMPLATES): ModelConfig {
+  const bareModelId = DEFAULT_MODEL_TEMPLATES[modelName].modelId
+
+  for (const provider of Object.values(config.providers)) {
+    for (const model of Object.values(provider.models)) {
+      if (model.modelId === bareModelId) {
+        return {
+          modelId: model.modelId,
+          maxContext: model.maxContext,
+          maxOutput: model.maxOutput,
+          capabilities: [...model.capabilities],
+          tags: [...model.tags],
+          ...(model.pricing ? { pricing: { ...model.pricing } } : {}),
+        }
+      }
+    }
+  }
+
+  const fallback = DEFAULT_MODEL_TEMPLATES[modelName]
+  return {
+    modelId: fallback.modelId,
+    maxContext: fallback.maxContext,
+    maxOutput: fallback.maxOutput,
+    capabilities: [...fallback.capabilities],
+    tags: [...fallback.tags],
+    ...(fallback.pricing ? { pricing: { ...fallback.pricing } } : {}),
+  }
+}
+
+export function getChatgptProviderName() {
+  return CHATGPT_PROVIDER
+}
+
+export function getChatgptOAuthTokenRef() {
+  return CHATGPT_OAUTH_TOKEN_REF
+}
+
+export function getConfigPath() {
+  return CONFIG_PATH
+}
+
+export function ensureChatgptProviderConfig(): { changed: boolean; config: SystemConfig } {
+  const existingConfig = loadConfig(CONFIG_PATH)
+  const raw = loadRawConfig()
+  const providers = ((raw.providers ??= {}) as Record<string, unknown>)
+  let changed = false
+
+  const hadProvider = !!providers[CHATGPT_PROVIDER]
+  const provider = ((providers[CHATGPT_PROVIDER] ??= {}) as Record<string, unknown>)
+  if (!hadProvider) {
+    changed = true
+  }
+
+  if (provider.api_type !== 'openai_responses') {
+    provider.api_type = 'openai_responses'
+    changed = true
+  }
+
+  if (provider.base_url !== 'https://chatgpt.com/backend-api/codex') {
+    provider.base_url = 'https://chatgpt.com/backend-api/codex'
+    changed = true
+  }
+
+  const auth = ((provider.auth ??= {}) as Record<string, unknown>)
+  if (auth.type !== 'oauth2') {
+    auth.type = 'oauth2'
+    changed = true
+  }
+
+  if (auth.oauth_token_ref !== CHATGPT_OAUTH_TOKEN_REF) {
+    auth.oauth_token_ref = CHATGPT_OAUTH_TOKEN_REF
+    changed = true
+  }
+
+  if ('api_key_ref' in auth) {
+    delete auth.api_key_ref
+    changed = true
+  }
+
+  const models = ((provider.models ??= {}) as Record<string, unknown>)
+  const renamePairs = [
+    ['chatgpt/gpt-5.3-codex-medium', 'gpt-5.3-codex-medium'],
+    ['chatgpt/gpt-5.4-medium', 'gpt-5.4-medium'],
+  ] as const
+  for (const [oldName, newName] of renamePairs) {
+    if (models[oldName] && !models[newName]) {
+      models[newName] = models[oldName]
+      delete models[oldName]
+      changed = true
+    } else if (models[oldName]) {
+      delete models[oldName]
+      changed = true
+    }
+
+    if (raw.default_model === oldName) {
+      raw.default_model = newName
+      changed = true
+    }
+
+    if (Array.isArray(raw.fallback_chain)) {
+      const nextFallback = raw.fallback_chain.map((value) => value === oldName ? newName : value)
+      if (JSON.stringify(nextFallback) !== JSON.stringify(raw.fallback_chain)) {
+        raw.fallback_chain = nextFallback
+        changed = true
+      }
+    }
+  }
+
+  for (const modelName of CHATGPT_MODELS) {
+    if (models[modelName]) continue
+    models[modelName] = modelToYaml(deriveModelTemplate(existingConfig, modelName))
+    changed = true
+  }
+
+  if (changed) {
+    writeYaml(CONFIG_PATH, raw)
+  }
+
+  return {
+    changed,
+    config: loadConfig(CONFIG_PATH),
+  }
+}
+
+export function getChatgptModelNames(): string[] {
+  return [...CHATGPT_MODELS]
+}
+
+export function getChatgptProviderSummary(config: SystemConfig): ProviderConfig | undefined {
+  return config.providers[CHATGPT_PROVIDER]
+}
