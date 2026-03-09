@@ -339,7 +339,14 @@ export class Session {
       case '/model': {
         if (!args) {
           const current = this.modelRouter.getCurrentModel()
-          return [this.makeSystemMessage(`Current model: ${current?.modelName ?? 'none'}`)]
+          return [this.makeSystemMessage(`Current model: ${current ? `${current.providerName}/${current.modelName}` : 'none'}`)]
+        }
+        if (args.toLowerCase() === 'list') {
+          const available = this.modelRouter.getRegistry()
+            .listModels()
+            .map((model) => `- ${model.providerName}/${model.modelName}`)
+            .join('\n')
+          return [this.makeSystemMessage(`Available models:\n${available}`)]
         }
         const oldModel = this.data.currentModel
         const result = this.modelRouter.switchModel(args)

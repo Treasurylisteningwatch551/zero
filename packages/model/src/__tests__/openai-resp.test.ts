@@ -268,6 +268,69 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
     ])
   })
 
+
+
+  test('buildChatGptBody falls back to default instructions for ChatGPT', () => {
+    const chatgptAdapter = new OpenAIResponsesAdapter({
+      providerName: 'chatgpt',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      auth: { type: 'oauth2', oauthTokenRef: 'chatgpt_oauth_token' },
+      modelConfig: {
+        modelId: 'gpt-5.4',
+        maxContext: 128000,
+        maxOutput: 8192,
+        capabilities: [],
+        tags: [],
+      },
+      oauthToken: JSON.stringify({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        expiresAt: Date.now() + 180_000,
+        tokenType: 'Bearer',
+        accountId: 'acct_123',
+      }),
+    })
+
+    const body = (chatgptAdapter as any).buildChatGptBody({
+      messages: [],
+      stream: true,
+    })
+
+    expect(body.instructions).toBe('You are a helpful assistant.')
+  })
+
+  test('buildChatGptBody omits unsupported max_output_tokens', () => {
+    const chatgptAdapter = new OpenAIResponsesAdapter({
+      providerName: 'chatgpt',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      auth: { type: 'oauth2', oauthTokenRef: 'chatgpt_oauth_token' },
+      modelConfig: {
+        modelId: 'gpt-5.3-codex-medium',
+        maxContext: 128000,
+        maxOutput: 8192,
+        capabilities: [],
+        tags: [],
+      },
+      oauthToken: JSON.stringify({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        expiresAt: Date.now() + 180_000,
+        tokenType: 'Bearer',
+        accountId: 'acct_123',
+      }),
+    })
+
+    const body = (chatgptAdapter as any).buildChatGptBody({
+      messages: [],
+      stream: true,
+      maxTokens: 123,
+    })
+
+    expect(body.max_output_tokens).toBeUndefined()
+    expect(body.stream).toBe(true)
+    expect(body.model).toBe('gpt-5.3-codex-medium')
+  })
+
   test('parseResponse: text output parsed correctly', () => {
     const mockResponse = {
       id: 'resp_123',
@@ -301,5 +364,85 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
     expect(result.input).toBe(100)
     expect(result.output).toBe(50)
     expect(result.reasoning).toBe(10)
+  })
+
+
+  test('parseChatGptCompletion keeps call_id as tool_use id', () => {
+    const result = (adapter as any).parseChatGptCompletion([
+      {
+        type: 'response.output_item.added',
+        item: {
+          type: 'function_call',
+          id: 'fc_item_1',
+          call_id: 'call_123',
+          name: 'read',
+          arguments: '{"path":"a.txt"}',
+        },
+      },
+      {
+        type: 'response.completed',
+        response: { id: 'resp_1', model: 'test-model', status: 'completed', usage: {} },
+      },
+    ])
+
+    expect(result.content).toContainEqual({
+      type: 'tool_use',
+      id: 'call_123',
+      name: 'read',
+      input: { path: 'a.txt' },
+    })
+  })
+
+  test('streamFromChatGpt emits call_id on tool deltas', async () => {
+    const chatgptAdapter = new OpenAIResponsesAdapter({
+      providerName: 'chatgpt',
+      baseUrl: 'https://chatgpt.com/backend-api/codex',
+      auth: { type: 'oauth2', oauthTokenRef: 'chatgpt_oauth_token' },
+      modelConfig: {
+        modelId: 'gpt-5.4-medium',
+        maxContext: 128000,
+        maxOutput: 8192,
+        capabilities: [],
+        tags: [],
+      },
+      oauthToken: JSON.stringify({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        expiresAt: Date.now() + 180_000,
+        tokenType: 'Bearer',
+        accountId: 'acct_123',
+      }),
+    })
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => new Response(
+      [
+        'data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_123","name":"read","arguments":""}}',
+        '',
+        'data: {"type":"response.function_call_arguments.delta","call_id":"call_123","delta":"chunk-1"}',
+        '',
+        'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_123"}}',
+        '',
+        'data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5.4-medium","status":"completed","usage":{}}}',
+        '',
+      ].join('\n'),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      }
+    ) as any
+
+    try {
+      const events = [] as Array<{ type: string; data: any }>
+      for await (const event of chatgptAdapter.stream({ messages: [], stream: true })) {
+        events.push(event as any)
+      }
+
+      expect(events).toContainEqual({ type: 'tool_use_start', data: { id: 'call_123', name: 'read' } })
+      expect(events).toContainEqual({ type: 'tool_use_delta', data: { id: 'call_123', arguments: 'chunk-1' } })
+      expect(events).toContainEqual({ type: 'tool_use_end', data: { id: 'call_123' } })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })

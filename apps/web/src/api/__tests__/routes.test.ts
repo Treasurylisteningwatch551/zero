@@ -17,7 +17,7 @@ describe('API Routes (Real)', () => {
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data.status).toBe('running')
-    expect(data.currentModel).toBe('gpt-5.4-medium')
+    expect(data.currentModel).toBe('openai-codex/gpt-5.4-medium')
     expect(data.version).toBe('0.1.0')
   })
 
@@ -82,6 +82,26 @@ describe('API Routes (Real)', () => {
     const data = await res.json()
     expect(data.defaultModel).toBe('gpt-5.4-medium')
     expect(data.providers).toBeDefined()
+  })
+
+  test('GET /api/models returns model list', async () => {
+    const res = await app.request('/api/models')
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(Array.isArray(data.models)).toBe(true)
+    expect(data.models.some((m: { name: string }) => m.name === 'openai-codex/gpt-5.4-medium')).toBe(true)
+  })
+
+  test('POST /api/chat/model switches runtime model', async () => {
+    const res = await app.request('/api/chat/model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'gpt-5.3-codex-medium' }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.ok).toBe(true)
+    expect(data.currentModel).toBe('openai-codex/gpt-5.3-codex-medium')
   })
 
   test('GET /api/logs returns entries', async () => {

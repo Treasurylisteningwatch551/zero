@@ -35,6 +35,7 @@ export interface ProviderAdapter {
  * Configuration needed to create an adapter.
  */
 export interface AdapterConfig {
+  providerName?: string
   baseUrl: string
   auth: AuthConfig
   modelConfig: ModelConfig

@@ -59,13 +59,31 @@ describe('Session', () => {
     expect(session.data.currentModel).toBe('gpt-5.3-codex-medium')
   })
 
-  test('/model command returns current model', () => {
+  test('/model command returns current model', async () => {
     const router = createRouter()
     const registry = createToolRegistry()
     const session = new Session('web', router, registry)
     session.initAgent({ name: 'test', systemPrompt: 'test' })
 
-    // Note: handleMessage is async but /model is sync command
+    const messages = await session.handleMessage('/model')
+    const reply = messages[messages.length - 1]
+    expect(reply.role).toBe('assistant')
+    expect(reply.messageType).toBe('notification')
+    expect(reply.content[0]).toEqual({ type: 'text', text: 'Current model: openai-codex/gpt-5.3-codex-medium' })
+  })
+
+  test('/model list shows available models', async () => {
+    const router = createRouter()
+    const registry = createToolRegistry()
+    const session = new Session('web', router, registry)
+    session.initAgent({ name: 'test', systemPrompt: 'test' })
+
+    const messages = await session.handleMessage('/model list')
+    const reply = messages[messages.length - 1]
+    expect(reply.role).toBe('assistant')
+    expect(reply.messageType).toBe('notification')
+    expect((reply.content[0] as { type: string; text: string }).text).toContain('Available models:')
+    expect((reply.content[0] as { type: string; text: string }).text).toContain('- openai-codex/gpt-5.3-codex-medium')
   })
 
   test('handles real conversation with AI (real API)', async () => {

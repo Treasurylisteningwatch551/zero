@@ -60,7 +60,7 @@ export class ModelRouter {
       return {
         success: true,
         model: exact,
-        message: `Switched to ${exact.modelName} (${exact.providerName})`,
+        message: `Switched to ${this.formatModelLabel(exact.providerName, exact.modelName)}`,
       }
     }
 
@@ -71,12 +71,14 @@ export class ModelRouter {
       return {
         success: true,
         model: fuzzy[0],
-        message: `Switched to ${fuzzy[0].modelName} (${fuzzy[0].providerName})`,
+        message: `Switched to ${this.formatModelLabel(fuzzy[0].providerName, fuzzy[0].modelName)}`,
       }
     }
 
     if (fuzzy.length > 1) {
-      const candidates = fuzzy.map((m) => `  - ${m.providerName}/${m.modelName}`).join('\n')
+      const candidates = fuzzy
+        .map((m) => `  - ${this.formatModelLabel(m.providerName, m.modelName)}`)
+        .join('\n')
       return {
         success: false,
         message: `Multiple matches found:\n${candidates}\nPlease be more specific.`,
@@ -86,7 +88,7 @@ export class ModelRouter {
     // 3. No match
     const available = this.registry
       .listModels()
-      .map((m) => `  - ${m.providerName}/${m.modelName}`)
+      .map((m) => `  - ${this.formatModelLabel(m.providerName, m.modelName)}`)
       .join('\n')
     return {
       success: false,
@@ -108,7 +110,7 @@ export class ModelRouter {
         return {
           success: true,
           model: resolved,
-          message: `Fell back to ${resolved.modelName} (${resolved.providerName})`,
+          message: `Fell back to ${this.formatModelLabel(resolved.providerName, resolved.modelName)}`,
         }
       }
     }
@@ -117,6 +119,10 @@ export class ModelRouter {
       success: false,
       message: 'All models in fallback chain are unavailable.',
     }
+  }
+
+  private formatModelLabel(providerName: string, modelName: string): string {
+    return `${providerName}/${modelName}`
   }
 
   /**

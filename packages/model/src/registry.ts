@@ -34,7 +34,14 @@ export class ModelRegistry {
   resolve(modelName: string): ResolvedModel | undefined {
     for (const [providerName, provider] of this.providers) {
       for (const [name, model] of Object.entries(provider.models)) {
-        if (name === modelName || model.modelId === modelName) {
+        const qualifiedName = `${providerName}/${name}`
+        const qualifiedModelId = `${providerName}/${model.modelId}`
+        if (
+          name === modelName ||
+          model.modelId === modelName ||
+          qualifiedName === modelName ||
+          qualifiedModelId === modelName
+        ) {
           const adapter = this.getOrCreateAdapter(providerName, provider, model)
           return {
             providerName,
@@ -111,6 +118,7 @@ export class ModelRegistry {
     const oauthToken = provider.auth.oauthTokenRef ? this.secrets.get(provider.auth.oauthTokenRef) : undefined
 
     const config: AdapterConfig = {
+      providerName,
       baseUrl: provider.baseUrl,
       auth: provider.auth,
       modelConfig: model,

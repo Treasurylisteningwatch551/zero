@@ -1,6 +1,9 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { ZeroOS } from '../../../server/src/main'
+import { ChatGptOAuthBroker } from '../../../server/src/chatgpt-oauth'
+import { ensureChatgptProviderConfig, getConfigPath, getChatgptOAuthTokenRef } from '../../../server/src/chatgpt-provider'
+import { loadConfig } from '@zero-os/core'
 import { MemoryRetriever } from '@zero-os/memory'
 import type { MemoryType, SessionStatus } from '@zero-os/shared'
 import type { SessionRow } from '@zero-os/observe'
@@ -8,6 +11,40 @@ import { GitOps } from '@zero-os/supervisor'
 
 export function createRoutes(zero: ZeroOS) {
   const retriever = new MemoryRetriever(zero.memoryStore)
+  const chatgptOAuth = new ChatGptOAuthBroker(zero.vault)
+
+  function readCurrentConfig() {
+    return loadConfig(getConfigPath())
+  }
+
+  function formatModelLabel(providerName: string, modelName: string) {
+    return `${providerName}/${modelName}`
+  }
+
+  function buildProvidersForConfig() {
+    const config = readCurrentConfig()
+    return Object.fromEntries(
+      Object.entries(config.providers).map(([name, provider]) => {
+        const secretRef = provider.auth.apiKeyRef ?? provider.auth.oauthTokenRef
+        const configured = secretRef ? !!zero.vault.get(secretRef) : false
+        const oauthStatus = name === 'chatgpt'
+          ? chatgptOAuth.getStatus()
+          : undefined
+
+        return [name, {
+          apiType: provider.apiType,
+          baseUrl: provider.baseUrl,
+          authType: provider.auth.type,
+          secretRef,
+          configured,
+          authorized: oauthStatus ? oauthStatus.authorized : configured,
+          oauthState: oauthStatus?.state,
+          requiresRestart: oauthStatus?.requiresRestart ?? false,
+          models: provider.models,
+        }]
+      })
+    )
+  }
 
   const app = new Hono()
     .use('*', cors())
@@ -19,11 +56,35 @@ export function createRoutes(zero: ZeroOS) {
       return c.json({
         status: 'running',
         uptime: process.uptime(),
-        currentModel: current?.modelName ?? 'unknown',
+        currentModel: current ? formatModelLabel(current.providerName, current.modelName) : 'unknown',
         version: '0.1.0',
         heartbeatAge: 3,
         activeSessions: activeSessions.length,
       })
+    })
+
+    .get('/api/models', (c) => {
+      const models = zero.modelRouter.getRegistry().listModels().map((model) => ({
+        name: formatModelLabel(model.providerName, model.modelName),
+        provider: model.providerName,
+        modelId: model.modelId,
+        tags: model.tags,
+      }))
+      return c.json({ models })
+    })
+
+    .post('/api/chat/model', async (c) => {
+      const body = await c.req.json<{ model: string }>()
+      if (!body.model) {
+        return c.json({ error: 'model is required' }, 400)
+      }
+
+      const result = zero.modelRouter.switchModel(body.model)
+      if (!result.success) {
+        return c.json({ error: result.message }, 400)
+      }
+
+      return c.json({ ok: true, currentModel: result.model ? formatModelLabel(result.model.providerName, result.model.modelName) : body.model, message: result.message })
     })
 
     // Sessions
@@ -447,13 +508,33 @@ export function createRoutes(zero: ZeroOS) {
 
     // Config
     .get('/api/config', (c) => {
+      const config = readCurrentConfig()
       return c.json({
-        providers: zero.config.providers,
-        defaultModel: zero.config.defaultModel,
-        fallbackChain: zero.config.fallbackChain,
-        schedules: zero.config.schedules,
-        fuseList: zero.config.fuseList,
+        providers: buildProvidersForConfig(),
+        defaultModel: config.defaultModel,
+        fallbackChain: config.fallbackChain,
+        schedules: config.schedules,
+        fuseList: config.fuseList,
+        secrets: zero.vault.keys().map((key) => ({
+          key,
+          masked: key === getChatgptOAuthTokenRef() ? 'oauth:configured' : 'configured',
+          configured: true,
+        })),
       })
+    })
+
+    .post('/api/providers/chatgpt/oauth/start', async (c) => {
+      try {
+        ensureChatgptProviderConfig()
+        const result = await chatgptOAuth.start()
+        return c.json({ ...result, status: chatgptOAuth.getStatus() })
+      } catch (error) {
+        return c.json({ error: error instanceof Error ? error.message : String(error) }, 500)
+      }
+    })
+
+    .get('/api/providers/chatgpt/oauth/status', (c) => {
+      return c.json(chatgptOAuth.getStatus())
     })
 
     // Logs

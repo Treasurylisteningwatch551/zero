@@ -35,8 +35,8 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
     apiFetch<{ models: { name: string }[] }>('/api/models')
       .then((res) => setModels(res.models.map((m) => m.name)))
       .catch(() => {})
-    apiFetch<{ model: string }>('/api/status')
-      .then((res) => { if (res.model) setCurrentModel(res.model) })
+    apiFetch<{ currentModel: string }>('/api/status')
+      .then((res) => { if (res.currentModel) setCurrentModel(res.currentModel) })
       .catch(() => {})
   }, [])
 
