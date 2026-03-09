@@ -123,6 +123,16 @@ describe('SessionManager', () => {
     expect(second.session.data.id).toBe(first.session.data.id)
   })
 
+  test('getOrCreateForChannel: same source and channelId stay isolated by channelName', () => {
+    const manager = createManager()
+    const ops = manager.getOrCreateForChannel('feishu', 'shared-room', 'feishu:ops')
+    const hr = manager.getOrCreateForChannel('feishu', 'shared-room', 'feishu:hr')
+
+    expect(ops.session.data.id).not.toBe(hr.session.data.id)
+    expect(ops.session.data.channelName).toBe('feishu:ops')
+    expect(hr.session.data.channelName).toBe('feishu:hr')
+  })
+
   test('getOrCreateForChannel: completed session for same channel creates new, isNew=true', () => {
     const manager = createManager()
     const first = manager.getOrCreateForChannel('web', 'channel-3')
@@ -153,6 +163,18 @@ describe('SessionManager', () => {
     const current = manager.getOrCreateForChannel('feishu', 'channel-rotate')
     expect(current.isNew).toBe(false)
     expect(current.session.data.id).toBe(secondId)
+  })
+
+  test('startNewForChannel: rotates only the targeted channelName mapping', () => {
+    const manager = createManager()
+    const first = manager.getOrCreateForChannel('feishu', 'room-1', 'feishu:ops')
+    const second = manager.getOrCreateForChannel('feishu', 'room-1', 'feishu:hr')
+
+    const rotated = manager.startNewForChannel('feishu', 'room-1', { channelName: 'feishu:ops' })
+
+    expect(rotated.previousSessionId).toBe(first.session.data.id)
+    expect(manager.get(first.session.data.id)?.getStatus()).toBe('completed')
+    expect(manager.get(second.session.data.id)?.getStatus()).toBe('active')
   })
 
   test('startNewForChannel: supports archiving previous session', () => {

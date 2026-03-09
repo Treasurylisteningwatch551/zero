@@ -110,6 +110,45 @@ providers:
     expect(model.capabilities).toEqual([])
     expect(model.tags).toEqual([])
   })
+
+  test('parses channel configs with snake_case refs', () => {
+    const configPath = join(tmpDir, 'channels.yaml')
+    writeFileSync(configPath, `
+providers: {}
+channels:
+  - name: feishu:ops
+    type: feishu
+    app_id_ref: feishu_ops_app_id
+    app_secret_ref: feishu_ops_app_secret
+    encrypt_key_ref: feishu_ops_encrypt_key
+    verification_token_ref: feishu_ops_verification_token
+    receive_notifications: true
+  - name: telegram:alerts
+    type: telegram
+    bot_token_ref: telegram_alerts_bot_token
+`)
+
+    const config = loadConfig(configPath)
+
+    expect(config.channels).toHaveLength(2)
+    expect(config.channels?.[0]).toEqual({
+      name: 'feishu:ops',
+      type: 'feishu',
+      enabled: true,
+      receiveNotifications: true,
+      appIdRef: 'feishu_ops_app_id',
+      appSecretRef: 'feishu_ops_app_secret',
+      encryptKeyRef: 'feishu_ops_encrypt_key',
+      verificationTokenRef: 'feishu_ops_verification_token',
+    })
+    expect(config.channels?.[1]).toEqual({
+      name: 'telegram:alerts',
+      type: 'telegram',
+      enabled: true,
+      receiveNotifications: false,
+      botTokenRef: 'telegram_alerts_bot_token',
+    })
+  })
 })
 
 describe('loadFuseList', () => {

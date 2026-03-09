@@ -4,6 +4,7 @@ import type { Channel, IncomingMessage, MessageHandler, ImageAttachment } from '
 import { chunkTelegramRichText, markdownToTelegramRichText, type TelegramRichText } from '../richtext'
 
 export interface TelegramChannelConfig {
+  name?: string
   botToken: string
 }
 
@@ -56,7 +57,7 @@ interface TelegramSentMessage {
  * Telegram channel — sends and receives messages via Telegram bot.
  */
 export class TelegramChannel implements Channel {
-  readonly name = 'telegram'
+  readonly name: string
   readonly type = 'telegram'
 
   private bot: Telegraf | null = null
@@ -66,6 +67,7 @@ export class TelegramChannel implements Channel {
 
   constructor(config: TelegramChannelConfig) {
     this.config = config
+    this.name = config.name ?? 'telegram'
   }
 
   async start(): Promise<void> {
@@ -91,7 +93,10 @@ export class TelegramChannel implements Channel {
     })
 
     // Launch in polling mode (non-blocking)
-    this.bot.launch()
+    this.bot.launch().catch((err) => {
+      this.running = false
+      console.error('[TelegramChannel] Launch error:', err)
+    })
     this.running = true
   }
 

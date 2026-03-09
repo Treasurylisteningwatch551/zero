@@ -165,7 +165,13 @@ describe('SessionDB', () => {
   })
 
   test('getChannelMappings returns active sessions with channelId', () => {
-    db.saveSession(makeSessionData({ id: 'sess_ch1', source: 'feishu', channelId: 'chat_001', status: 'active' }))
+    db.saveSession(makeSessionData({
+      id: 'sess_ch1',
+      source: 'feishu',
+      channelName: 'feishu:ops',
+      channelId: 'chat_001',
+      status: 'active',
+    }))
     db.saveSession(makeSessionData({ id: 'sess_ch2', source: 'telegram', channelId: 'tg_001', status: 'idle' }))
     db.saveSession(makeSessionData({ id: 'sess_ch3', source: 'feishu', channelId: 'chat_002', status: 'completed' }))
 
@@ -177,6 +183,7 @@ describe('SessionDB', () => {
 
     const feishuMapping = mappings.find((m) => m.id === 'sess_ch1')!
     expect(feishuMapping.source).toBe('feishu')
+    expect(feishuMapping.channelName).toBe('feishu:ops')
     expect(feishuMapping.channelId).toBe('chat_001')
   })
 

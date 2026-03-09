@@ -1,5 +1,5 @@
 import { readYaml, readYamlOrDefault } from '@zero-os/shared'
-import type { SystemConfig, FuseRule } from '@zero-os/shared'
+import type { ChannelInstanceConfig, FuseRule, SystemConfig } from '@zero-os/shared'
 import { existsSync } from 'node:fs'
 
 /**
@@ -49,13 +49,86 @@ function normalizeConfig(raw: Record<string, unknown>): SystemConfig {
     }
   }
 
+  const rawChannels = Array.isArray(raw.channels)
+    ? raw.channels as Array<Record<string, unknown>>
+    : []
+  const channels = rawChannels
+    .map(normalizeChannelConfig)
+    .filter((channel): channel is ChannelInstanceConfig => channel !== null)
+
   return {
     providers,
     defaultModel: (raw.default_model as string) ?? '',
     fallbackChain: (raw.fallback_chain as string[]) ?? [],
     schedules: (raw.schedules as SystemConfig['schedules']) ?? [],
     fuseList: (raw.fuse_list as FuseRule[]) ?? [],
+    ...(raw.channels !== undefined ? { channels } : {}),
   }
+}
+
+function normalizeChannelConfig(raw: Record<string, unknown>): ChannelInstanceConfig | null {
+  const type = readString(raw, 'type')
+  const name = readString(raw, 'name')
+
+  if (!type || !name) return null
+
+  const base = {
+    name,
+    type,
+    enabled: readBoolean(raw, 'enabled') ?? true,
+    receiveNotifications: readBoolean(raw, 'receiveNotifications', 'receive_notifications') ?? false,
+  }
+
+  if (type === 'feishu') {
+    const appIdRef = readString(raw, 'appIdRef', 'app_id_ref')
+    const appSecretRef = readString(raw, 'appSecretRef', 'app_secret_ref')
+    if (!appIdRef || !appSecretRef) return null
+    return {
+      ...base,
+      type,
+      appIdRef,
+      appSecretRef,
+      encryptKeyRef: readString(raw, 'encryptKeyRef', 'encrypt_key_ref'),
+      verificationTokenRef: readString(raw, 'verificationTokenRef', 'verification_token_ref'),
+    }
+  }
+
+  if (type === 'telegram') {
+    const botTokenRef = readString(raw, 'botTokenRef', 'bot_token_ref')
+    if (!botTokenRef) return null
+    return {
+      ...base,
+      type,
+      botTokenRef,
+    }
+  }
+
+  if (type === 'web') {
+    return {
+      ...base,
+      type,
+    }
+  }
+
+  return null
+}
+
+function readString(raw: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = raw[key]
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+  return undefined
+}
+
+function readBoolean(raw: Record<string, unknown>, ...keys: string[]): boolean | undefined {
+  for (const key of keys) {
+    const value = raw[key]
+    if (typeof value === 'boolean') return value
+  }
+  return undefined
 }
 
 /**

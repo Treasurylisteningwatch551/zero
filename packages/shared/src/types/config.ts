@@ -63,12 +63,42 @@ export interface FuseRule {
   description: string
 }
 
+export interface BaseChannelInstanceConfig {
+  name: string
+  type: 'feishu' | 'telegram' | 'web'
+  enabled?: boolean
+  receiveNotifications?: boolean
+}
+
+export interface FeishuChannelInstanceConfig extends BaseChannelInstanceConfig {
+  type: 'feishu'
+  appIdRef: string
+  appSecretRef: string
+  encryptKeyRef?: string
+  verificationTokenRef?: string
+}
+
+export interface TelegramChannelInstanceConfig extends BaseChannelInstanceConfig {
+  type: 'telegram'
+  botTokenRef: string
+}
+
+export interface WebChannelInstanceConfig extends BaseChannelInstanceConfig {
+  type: 'web'
+}
+
+export type ChannelInstanceConfig =
+  | FeishuChannelInstanceConfig
+  | TelegramChannelInstanceConfig
+  | WebChannelInstanceConfig
+
 export interface SystemConfig {
   providers: Record<string, ProviderConfig>
   defaultModel: string
   fallbackChain: string[]
   schedules: ScheduleConfig[]
   fuseList: FuseRule[]
+  channels?: ChannelInstanceConfig[]
 }
 
 export interface SecretFilter {

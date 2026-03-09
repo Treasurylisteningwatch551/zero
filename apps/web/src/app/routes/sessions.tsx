@@ -18,6 +18,7 @@ interface ModelHistoryEntry {
 interface SessionInfo {
   id: string
   source: string
+  channelName?: string
   status: string
   currentModel: string
   createdAt: string
@@ -97,7 +98,7 @@ export function SessionsPage() {
     navigate({
       to: '/sessions/channel/$channel/detail',
       params: { channel: session.channelId },
-      search: { source: session.source },
+      search: { source: session.source, channelName: session.channelName },
     })
   }
 
@@ -264,6 +265,12 @@ export function SessionsPage() {
                 <div className="ml-7 mt-1 text-[11px] text-[var(--color-text-muted)] flex items-center gap-1.5 flex-wrap">
                   <span className="capitalize">{s.source}</span>
                   <span>·</span>
+                  {s.channelName && s.channelName !== s.source && (
+                    <>
+                      <span className="font-mono text-[var(--color-text-muted)]">{s.channelName}</span>
+                      <span>·</span>
+                    </>
+                  )}
                   {s.channelId && (
                     <>
                       <span className="font-mono text-[var(--color-text-disabled)]">{s.channelId}</span>

@@ -73,6 +73,7 @@ describe('Session Persistence', () => {
       currentModel: 'gpt-5.3-codex-medium',
       modelHistory: [{ model: 'gpt-5.3-codex-medium', from: new Date().toISOString(), to: null }],
       tags: ['restored'],
+      channelName: 'feishu:ops',
       channelId: 'chat_123',
     }
 
@@ -98,6 +99,7 @@ describe('Session Persistence', () => {
     const session = Session.restore(data, messages, modelRouter, toolRegistry)
     expect(session.data.id).toBe('sess_restore_test')
     expect(session.data.source).toBe('feishu')
+    expect(session.data.channelName).toBe('feishu:ops')
     expect(session.data.channelId).toBe('chat_123')
     expect(session.data.tags).toEqual(['restored'])
     expect(session.getStatus()).toBe('active')
@@ -117,6 +119,7 @@ describe('Session Persistence', () => {
       currentModel: 'gpt-5.3-codex-medium',
       modelHistory: [{ model: 'gpt-5.3-codex-medium', from: new Date().toISOString(), to: null }],
       tags: [],
+      channelName: 'feishu:ops',
       channelId: 'chat_feishu_1',
     }
     sessionDb.saveSession(data1, '{"name":"zero-feishu","systemPrompt":"test"}')
@@ -151,7 +154,7 @@ describe('Session Persistence', () => {
     expect(manager.get('sess_mgr_1')!.getMessages()).toHaveLength(1)
 
     // Verify channel mapping restored
-    const { session, isNew } = manager.getOrCreateForChannel('feishu', 'chat_feishu_1')
+    const { session, isNew } = manager.getOrCreateForChannel('feishu', 'chat_feishu_1', 'feishu:ops')
     expect(isNew).toBe(false)
     expect(session.data.id).toBe('sess_mgr_1')
   })

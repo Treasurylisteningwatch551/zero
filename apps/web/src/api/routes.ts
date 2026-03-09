@@ -55,6 +55,7 @@ export function createRoutes(zero: ZeroOS) {
         return {
           id: s.data.id,
           source: s.data.source,
+          channelName: s.data.channelName,
           status: s.getStatus(),
           currentModel: s.data.currentModel,
           createdAt: s.data.createdAt,
@@ -88,6 +89,7 @@ export function createRoutes(zero: ZeroOS) {
           result.push({
             id: row.id,
             source: row.source,
+            channelName: row.channelName,
             status: row.status,
             currentModel: row.currentModel,
             createdAt: row.createdAt,
@@ -108,6 +110,7 @@ export function createRoutes(zero: ZeroOS) {
         ? result.filter((s) =>
             (s.id as string).toLowerCase().includes(q) ||
             (s.source as string).toLowerCase().includes(q) ||
+            ((s.channelName as string)?.toLowerCase().includes(q) ?? false) ||
             (s.currentModel as string).toLowerCase().includes(q) ||
             ((s.summary as string)?.toLowerCase().includes(q) ?? false) ||
             ((s.channelId as string)?.toLowerCase().includes(q) ?? false)
@@ -127,6 +130,7 @@ export function createRoutes(zero: ZeroOS) {
         .map((session) => ({
           id: session.data.id,
           source: session.data.source,
+          channelName: session.data.channelName,
           channelId: session.data.channelId ?? channel,
           status: session.getStatus(),
           updatedAt: session.data.updatedAt,
@@ -146,6 +150,7 @@ export function createRoutes(zero: ZeroOS) {
         .map((session) => ({
           id: session.data.id,
           source: session.data.source,
+          channelName: session.data.channelName,
           channelId: session.data.channelId as string,
           status: session.getStatus(),
           updatedAt: session.data.updatedAt,
@@ -163,6 +168,8 @@ export function createRoutes(zero: ZeroOS) {
         return c.json({
           id: session.data.id,
           source: session.data.source,
+          channelName: session.data.channelName,
+          channelId: session.data.channelId,
           status: session.getStatus(),
           currentModel: session.data.currentModel,
           createdAt: session.data.createdAt,
@@ -190,6 +197,8 @@ export function createRoutes(zero: ZeroOS) {
       return c.json({
         id: row.id,
         source: row.source,
+        channelName: row.channelName,
+        channelId: row.channelId,
         status: row.status,
         currentModel: row.currentModel,
         createdAt: row.createdAt,
@@ -549,12 +558,7 @@ export function createRoutes(zero: ZeroOS) {
     // Channel config — detailed configuration info
     .get('/api/channels/config', (c) => {
       const channelConfigs = Array.from(zero.channels.entries()).map(([name, ch]) => {
-        const secretKeys: Record<string, string[]> = {
-          feishu: ['feishu_app_id', 'feishu_app_secret'],
-          telegram: ['telegram_bot_token'],
-          web: [],
-        }
-        const keys = secretKeys[ch.type] ?? []
+        const keys = zero.channelDefinitions.get(name)?.secretRefs ?? []
         const secrets = keys.map((k) => ({
           key: k,
           configured: !!zero.vault.get(k),

@@ -133,11 +133,14 @@ describe('API Routes Extended', () => {
   })
 
   test('GET /api/sessions/channel/:channel/active returns active candidates only', async () => {
-    const feishu = zero.sessionManager.getOrCreateForChannel('feishu', 'shared-room').session
+    const feishu = zero.sessionManager.getOrCreateForChannel('feishu', 'shared-room', 'feishu:ops').session
     feishu.data.updatedAt = '2026-03-08T00:00:02.000Z'
 
     const telegram = zero.sessionManager.getOrCreateForChannel('telegram', 'shared-room').session
     telegram.data.updatedAt = '2026-03-08T00:00:03.000Z'
+
+    const feishuHr = zero.sessionManager.getOrCreateForChannel('feishu', 'shared-room', 'feishu:hr').session
+    feishuHr.data.updatedAt = '2026-03-08T00:00:01.000Z'
 
     const web = zero.sessionManager.getOrCreateForChannel('web', 'shared-room').session
     web.setStatus('completed')
@@ -147,7 +150,11 @@ describe('API Routes Extended', () => {
     expect(res.status).toBe(200)
     const data = await res.json()
 
-    expect(data.sessions.map((session: { source: string }) => session.source)).toEqual(['telegram', 'feishu'])
+    expect(data.sessions.map((session: { source: string; channelName?: string }) => `${session.source}:${session.channelName ?? 'none'}`)).toEqual([
+      'telegram:none',
+      'feishu:feishu:ops',
+      'feishu:feishu:hr',
+    ])
     expect(data.sessions.every((session: { status: string }) => ['active', 'idle'].includes(session.status))).toBe(true)
   })
 
@@ -183,5 +190,14 @@ describe('API Routes Extended', () => {
     ])
     expect(data.sessions.every((session: { source: string }) => session.source === 'scheduler')).toBe(true)
     expect(data.sessions.every((session: { status: string }) => ['active', 'idle'].includes(session.status))).toBe(true)
+  })
+
+  test('GET /api/sessions includes channelName when present', async () => {
+    const session = zero.sessionManager.getOrCreateForChannel('feishu', 'room-with-name', 'feishu:ops').session
+    const res = await app.request(`/api/sessions?q=${session.data.id}`)
+
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.sessions[0].channelName).toBe('feishu:ops')
   })
 })

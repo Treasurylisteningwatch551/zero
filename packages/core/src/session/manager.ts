@@ -55,12 +55,20 @@ export class SessionManager {
     return Array.from(this.sessions.values())
   }
 
+  private getChannelSessionKey(source: SessionSource, channelId: string, channelName?: string): string {
+    return `${source}:${channelName ?? source}:${channelId}`
+  }
+
   /**
    * Get or create a session bound to a channel conversation.
    * Reuses an existing active/idle session for the same (source, channelId) pair.
    */
-  getOrCreateForChannel(source: SessionSource, channelId: string): { session: Session; isNew: boolean } {
-    const key = `${source}:${channelId}`
+  getOrCreateForChannel(
+    source: SessionSource,
+    channelId: string,
+    channelName?: string
+  ): { session: Session; isNew: boolean } {
+    const key = this.getChannelSessionKey(source, channelId, channelName)
     const existingId = this.channelSessions.get(key)
     if (existingId) {
       const session = this.sessions.get(existingId)
@@ -70,6 +78,7 @@ export class SessionManager {
       this.channelSessions.delete(key)
     }
     const session = this.create(source)
+    session.data.channelName = channelName
     session.data.channelId = channelId
     this.channelSessions.set(key, session.data.id)
     return { session, isNew: true }
@@ -82,9 +91,16 @@ export class SessionManager {
   startNewForChannel(
     source: SessionSource,
     channelId: string,
-    options?: { previousStatus?: 'completed' | 'archived' }
+    channelNameOrOptions?: string | { channelName?: string; previousStatus?: 'completed' | 'archived' },
+    maybeOptions?: { previousStatus?: 'completed' | 'archived' }
   ): { session: Session; previousSessionId?: string } {
-    const key = `${source}:${channelId}`
+    const channelName = typeof channelNameOrOptions === 'string'
+      ? channelNameOrOptions
+      : channelNameOrOptions?.channelName
+    const options = typeof channelNameOrOptions === 'string'
+      ? maybeOptions
+      : channelNameOrOptions
+    const key = this.getChannelSessionKey(source, channelId, channelName)
     const previousSessionId = this.channelSessions.get(key)
     const previousStatus = options?.previousStatus ?? 'completed'
 
@@ -97,6 +113,7 @@ export class SessionManager {
     }
 
     const session = this.create(source)
+    session.data.channelName = channelName
     session.data.channelId = channelId
     this.channelSessions.set(key, session.data.id)
     return { session, previousSessionId }
@@ -108,7 +125,11 @@ export class SessionManager {
   remove(id: string): void {
     const session = this.sessions.get(id)
     if (session?.data.channelId) {
-      const key = `${session.data.source}:${session.data.channelId}`
+      const key = this.getChannelSessionKey(
+        session.data.source,
+        session.data.channelId,
+        session.data.channelName,
+      )
       if (this.channelSessions.get(key) === id) {
         this.channelSessions.delete(key)
       }
@@ -139,6 +160,7 @@ export class SessionManager {
         modelHistory: row.modelHistory,
         summary: row.summary,
         tags: row.tags,
+        channelName: row.channelName,
         channelId: row.channelId,
       }
 
@@ -159,7 +181,10 @@ export class SessionManager {
 
       // Restore channel mapping
       if (row.channelId) {
-        this.channelSessions.set(`${row.source}:${row.channelId}`, row.id)
+        this.channelSessions.set(
+          this.getChannelSessionKey(row.source, row.channelId, row.channelName),
+          row.id,
+        )
       }
 
       restored++

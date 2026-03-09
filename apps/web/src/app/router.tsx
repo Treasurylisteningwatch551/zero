@@ -43,6 +43,7 @@ const sessionChannelDetailRoute = createRoute({
   path: '/sessions/channel/$channel/detail',
   validateSearch: (search: Record<string, unknown>) => ({
     source: typeof search.source === 'string' ? search.source : undefined,
+    channelName: typeof search.channelName === 'string' ? search.channelName : undefined,
   }),
   component: SessionChannelDetailPage,
 })

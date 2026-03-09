@@ -4,6 +4,7 @@ import type { Channel, IncomingMessage, ImageAttachment, MessageHandler } from '
 import { renderMarkdownForFeishu } from '../richtext/feishu'
 
 export interface FeishuChannelConfig {
+  name?: string
   appId: string
   appSecret: string
   encryptKey?: string
@@ -24,7 +25,7 @@ interface FeishuBinaryResponse {
  * Feishu (Lark) channel — sends and receives messages via Feishu bot.
  */
 export class FeishuChannel implements Channel {
-  readonly name = 'feishu'
+  readonly name: string
   readonly type = 'feishu'
 
   private client: lark.Client | null = null
@@ -39,6 +40,7 @@ export class FeishuChannel implements Channel {
 
   constructor(config: FeishuChannelConfig) {
     this.config = config
+    this.name = config.name ?? 'feishu'
   }
 
   async start(): Promise<void> {
