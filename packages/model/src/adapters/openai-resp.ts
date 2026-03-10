@@ -20,6 +20,20 @@ interface ChatGptSseEvent {
 
 const DEFAULT_CHATGPT_INSTRUCTIONS = 'You are a helpful assistant.'
 
+/** Split a composite tool call ID (`call_xxx|fc_yyy`) into its two parts. */
+function splitToolCallId(id: string): { callId: string; itemId: string | undefined } {
+  if (id.includes('|')) {
+    const [callId, itemId] = id.split('|', 2)
+    return { callId, itemId: itemId || undefined }
+  }
+  return { callId: id, itemId: undefined }
+}
+
+/** Join call_id and item id (fc_*) into a composite ID for internal use. */
+function joinToolCallId(callId: string, itemId?: string): string {
+  return itemId ? `${callId}|${itemId}` : callId
+}
+
 /**
  * OpenAI Responses API adapter.
  * Uses the native Responses API (`client.responses.create()`) for models
@@ -165,7 +179,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       throw new Error(`ChatGPT request failed: ${response.status} ${error}`)
     }
 
-    const toolCallBuffers = new Map<string, { name: string; arguments: string }>()
+    const toolCallBuffers = new Map<string, { name: string; arguments: string; itemId?: string }>()
 
     for await (const event of this.iterSseEvents(response)) {
       if (event.type === 'response.output_text.delta') {
@@ -175,9 +189,11 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
         if (item.type === 'function_call') {
           const callId = typeof item.call_id === 'string' ? item.call_id : undefined
           if (!callId) continue
+          const itemId = typeof item.id === 'string' ? item.id : undefined
           const name = typeof item.name === 'string' ? item.name : 'unknown_tool'
-          toolCallBuffers.set(callId, { name, arguments: typeof item.arguments === 'string' ? item.arguments : '' })
-          yield { type: 'tool_use_start', data: { id: callId, name } }
+          const compositeId = joinToolCallId(callId, itemId)
+          toolCallBuffers.set(callId, { name, arguments: typeof item.arguments === 'string' ? item.arguments : '', itemId })
+          yield { type: 'tool_use_start', data: { id: compositeId, name } }
         }
       } else if (event.type === 'response.function_call_arguments.delta') {
         const callId = typeof event.call_id === 'string' ? event.call_id : undefined
@@ -185,7 +201,8 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
         if (callId && toolCallBuffers.has(callId)) {
           toolCallBuffers.get(callId)!.arguments += delta
         }
-        yield { type: 'tool_use_delta', data: { ...(callId ? { id: callId } : {}), arguments: delta } }
+        const compositeId = callId ? joinToolCallId(callId, toolCallBuffers.get(callId)?.itemId) : undefined
+        yield { type: 'tool_use_delta', data: { ...(compositeId ? { id: compositeId } : {}), arguments: delta } }
       } else if (event.type === 'response.function_call_arguments.done') {
         const callId = typeof event.call_id === 'string' ? event.call_id : undefined
         if (callId && toolCallBuffers.has(callId) && typeof event.arguments === 'string') {
@@ -196,7 +213,8 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
         if (item.type === 'function_call') {
           const callId = typeof item.call_id === 'string' ? item.call_id : undefined
           if (!callId) continue
-          yield { type: 'tool_use_end', data: { id: callId } }
+          const itemId = typeof item.id === 'string' ? item.id : toolCallBuffers.get(callId)?.itemId
+          yield { type: 'tool_use_end', data: { id: joinToolCallId(callId, itemId) } }
         }
       } else if (event.type === 'response.completed') {
         const usage = event.response?.usage
@@ -241,9 +259,10 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
               outputSummary?: string
             }
             if (!pairedCallIds.has(result.toolUseId)) continue
+            const { callId: outputCallId } = splitToolCallId(result.toolUseId)
             input.push({
               type: 'function_call_output',
-              call_id: result.toolUseId,
+              call_id: outputCallId,
               output: this.normalizeToolOutput(result.content, result.outputSummary),
             })
           }
@@ -276,10 +295,11 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
         for (const tu of toolUses) {
           const block = tu as { id: string; name: string; input: Record<string, unknown> }
           if (!pairedCallIds.has(block.id)) continue
+          const { callId, itemId } = splitToolCallId(block.id)
           input.push({
             type: 'function_call',
-            id: block.id,
-            call_id: block.id,
+            id: itemId ?? `fc_${callId}`,
+            call_id: callId,
             name: block.name,
             arguments: JSON.stringify(block.input),
           })
@@ -375,7 +395,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
 
   private parseChatGptCompletion(events: ChatGptSseEvent[]): CompletionResponse {
     const textParts: string[] = []
-    const toolCalls = new Map<string, { name: string; arguments: string }>()
+    const toolCalls = new Map<string, { name: string; arguments: string; itemId?: string }>()
     let responseId = crypto.randomUUID()
     let responseModel = this.modelId
     let usage: TokenUsage = { input: 0, output: 0 }
@@ -392,6 +412,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
           toolCalls.set(callId, {
             name: typeof item.name === 'string' ? item.name : 'unknown_tool',
             arguments: typeof item.arguments === 'string' ? item.arguments : '',
+            itemId: typeof item.id === 'string' ? item.id : undefined,
           })
         }
       } else if (event.type === 'response.function_call_arguments.delta') {
@@ -429,6 +450,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
           toolCalls.set(callId, {
             name: typeof item.name === 'string' ? item.name : existing?.name ?? 'unknown_tool',
             arguments: typeof item.arguments === 'string' ? item.arguments : existing?.arguments ?? '',
+            itemId: typeof item.id === 'string' ? item.id : existing?.itemId,
           })
         }
       } else if (event.type === 'response.completed') {
@@ -447,7 +469,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       hasToolUse = true
       content.push({
         type: 'tool_use',
-        id: callId,
+        id: joinToolCallId(callId, toolCall.itemId),
         name: toolCall.name,
         input: this.safeJsonParse(toolCall.arguments),
       })
@@ -544,9 +566,11 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
         }
       } else if (item.type === 'function_call') {
         hasToolUse = true
+        const fcCallId = item.call_id ?? item.id
+        const fcItemId = typeof item.id === 'string' ? item.id : undefined
         content.push({
           type: 'tool_use',
-          id: item.call_id ?? item.id,
+          id: joinToolCallId(fcCallId, fcItemId),
           name: item.name,
           input: JSON.parse(item.arguments || '{}'),
         })

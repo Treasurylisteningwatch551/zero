@@ -367,7 +367,7 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
   })
 
 
-  test('parseChatGptCompletion keeps call_id as tool_use id', () => {
+  test('parseChatGptCompletion preserves composite call_id|fc_id as tool_use id', () => {
     const result = (adapter as any).parseChatGptCompletion([
       {
         type: 'response.output_item.added',
@@ -387,7 +387,7 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
 
     expect(result.content).toContainEqual({
       type: 'tool_use',
-      id: 'call_123',
+      id: 'call_123|fc_item_1',
       name: 'read',
       input: { path: 'a.txt' },
     })
