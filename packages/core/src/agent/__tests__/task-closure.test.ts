@@ -79,6 +79,7 @@ test('buildTaskClosureDecisionPrompt includes research-depth guidance', () => {
       externalLookupCount: 1,
       externalSourceDomains: ['reddit.com'],
       coverageHint: 'depth_requested_but_multi_source_not_reached',
+      toolCallSummary: [],
     },
   )
 
@@ -86,4 +87,41 @@ test('buildTaskClosureDecisionPrompt includes research-depth guidance', () => {
   expect(prompt).toContain('多源交叉验证')
   expect(prompt).toContain('external_lookup_count=1')
   expect(prompt).toContain('coverage_hint=depth_requested_but_multi_source_not_reached')
+})
+
+test('buildTaskClosureDecisionPrompt includes tool call summary', () => {
+  const prompt = buildTaskClosureDecisionPrompt(
+    '2分钟后提醒我',
+    '已设置好，2分钟后会提醒你',
+    '已设置好，2分钟后会提醒你',
+    {
+      isResearchTask: false,
+      wantsDepth: false,
+      externalLookupCount: 0,
+      externalSourceDomains: [],
+      coverageHint: 'general',
+      toolCallSummary: ['schedule:create → success (Created schedule "reminder-2min")'],
+    },
+  )
+
+  expect(prompt).toContain('<tool_calls_this_turn>')
+  expect(prompt).toContain('schedule:create → success')
+})
+
+test('buildTaskClosureDecisionPrompt renders none when no tool calls', () => {
+  const prompt = buildTaskClosureDecisionPrompt(
+    '你好',
+    '你好！',
+    '你好！',
+    {
+      isResearchTask: false,
+      wantsDepth: false,
+      externalLookupCount: 0,
+      externalSourceDomains: [],
+      coverageHint: 'general',
+      toolCallSummary: [],
+    },
+  )
+
+  expect(prompt).toContain('<tool_calls_this_turn>\nnone\n</tool_calls_this_turn>')
 })

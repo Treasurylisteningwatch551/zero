@@ -14,6 +14,7 @@ export interface TaskClosurePromptContext {
   externalLookupCount: number
   externalSourceDomains: string[]
   coverageHint: string
+  toolCallSummary: string[]
 }
 
 export const TASK_CLOSURE_PROMPT = `<system_notice>
@@ -40,7 +41,8 @@ export function buildTaskClosureDecisionPrompt(
 - 如果 assistant 已经完整回答用户问题，返回 finish。
 - 如果 assistant 只是把完成当前问题所必需的低成本后续动作写成了“如果你愿意，我可以继续……”，返回 continue。
 - 如果 assistant 明确缺少用户提供的信息、授权、凭据、登录态，或下一步涉及不可逆外部动作，返回 block。
-- 只有当用户明确要求“给我下一步选项 / 后续选项 / 还能做什么”时，菜单式收尾才算 finish。
+- 如果 assistant 声称已完成某操作，且 <tool_calls_this_turn> 中有对应的成功工具调用记录，该操作视为已实际执行，不属于虚假确认，应返回 finish 而非 block。
+- 只有当用户明确要求”给我下一步选项 / 后续选项 / 还能做什么”时，菜单式收尾才算 finish。
 
 研究/分析类任务额外规则：
 - 如果用户要求分析、深入分析、研究、核验，或要求把“相关信息 / 相关线索”也一起分析，不能因为 assistant 已经给出一版总结就直接返回 finish。
@@ -67,6 +69,10 @@ external_lookup_count=${context?.externalLookupCount ?? 0}
 external_source_domains=${context?.externalSourceDomains.join(', ') || 'none'}
 coverage_hint=${context?.coverageHint ?? 'unknown'}
 </task_context>
+
+<tool_calls_this_turn>
+${context?.toolCallSummary?.length ? context.toolCallSummary.join('\n') : 'none'}
+</tool_calls_this_turn>
 
 <user_message>
 ${userMessage}

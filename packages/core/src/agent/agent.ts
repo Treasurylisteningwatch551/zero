@@ -779,6 +779,20 @@ export class Agent {
 
     const externalSourceDomains = new Set<string>()
     let externalLookupCount = 0
+    const toolCallSummary: string[] = []
+
+    // Collect all tool_result blocks for quick lookup by toolUseId
+    const toolResults = new Map<string, { isError?: boolean; outputSummary?: string }>()
+    for (const message of messages) {
+      for (const block of message.content) {
+        if (block.type === 'tool_result') {
+          toolResults.set(block.toolUseId, {
+            isError: block.isError,
+            outputSummary: block.outputSummary,
+          })
+        }
+      }
+    }
 
     for (const message of messages) {
       for (const block of message.content) {
@@ -792,13 +806,27 @@ export class Agent {
           || url.startsWith('http://')
           || url.startsWith('https://')
 
-        if (!looksExternal) continue
-        externalLookupCount++
+        if (looksExternal) {
+          externalLookupCount++
+          if (url) {
+            try {
+              externalSourceDomains.add(new URL(url).hostname)
+            } catch {}
+          }
+        }
 
-        if (url) {
-          try {
-            externalSourceDomains.add(new URL(url).hostname)
-          } catch {}
+        // Build tool call summary line
+        if (toolCallSummary.length < 10) {
+          const action = typeof input.action === 'string' ? input.action : ''
+          const result = toolResults.get(block.id)
+          const status = result?.isError ? 'error' : 'success'
+          const summary = result?.outputSummary?.slice(0, 80) ?? ''
+
+          let line = block.name
+          if (action) line += `:${action}`
+          line += ` → ${status}`
+          if (summary) line += ` (${summary})`
+          toolCallSummary.push(line)
         }
       }
     }
@@ -822,6 +850,7 @@ export class Agent {
       externalLookupCount,
       externalSourceDomains: Array.from(externalSourceDomains).slice(0, 6),
       coverageHint,
+      toolCallSummary,
     }
   }
 
