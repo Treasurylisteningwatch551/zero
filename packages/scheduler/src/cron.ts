@@ -15,6 +15,7 @@ export class CronScheduler {
   private entries: Map<string, ScheduleEntry> = new Map()
   private timers: Map<string, ReturnType<typeof setTimeout>> = new Map()
   private onTrigger: ((config: ScheduleConfig) => Promise<void>) | null = null
+  private onRemoved: ((name: string) => void) | null = null
   private queued: Map<string, ScheduleConfig[]> = new Map()
   private runningAbort: Map<string, AbortController> = new Map()
 
@@ -23,6 +24,13 @@ export class CronScheduler {
    */
   setTriggerHandler(handler: (config: ScheduleConfig) => Promise<void>): void {
     this.onTrigger = handler
+  }
+
+  /**
+   * Set a callback invoked when a schedule is removed (e.g. oneShot cleanup).
+   */
+  setOnRemoved(handler: (name: string) => void): void {
+    this.onRemoved = handler
   }
 
   /**
@@ -37,6 +45,39 @@ export class CronScheduler {
       nextRun,
       running: false,
     })
+  }
+
+  /**
+   * Add a schedule and immediately start its timer.
+   * Use this when the scheduler is already running.
+   */
+  addAndStart(config: ScheduleConfig): void {
+    this.add(config)
+    const entry = this.entries.get(config.name)
+    if (entry) {
+      this.scheduleNext(config.name, entry)
+    }
+  }
+
+  /**
+   * Remove a schedule by name. Returns true if it existed.
+   */
+  remove(name: string): boolean {
+    const timer = this.timers.get(name)
+    if (timer) clearTimeout(timer)
+    this.timers.delete(name)
+    this.queued.delete(name)
+    const abort = this.runningAbort.get(name)
+    if (abort) abort.abort()
+    this.runningAbort.delete(name)
+    return this.entries.delete(name)
+  }
+
+  /**
+   * Get a single schedule entry.
+   */
+  getEntry(name: string): ScheduleEntry | undefined {
+    return this.entries.get(name)
   }
 
   /**
@@ -152,6 +193,15 @@ export class CronScheduler {
     } finally {
       entry.running = false
       this.runningAbort.delete(name)
+
+      // oneShot: remove after single execution
+      if (entry.config.oneShot) {
+        this.remove(name)
+        if (this.onRemoved) {
+          this.onRemoved(name)
+        }
+        return
+      }
 
       // Process queued executions
       const queue = this.queued.get(name)

@@ -5,6 +5,8 @@ import type {
   SessionStatus,
   ModelHistoryEntry,
   Message,
+  ScheduleConfig,
+  ScheduleChannelBinding,
 } from '@zero-os/shared'
 
 export interface SessionRow {
@@ -122,6 +124,24 @@ export class SessionDB {
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_channel_instance ON sessions(source, channel_name, channel_id)`)
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at)`)
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_channel_models_updated ON channel_models(updated_at)`)
+
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS schedules (
+        name TEXT PRIMARY KEY,
+        cron TEXT NOT NULL,
+        instruction TEXT NOT NULL,
+        model TEXT,
+        overlap_policy TEXT,
+        misfire_policy TEXT,
+        channel_source TEXT,
+        channel_name TEXT,
+        channel_id TEXT,
+        one_shot INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL DEFAULT 'runtime',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    `)
   }
 
   /**
@@ -285,6 +305,67 @@ export class SessionDB {
     this.db.run(`DELETE FROM session_messages WHERE session_id = ?`, [sessionId])
     const result = this.db.run(`DELETE FROM sessions WHERE id = ?`, [sessionId])
     return result.changes > 0
+  }
+
+  // ── Schedule persistence ──
+
+  saveSchedule(config: ScheduleConfig): void {
+    const ts = new Date().toISOString()
+    this.db.run(
+      `INSERT OR REPLACE INTO schedules
+       (name, cron, instruction, model, overlap_policy, misfire_policy,
+        channel_source, channel_name, channel_id, one_shot, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        config.name,
+        config.cron,
+        config.instruction,
+        config.model ?? null,
+        config.overlapPolicy ? JSON.stringify(config.overlapPolicy) : null,
+        config.misfirePolicy ?? null,
+        config.channel?.source ?? null,
+        config.channel?.channelName ?? null,
+        config.channel?.channelId ?? null,
+        config.oneShot ? 1 : 0,
+        config.createdBy ?? 'runtime',
+        ts,
+        ts,
+      ]
+    )
+  }
+
+  deleteSchedule(name: string): boolean {
+    const result = this.db.run(`DELETE FROM schedules WHERE name = ?`, [name])
+    return result.changes > 0
+  }
+
+  loadRuntimeSchedules(): ScheduleConfig[] {
+    const rows = this.db
+      .query(`SELECT * FROM schedules WHERE created_by = 'runtime'`)
+      .all() as Array<Record<string, unknown>>
+
+    return rows.map((row) => {
+      const config: ScheduleConfig = {
+        name: row.name as string,
+        cron: row.cron as string,
+        instruction: row.instruction as string,
+        createdBy: 'runtime',
+      }
+      if (row.model) config.model = row.model as string
+      if (row.overlap_policy) {
+        config.overlapPolicy = JSON.parse(row.overlap_policy as string)
+      }
+      if (row.misfire_policy) config.misfirePolicy = row.misfire_policy as 'skip' | 'run_once'
+      if (row.one_shot) config.oneShot = true
+      if (row.channel_source && row.channel_name && row.channel_id) {
+        config.channel = {
+          source: row.channel_source,
+          channelName: row.channel_name,
+          channelId: row.channel_id,
+        } as ScheduleChannelBinding
+      }
+      return config
+    })
   }
 
   close(): void {

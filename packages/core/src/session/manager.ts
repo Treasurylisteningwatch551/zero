@@ -237,6 +237,26 @@ export class SessionManager {
     this.sessions.delete(id)
   }
 
+  /**
+   * Get all distinct channelIds for active sessions matching a given source and channelName.
+   * Used for broadcasting notifications to all active conversations in a channel.
+   */
+  getActiveChannelIds(source: SessionSource, channelName?: string): string[] {
+    const ids = new Set<string>()
+    for (const session of this.sessions.values()) {
+      const s = session.data
+      if (
+        s.channelId &&
+        s.source === source &&
+        (s.status === 'active' || s.status === 'idle') &&
+        (!channelName || s.channelName === channelName)
+      ) {
+        ids.add(s.channelId)
+      }
+    }
+    return Array.from(ids)
+  }
+
   // --- Persistence methods ---
 
   /**

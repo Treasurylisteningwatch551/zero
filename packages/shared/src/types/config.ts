@@ -1,3 +1,5 @@
+import type { SessionSource } from './session'
+
 export type ApiType = 'anthropic_messages' | 'openai_chat_completions' | 'openai_responses'
 
 export type AuthType = 'api_key' | 'oauth2'
@@ -49,6 +51,12 @@ export interface ScheduleOverlapPolicy {
   type: 'skip' | 'queue' | 'replace'
 }
 
+export interface ScheduleChannelBinding {
+  source: SessionSource
+  channelName: string
+  channelId: string
+}
+
 export interface ScheduleConfig {
   name: string
   cron: string
@@ -56,6 +64,9 @@ export interface ScheduleConfig {
   model?: string
   overlapPolicy?: ScheduleOverlapPolicy
   misfirePolicy?: 'skip' | 'run_once'
+  channel?: ScheduleChannelBinding
+  oneShot?: boolean
+  createdBy?: 'config' | 'runtime'
 }
 
 export interface FuseRule {

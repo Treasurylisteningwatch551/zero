@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, appendFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadConfig, loadFuseList } from '@zero-os/core'
 import { ModelRouter } from '@zero-os/model'
-import { ToolRegistry, ReadTool, WriteTool, EditTool, BashTool, FetchTool, TaskTool, MemoryTool, MemorySearchTool, MemoryGetTool } from '@zero-os/core'
+import { ToolRegistry, ReadTool, WriteTool, EditTool, BashTool, FetchTool, TaskTool, MemoryTool, MemorySearchTool, MemoryGetTool, ScheduleTool } from '@zero-os/core'
 import { SessionManager } from '@zero-os/core'
 import { Vault, generateMasterKey, setMasterKey, getMasterKey } from '@zero-os/secrets'
 import { OutputSecretFilter } from '@zero-os/secrets'
@@ -17,7 +17,7 @@ import { createTelegramStreamFlusher, reconcileTelegramFinalText } from './teleg
 import { canRunTelegramRestart, syncTelegramCommandMenu } from './telegram-menu'
 import type { Channel } from '@zero-os/channel'
 import { WebChannel, FeishuChannel, TelegramChannel } from '@zero-os/channel'
-import type { ChannelInstanceConfig, Notification } from '@zero-os/shared'
+import type { ChannelInstanceConfig, Notification, SessionSource, ScheduleConfig } from '@zero-os/shared'
 
 const ZERO_DIR = join(process.cwd(), '.zero')
 
@@ -133,6 +133,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
   toolRegistry.register(new MemoryGetTool())
   toolRegistry.register(new MemoryTool())
   toolRegistry.register(new TaskTool(modelRouter, toolRegistry))
+  toolRegistry.register(new ScheduleTool())
   console.log(`[ZeRo OS] ${toolRegistry.list().length} tools registered`)
 
   // 9. Memory
@@ -152,6 +153,18 @@ export async function startZeroOS(): Promise<ZeroOS> {
 
   // 10. Session Manager — pass observability deps, memory, bus, secret filter, identity, memo
   const secretResolver = (ref: string) => vault.get(ref) ?? undefined
+  // Pre-create scheduler + handles (trigger handler set later after sessionManager exists)
+  const scheduler = new CronScheduler()
+  const schedulerHandle = {
+    addAndStart: (c: ScheduleConfig) => scheduler.addAndStart(c),
+    remove: (n: string) => scheduler.remove(n),
+    getStatus: () => scheduler.getStatus(),
+  }
+  const scheduleStore = {
+    save: (c: ScheduleConfig) => sessionDb.saveSchedule(c),
+    delete: (n: string) => sessionDb.deleteSchedule(n),
+  }
+
   const sessionManager = new SessionManager(modelRouter, toolRegistry, {
     logger,
     metrics,
@@ -164,6 +177,8 @@ export async function startZeroOS(): Promise<ZeroOS> {
     memoReader: () => memoManager.read(),
     bus: globalBus,
     sessionDb,
+    schedulerHandle,
+    scheduleStore,
   }, sessionDb)
 
   // 10.5. Restore active sessions from DB
@@ -180,21 +195,86 @@ export async function startZeroOS(): Promise<ZeroOS> {
   heartbeat.start()
   console.log('[ZeRo OS] Heartbeat writer started')
 
-  // 13. Scheduler
-  const scheduler = new CronScheduler()
+  // 13. Scheduler — trigger handler (scheduler + handles created in step 10)
+  const channels = new Map<string, Channel>()
+
   scheduler.setTriggerHandler(async (schedConfig) => {
-    const session = sessionManager.create('scheduler')
-    session.initAgent({
-      name: `schedule-${schedConfig.name}`,
-      systemPrompt: schedConfig.instruction,
-    })
-    await session.handleMessage(schedConfig.instruction)
+    const binding = schedConfig.channel
+    let session: import('@zero-os/core').Session
+
+    if (binding) {
+      const result = sessionManager.getOrCreateForChannel(
+        binding.source as SessionSource,
+        binding.channelId,
+        binding.channelName,
+      )
+      session = result.session
+      if (result.isNew) {
+        session.initAgent({
+          name: `schedule-${schedConfig.name}`,
+          systemPrompt: schedConfig.instruction,
+        })
+      }
+    } else {
+      session = sessionManager.create('scheduler')
+      session.initAgent({
+        name: `schedule-${schedConfig.name}`,
+        systemPrompt: schedConfig.instruction,
+      })
+    }
+
+    const replies = await session.handleMessage(schedConfig.instruction)
+
+    // Deliver result back to originating channel
+    if (binding) {
+      const channel = channels.get(binding.channelName)
+      const text = collectAssistantReply(replies)
+      if (channel?.isConnected() && text) {
+        await channel.send(binding.channelId, text).catch((err) => {
+          console.error(`[Scheduler] delivery to ${binding.channelName}:${binding.channelId} failed:`, err)
+          addNotification({
+            type: 'system',
+            severity: 'warn',
+            title: `Schedule "${schedConfig.name}" delivery failed`,
+            description: text.slice(0, 500),
+            source: 'scheduler',
+            sessionId: session.data.id,
+            actionable: false,
+          })
+        })
+      } else if (text) {
+        addNotification({
+          type: 'system',
+          severity: 'info',
+          title: `Schedule "${schedConfig.name}" completed (channel offline)`,
+          description: text.slice(0, 500),
+          source: 'scheduler',
+          sessionId: session.data.id,
+          actionable: false,
+        })
+      }
+    }
   })
+
+  // Clean up DB when oneShot schedule auto-removes
+  scheduler.setOnRemoved((name) => {
+    sessionDb.deleteSchedule(name)
+  })
+
+  // Load config-based schedules
   for (const s of config.schedules) {
+    scheduler.add({ ...s, createdBy: 'config' as const })
+  }
+
+  // Load runtime-created (channel-bound) schedules from DB
+  const runtimeSchedules = sessionDb.loadRuntimeSchedules()
+  for (const s of runtimeSchedules) {
     scheduler.add(s)
   }
+
   scheduler.start()
-  console.log(`[ZeRo OS] Scheduler started (${config.schedules.length} schedules)`)
+  const totalSchedules = config.schedules.length + runtimeSchedules.length
+  console.log(`[ZeRo OS] Scheduler started (${totalSchedules} schedules: ${config.schedules.length} config + ${runtimeSchedules.length} runtime)`)
 
   // 14. Notification store
   const notifications: Notification[] = []
@@ -225,11 +305,15 @@ export async function startZeroOS(): Promise<ZeroOS> {
       notification,
       event: 'notification:new',
     })
-    // Push to explicitly opted-in channels only
+    // Push to explicitly opted-in channels — send to each active conversation
     for (const [name, ch] of channels) {
       const definition = channelDefinitions.get(name)
       if (!definition?.receiveNotifications || !ch.isConnected() || ch.type === 'web') continue
-      ch.send('broadcast', `[notification]${notification.title}: ${notification.description}`).catch(() => {})
+      const chatIds = sessionManager.getActiveChannelIds(definition.type as SessionSource, name)
+      const text = `[notification]${notification.title}: ${notification.description}`
+      for (const chatId of chatIds) {
+        ch.send(chatId, text).catch(() => {})
+      }
     }
     return notification
   }
@@ -304,8 +388,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
     return `New conversation started. ${modelResult.message}`
   }
 
-  // 15. Channel registry
-  const channels = new Map<string, Channel>()
+  // 15. Channel registry (channels Map declared earlier with scheduler)
 
   // Web channel — always registered
   const webChannel = new WebChannel()

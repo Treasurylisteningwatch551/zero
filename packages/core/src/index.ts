@@ -13,6 +13,7 @@ export { TaskTool } from './tool/task'
 export { MemoryTool } from './tool/memory'
 export { MemorySearchTool } from './tool/memory-search'
 export { MemoryGetTool } from './tool/memory-get'
+export { ScheduleTool } from './tool/schedule'
 export { ToolRegistry } from './tool/registry'
 
 // Agent

@@ -45,6 +45,8 @@ export interface SessionDeps {
   }
   persistModelPreference?: (model: string) => void
   sessionDb?: SessionDB
+  schedulerHandle?: import('@zero-os/shared').ToolContext['schedulerHandle']
+  scheduleStore?: import('@zero-os/shared').ToolContext['scheduleStore']
 }
 
 /**
@@ -169,6 +171,15 @@ export class Session {
       secretResolver: this.deps.secretResolver,
       memoryRetriever: this.deps.memoryRetriever,
       memoryStore: this.deps.memoryStore,
+      channelBinding: this.data.channelId
+        ? {
+            source: this.data.source,
+            channelName: this.data.channelName ?? this.data.source,
+            channelId: this.data.channelId,
+          }
+        : undefined,
+      schedulerHandle: this.deps.schedulerHandle,
+      scheduleStore: this.deps.scheduleStore,
     }
 
     const agentObs: AgentObservability = {

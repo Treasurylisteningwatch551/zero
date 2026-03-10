@@ -1,4 +1,4 @@
-import type { SecretFilter } from './config'
+import type { SecretFilter, ScheduleConfig } from './config'
 import type { Memory, MemorySearchOptions } from './memory'
 
 /**
@@ -45,6 +45,20 @@ export interface ToolContext {
     get(type: string, id: string): { id: string; type: string; title: string; content: string } | undefined
     getRelativePath?(type: string, id: string): string | undefined
     readByPath?(path: string, options?: { from?: number; lines?: number }): { path: string; text: string } | undefined
+  }
+  channelBinding?: {
+    source: string
+    channelName: string
+    channelId: string
+  }
+  schedulerHandle?: {
+    addAndStart(config: ScheduleConfig): void
+    remove(name: string): boolean
+    getStatus(): Array<{ name: string; nextRun: Date; running: boolean; lastRun?: Date }>
+  }
+  scheduleStore?: {
+    save(config: ScheduleConfig): void
+    delete(name: string): boolean
   }
 }
 
