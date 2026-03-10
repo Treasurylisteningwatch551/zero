@@ -19,7 +19,7 @@ import type { Channel } from '@zero-os/channel'
 import { WebChannel, FeishuChannel, TelegramChannel } from '@zero-os/channel'
 import type { ChannelInstanceConfig, Notification, SessionSource, ScheduleConfig } from '@zero-os/shared'
 
-const ZERO_DIR = join(process.cwd(), '.zero')
+const ZERO_DIR = process.env.ZERO_DATA_DIR || join(process.cwd(), '.zero')
 
 interface ChannelRuntimeDefinition {
   name: string
