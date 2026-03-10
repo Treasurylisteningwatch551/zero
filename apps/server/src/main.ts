@@ -19,7 +19,10 @@ import type { Channel } from '@zero-os/channel'
 import { WebChannel, FeishuChannel, TelegramChannel } from '@zero-os/channel'
 import type { ChannelInstanceConfig, Notification, SessionSource, ScheduleConfig } from '@zero-os/shared'
 
-const ZERO_DIR = process.env.ZERO_DATA_DIR || join(process.cwd(), '.zero')
+export interface StartOptions {
+  dataDir?: string
+  skipProcessExit?: boolean
+}
 
 interface ChannelRuntimeDefinition {
   name: string
@@ -74,12 +77,13 @@ export interface ZeroOS {
 /**
  * Initialize and start ZeRo OS.
  */
-export async function startZeroOS(): Promise<ZeroOS> {
+export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
+  const ZERO_DIR = options?.dataDir ?? process.env.ZERO_DATA_DIR ?? join(process.cwd(), '.zero')
   const startedAt = Date.now()
   console.log('[ZeRo OS] Starting...')
 
   // 1. Ensure .zero/ directory structure exists
-  ensureDirectories()
+  ensureDirectories(ZERO_DIR)
 
   // 2. Load master key from Keychain (or create if first run)
   let masterKey: Buffer
@@ -796,7 +800,7 @@ export async function startZeroOS(): Promise<ZeroOS> {
     metrics.close()
     console.log('[ZeRo OS] Metrics DB closed')
     console.log('[ZeRo OS] Shutdown complete.')
-    process.exit(0)
+    if (!options?.skipProcessExit) process.exit(0)
   }
 
   return {
@@ -911,7 +915,7 @@ function buildAgentName(channelName: string): string {
   return `zero-${channelName.replace(/[^a-z0-9_-]+/gi, '-')}`
 }
 
-function ensureDirectories(): void {
+function ensureDirectories(ZERO_DIR: string): void {
   const dirs = [
     ZERO_DIR,
     join(ZERO_DIR, 'channels'),

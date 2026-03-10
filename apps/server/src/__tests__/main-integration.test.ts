@@ -1,11 +1,29 @@
-import { describe, test, expect, beforeAll } from 'bun:test'
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
+import { mkdtempSync, cpSync, rmSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { startZeroOS } from '../main'
 import type { ZeroOS } from '../main'
 
 let zero: ZeroOS
+let testDataDir: string
 
 beforeAll(async () => {
-  zero = await startZeroOS()
+  testDataDir = mkdtempSync(join(tmpdir(), 'zero-test-'))
+  const prodDir = join(process.cwd(), '.zero')
+  // Copy only config files needed for bootstrap (not databases)
+  for (const file of ['secrets.enc', 'config.yaml', 'fuse_list.yaml']) {
+    const src = join(prodDir, file)
+    if (existsSync(src)) {
+      cpSync(src, join(testDataDir, file))
+    }
+  }
+  zero = await startZeroOS({ dataDir: testDataDir, skipProcessExit: true })
+})
+
+afterAll(async () => {
+  await zero.shutdown()
+  rmSync(testDataDir, { recursive: true, force: true })
 })
 
 describe('startZeroOS Integration', () => {
