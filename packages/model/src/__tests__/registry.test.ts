@@ -30,6 +30,13 @@ const config: SystemConfig = {
           capabilities: ['tools', 'vision'],
           tags: ['fast', 'balanced'],
         },
+        'claude-sonnet-4-6': {
+          modelId: 'claude-sonnet-4-6',
+          maxContext: 200000,
+          maxOutput: 8192,
+          capabilities: ['tools', 'vision'],
+          tags: ['fast', 'balanced'],
+        },
       },
     },
   },
@@ -63,8 +70,8 @@ describe('ModelRegistry', () => {
   test('fuzzySearch by tag', () => {
     const registry = new ModelRegistry(config, secrets)
     const results = registry.fuzzySearch('fast')
-    expect(results.length).toBe(1)
-    expect(results[0].modelName).toBe('claude-sonnet')
+    expect(results.length).toBe(2)
+    expect(results.map((r) => r.modelName)).toEqual(['claude-sonnet', 'claude-sonnet-4-6'])
   })
 
   test('fuzzySearch by partial name', () => {
@@ -77,7 +84,17 @@ describe('ModelRegistry', () => {
   test('listModels returns all registered models', () => {
     const registry = new ModelRegistry(config, secrets)
     const models = registry.listModels()
-    expect(models.length).toBe(2)
+    expect(models.length).toBe(3)
+  })
+
+  test('resolve finds newly added anthropic/claude-sonnet-4-6', () => {
+    const registry = new ModelRegistry(config, secrets)
+    const resolved = registry.resolve('anthropic/claude-sonnet-4-6')
+      ?? registry.resolve('test-anthropic/claude-sonnet-4-6')
+      ?? registry.resolve('claude-sonnet-4-6')
+    expect(resolved).toBeDefined()
+    expect(resolved?.modelName).toBe('claude-sonnet-4-6')
+    expect(resolved?.modelConfig.modelId).toBe('claude-sonnet-4-6')
   })
 
   test('resolve returns undefined for unknown model', () => {
