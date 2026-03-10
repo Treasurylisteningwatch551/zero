@@ -129,6 +129,12 @@ export function createRoutes(zero: ZeroOS) {
         const toolCallCount = msgs
           .flatMap((m) => m.content)
           .filter((b) => b.type === 'tool_use').length
+        const userMessageCount = msgs.filter(
+          (m) => m.role === 'user' && !m.content.every((b) => b.type === 'tool_result'),
+        ).length
+        const assistantMessageCount = msgs.filter(
+          (m) => m.role === 'assistant' && m.content.some((b) => b.type === 'text'),
+        ).length
         const stats = statsBatch.get(s.data.id)
 
         return {
@@ -145,6 +151,8 @@ export function createRoutes(zero: ZeroOS) {
           channelId: s.data.channelId,
           modelHistory: s.data.modelHistory,
           toolCallCount,
+          userMessageCount,
+          assistantMessageCount,
           totalTokens: stats?.totalTokens ?? 0,
           totalCost: stats?.totalCost ?? 0,
         }
@@ -179,6 +187,8 @@ export function createRoutes(zero: ZeroOS) {
             channelId: row.channelId,
             modelHistory: row.modelHistory,
             toolCallCount: 0,
+            userMessageCount: 0,
+            assistantMessageCount: 0,
             totalTokens: stats?.totalTokens ?? 0,
             totalCost: stats?.totalCost ?? 0,
           })

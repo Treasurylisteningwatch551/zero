@@ -29,6 +29,8 @@ interface SessionInfo {
   channelId?: string
   modelHistory: ModelHistoryEntry[]
   toolCallCount: number
+  userMessageCount: number
+  assistantMessageCount: number
   totalTokens: number
   totalCost: number
 }
@@ -288,7 +290,7 @@ export function SessionsPage() {
                 </div>
 
                 <div className="ml-7 mt-0.5 text-[11px] text-[var(--color-text-disabled)]">
-                  {s.toolCallCount} tool calls
+                  {s.userMessageCount} user · {s.assistantMessageCount} assistant · {s.toolCallCount} tool calls
                   {' · '}
                   {formatNumber(s.totalTokens)} tokens
                   {' · '}

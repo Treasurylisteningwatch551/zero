@@ -12,6 +12,8 @@ interface Session {
   createdAt: string
   summary: string
   toolCallCount: number
+  userMessageCount: number
+  assistantMessageCount: number
 }
 
 interface ToolEvent {
@@ -99,7 +101,7 @@ export function ActiveSessions() {
                 )}
                 <div className="ml-5 mt-0.5 flex items-center gap-2">
                   <span className="text-[11px] text-[var(--color-text-disabled)]">
-                    {s.toolCallCount} tool call{s.toolCallCount !== 1 ? 's' : ''}
+                    {s.userMessageCount} user · {s.assistantMessageCount} assistant · {s.toolCallCount} tool call{s.toolCallCount !== 1 ? 's' : ''}
                   </span>
                   {activeTool && (
                     <span className="text-[11px] text-[var(--color-accent)] animate-pulse">
