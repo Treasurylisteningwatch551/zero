@@ -34,9 +34,9 @@ describe('startZeroOS Integration', () => {
     expect(current!.modelName).toBe('gpt-5.4-medium')
   })
 
-  test('toolRegistry has 9 registered tools', () => {
+  test('toolRegistry has 10 registered tools', () => {
     const tools = zero.toolRegistry.list()
-    expect(tools.length).toBe(9)
+    expect(tools.length).toBe(10)
     const names = tools.map((t) => t.name)
     expect(names).toContain('read')
     expect(names).toContain('write')
@@ -47,6 +47,7 @@ describe('startZeroOS Integration', () => {
     expect(names).toContain('memory_get')
     expect(names).toContain('memory')
     expect(names).toContain('task')
+    expect(names).toContain('schedule')
   })
 
   test('channels map contains web, feishu, telegram', () => {

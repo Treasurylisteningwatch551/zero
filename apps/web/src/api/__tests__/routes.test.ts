@@ -129,7 +129,7 @@ describe('API Routes (Real)', () => {
     const res = await app.request('/api/tools')
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.tools.length).toBe(9)
+    expect(data.tools.length).toBe(10)
     const names = data.tools.map((t: { name: string }) => t.name)
     expect(names).toContain('read')
     expect(names).toContain('write')
@@ -140,6 +140,7 @@ describe('API Routes (Real)', () => {
     expect(names).toContain('memory_search')
     expect(names).toContain('memory_get')
     expect(names).toContain('task')
+    expect(names).toContain('schedule')
   })
 
   test('GET /api/metrics/cost-by-day returns data array', async () => {
