@@ -79,6 +79,7 @@ export interface ContextBudget {
   role: number
   toolRules: number
   constraints: number
+  executionMode: number
   safety: number
   toolCallStyle: number
   identity: number

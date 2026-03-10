@@ -8,6 +8,7 @@ describe('allocateBudget', () => {
     expect(budget.role).toBe(500)
     expect(budget.toolRules).toBe(800)
     expect(budget.constraints).toBe(300)
+    expect(budget.executionMode).toBe(500)
     expect(budget.safety).toBe(300)
     expect(budget.toolCallStyle).toBe(200)
     expect(budget.identity).toBe(3000)
@@ -19,15 +20,15 @@ describe('allocateBudget', () => {
   test('calculates conversation budget correctly (maxContext - maxOutput - fixedTotal)', () => {
     const maxContext = 100_000
     const maxOutput = 4_000
-    // role(500) + toolRules(800) + constraints(300) + safety(300) + toolCallStyle(200)
-    // + identity(3000) + skillCatalog(2000) + runtime(200) + bootstrapContext(8000) = 15300
-    const fixedTotal = 500 + 800 + 300 + 300 + 200 + 3000 + 2000 + 200 + 8000
+    // role(500) + toolRules(800) + constraints(300) + executionMode(500) + safety(300)
+    // + toolCallStyle(200) + identity(3000) + skillCatalog(2000) + runtime(200) + bootstrapContext(8000) = 15800
+    const fixedTotal = 500 + 800 + 300 + 500 + 300 + 200 + 3000 + 2000 + 200 + 8000
 
     const budget = allocateBudget(maxContext, maxOutput)
 
     expect(budget.reserved).toBe(maxOutput)
     expect(budget.conversation).toBe(maxContext - maxOutput - fixedTotal)
-    expect(budget.conversation).toBe(80_700)
+    expect(budget.conversation).toBe(80_200)
   })
 })
 
