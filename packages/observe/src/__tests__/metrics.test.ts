@@ -1,23 +1,15 @@
 import { describe, test, expect, afterAll } from 'bun:test'
 import { MetricsDB } from '../metrics'
-import { rmSync } from 'node:fs'
-import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
-
-const testDir = join(import.meta.dir, '__fixtures__')
-const dbPath = join(testDir, 'test-metrics.db')
 
 describe('MetricsDB', () => {
   let db: MetricsDB
 
   afterAll(() => {
     db?.close()
-    rmSync(testDir, { recursive: true, force: true })
   })
 
   test('initialize and record requests', () => {
-    mkdirSync(testDir, { recursive: true })
-    db = new MetricsDB(dbPath)
+    db = MetricsDB.createInMemory()
 
     db.recordRequest({
       id: 'req_001',
@@ -89,8 +81,6 @@ describe('MetricsDB', () => {
   })
 
   test('cacheHitRate returns daily ratio', () => {
-    // req_001 and req_002 have no cache_read_tokens set, so hitRate should be 0 or null
-    // Add a request with cache tokens
     db.recordRequest({
       id: 'req_cache_001',
       sessionId: 'sess_002',
@@ -106,8 +96,6 @@ describe('MetricsDB', () => {
 
     const rates = db.cacheHitRate('1d')
     expect(rates.length).toBeGreaterThanOrEqual(1)
-    // Today's data includes requests with and without cache
-    // Total input = 3200 + 1500 + 1000 = 5700, cache_read = 0 + 0 + 400 = 400
     const todayRate = rates.find((r) => r.period === new Date().toISOString().slice(0, 10))
     expect(todayRate).toBeDefined()
     expect(todayRate!.hitRate).toBeCloseTo(400 / 5700, 3)
@@ -118,7 +106,7 @@ describe('MetricsDB', () => {
     expect(rates.length).toBeGreaterThanOrEqual(1)
     const today = rates.find((r) => r.period === new Date().toISOString().slice(0, 10))
     expect(today).toBeDefined()
-    expect(today!.successRate).toBe(0.5) // 1 success + 1 failure from earlier
+    expect(today!.successRate).toBe(0.5)
     expect(today!.total).toBe(2)
   })
 
@@ -127,14 +115,12 @@ describe('MetricsDB', () => {
     expect(durations.length).toBeGreaterThanOrEqual(1)
     const today = durations.find((d) => d.period === new Date().toISOString().slice(0, 10))
     expect(today).toBeDefined()
-    // avg of 45 and 100 = 72.5
     expect(today!.avgMs).toBeCloseTo(72.5, 0)
   })
 
   test('costByDayModel returns per-model daily cost', () => {
     const data = db.costByDayModel('1d')
     expect(data.length).toBeGreaterThanOrEqual(1)
-    // Should have entries for both models
     const models = new Set(data.map((d) => d.model))
     expect(models.has('gpt-5.3-codex-medium')).toBe(true)
     expect(models.has('claude-opus')).toBe(true)
@@ -175,7 +161,6 @@ describe('MetricsDB', () => {
   test('costDetailRecords returns per-model daily breakdown', () => {
     const records = db.costDetailRecords('1d')
     expect(records.length).toBeGreaterThanOrEqual(1)
-    // Check that we have fields for input, output, cacheRead
     const first = records[0]
     expect(first.date).toBeDefined()
     expect(first.model).toBeDefined()
@@ -186,7 +171,6 @@ describe('MetricsDB', () => {
   })
 
   test('toolErrorByDay returns per-tool daily error counts', () => {
-    // Add a different tool operation
     db.recordOperation({
       sessionId: 'sess_001',
       tool: 'read',
@@ -198,11 +182,9 @@ describe('MetricsDB', () => {
 
     const errors = db.toolErrorByDay('1d')
     expect(errors.length).toBeGreaterThanOrEqual(1)
-    // Should have entries for both bash and read tools
     const tools = new Set(errors.map((e) => e.tool))
     expect(tools.has('bash')).toBe(true)
     expect(tools.has('read')).toBe(true)
-    // bash had 1 error out of 2, read had 1 error out of 1
     const bashEntry = errors.find((e) => e.tool === 'bash')
     expect(bashEntry!.errors).toBe(1)
     const readEntry = errors.find((e) => e.tool === 'read')

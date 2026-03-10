@@ -1,11 +1,6 @@
 import { describe, test, expect, afterAll } from 'bun:test'
 import { SessionDB } from '../session-db'
-import { rmSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
 import type { Session as SessionData, Message } from '@zero-os/shared'
-
-const testDir = join(import.meta.dir, '__fixtures__')
-const dbPath = join(testDir, 'test-sessions.db')
 
 function makeSessionData(overrides: Partial<SessionData> = {}): SessionData {
   return {
@@ -41,13 +36,10 @@ describe('SessionDB', () => {
 
   afterAll(() => {
     db?.close()
-    rmSync(testDir, { recursive: true, force: true })
   })
 
   test('initializes schema and creates tables', () => {
-    mkdirSync(testDir, { recursive: true })
-    db = new SessionDB(dbPath)
-    // Should not throw — tables created
+    db = SessionDB.createInMemory()
     expect(db).toBeDefined()
   })
 
@@ -139,7 +131,6 @@ describe('SessionDB', () => {
   })
 
   test('loadActiveSessions returns only active/idle', () => {
-    // Clean state: create sessions with distinct statuses
     db.saveSession(makeSessionData({ id: 'sess_a1', status: 'active' }))
     db.saveSession(makeSessionData({ id: 'sess_a2', status: 'idle' }))
     db.saveSession(makeSessionData({ id: 'sess_a3', status: 'completed' }))
@@ -179,7 +170,7 @@ describe('SessionDB', () => {
     const ids = mappings.map((m) => m.id)
     expect(ids).toContain('sess_ch1')
     expect(ids).toContain('sess_ch2')
-    expect(ids).not.toContain('sess_ch3') // completed, should not appear
+    expect(ids).not.toContain('sess_ch3')
 
     const feishuMapping = mappings.find((m) => m.id === 'sess_ch1')!
     expect(feishuMapping.source).toBe('feishu')

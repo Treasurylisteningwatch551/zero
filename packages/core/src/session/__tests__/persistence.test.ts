@@ -5,12 +5,8 @@ import { SessionManager } from '../manager'
 import { ModelRouter } from '@zero-os/model'
 import { ToolRegistry } from '../../tool/registry'
 import { loadConfig } from '../../config/loader'
-import { rmSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Session as SessionData, Message } from '@zero-os/shared'
-
-const testDir = join(import.meta.dir, '__fixtures__')
-const dbPath = join(testDir, 'test-persistence.db')
 
 const config = loadConfig(join(process.cwd(), '.zero', 'config.yaml'))
 const secrets = new Map<string, string>([
@@ -24,12 +20,10 @@ describe('Session Persistence', () => {
 
   afterAll(() => {
     sessionDb?.close()
-    rmSync(testDir, { recursive: true, force: true })
   })
 
   test('setup', () => {
-    mkdirSync(testDir, { recursive: true })
-    sessionDb = new SessionDB(dbPath)
+    sessionDb = SessionDB.createInMemory()
     modelRouter = new ModelRouter(config, secrets)
     modelRouter.init()
     toolRegistry = new ToolRegistry()
@@ -105,11 +99,10 @@ describe('Session Persistence', () => {
     expect(session.getStatus()).toBe('active')
     expect(session.getMessages()).toHaveLength(2)
     expect(session.getMessages()[0].content[0]).toEqual({ type: 'text', text: 'Hello' })
-    expect(session.getAgentConfig()).toBeNull() // Not initialized yet
+    expect(session.getAgentConfig()).toBeNull()
   })
 
   test('SessionManager.restoreFromDB restores sessions and channel mappings', () => {
-    // Save sessions directly to DB
     const data1: SessionData = {
       id: 'sess_mgr_1',
       createdAt: new Date().toISOString(),
@@ -140,20 +133,15 @@ describe('Session Persistence', () => {
     }
     sessionDb.saveSession(data2)
 
-    // Create a new SessionManager and restore
     const manager = new SessionManager(modelRouter, toolRegistry, { sessionDb }, sessionDb)
     const count = manager.restoreFromDB()
 
-    // Should restore both active and idle sessions from DB
-    // (Note: previous test sessions are also in DB, so count may be higher)
     expect(count).toBeGreaterThanOrEqual(2)
     expect(manager.get('sess_mgr_1')).toBeDefined()
     expect(manager.get('sess_mgr_2')).toBeDefined()
 
-    // Verify messages restored
     expect(manager.get('sess_mgr_1')!.getMessages()).toHaveLength(1)
 
-    // Verify channel mapping restored
     const { session, isNew } = manager.getOrCreateForChannel('feishu', 'chat_feishu_1', 'feishu:ops')
     expect(isNew).toBe(false)
     expect(session.data.id).toBe('sess_mgr_1')
@@ -162,15 +150,12 @@ describe('Session Persistence', () => {
   test('SessionManager.flushAll saves all sessions to DB', () => {
     const manager = new SessionManager(modelRouter, toolRegistry, { sessionDb }, sessionDb)
 
-    // Create sessions via manager
     const s1 = manager.create('web')
     const s2 = manager.create('telegram')
     s2.data.channelId = 'tg_flush'
 
-    // Flush all to DB
     manager.flushAll()
 
-    // Verify they're in the DB
     const row1 = sessionDb.getSession(s1.data.id)
     const row2 = sessionDb.getSession(s2.data.id)
     expect(row1).not.toBeNull()
@@ -181,16 +166,12 @@ describe('Session Persistence', () => {
   test('SessionManager DB query proxies work', () => {
     const manager = new SessionManager(modelRouter, toolRegistry, { sessionDb }, sessionDb)
 
-    // getFromDB
-    const row = manager.getFromDB('sess_roundtrip') // from session-db test earlier — may not exist
-    // Just verify the proxy doesn't throw
+    const row = manager.getFromDB('sess_roundtrip')
     expect(row === null || row?.id === 'sess_roundtrip').toBe(true)
 
-    // listAllFromDB
     const all = manager.listAllFromDB()
     expect(all.length).toBeGreaterThan(0)
 
-    // listAllFromDB with filter
     const completed = manager.listAllFromDB({ status: 'completed' })
     expect(completed.every((r) => r.status === 'completed')).toBe(true)
   })

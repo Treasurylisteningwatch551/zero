@@ -68,6 +68,10 @@ export class SessionDB {
     this.initSchema()
   }
 
+  static createInMemory(): SessionDB {
+    return new SessionDB(':memory:')
+  }
+
   private initSchema(): void {
     this.db.run(`
       CREATE TABLE IF NOT EXISTS sessions (

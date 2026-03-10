@@ -1,22 +1,16 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
 import { SessionDB } from '../session-db'
-import { join } from 'node:path'
-import { unlinkSync, existsSync } from 'node:fs'
 import type { ScheduleConfig } from '@zero-os/shared'
-
-const TEST_DB = join(import.meta.dir, 'test_schedules.db')
 
 describe('SessionDB — schedule persistence', () => {
   let db: SessionDB
 
   beforeEach(() => {
-    if (existsSync(TEST_DB)) unlinkSync(TEST_DB)
-    db = new SessionDB(TEST_DB)
+    db = SessionDB.createInMemory()
   })
 
   afterEach(() => {
     db.close()
-    if (existsSync(TEST_DB)) unlinkSync(TEST_DB)
   })
 
   test('saveSchedule + loadRuntimeSchedules round-trip', () => {

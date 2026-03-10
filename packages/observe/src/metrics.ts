@@ -84,6 +84,10 @@ export class MetricsDB {
     this.initSchema()
   }
 
+  static createInMemory(): MetricsDB {
+    return new MetricsDB(':memory:')
+  }
+
   private initSchema(): void {
     this.db.run(`
       CREATE TABLE IF NOT EXISTS requests (
