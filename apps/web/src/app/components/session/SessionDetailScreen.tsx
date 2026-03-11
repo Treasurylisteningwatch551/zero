@@ -35,6 +35,25 @@ interface ModelHistoryEntry {
   to: string | null
 }
 
+interface SessionRequestEntry {
+  id: string
+  model: string
+  provider: string
+  userPrompt: string
+  response: string
+  stopReason: string
+  toolUseCount: number
+  tokens: {
+    input: number
+    output: number
+    cacheWrite?: number
+    cacheRead?: number
+  }
+  cost: number
+  durationMs?: number
+  ts: string
+}
+
 interface SessionDetail {
   id: string
   source: string
@@ -73,6 +92,7 @@ export function SessionDetailScreen({
   const [session, setSession] = useState<SessionDetail | null>(null)
   const [traces, setTraces] = useState<TraceSpan[]>([])
   const [taskClosureEvents, setTaskClosureEvents] = useState<PersistedTaskClosureEvent[]>([])
+  const [llmRequests, setLlmRequests] = useState<SessionRequestEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [traceLoading, setTraceLoading] = useState(true)
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null)
@@ -89,17 +109,20 @@ export function SessionDetailScreen({
       setSession(null)
       setTraces([])
       setTaskClosureEvents([])
+      setLlmRequests([])
     }
     setTraceLoading(true)
     return Promise.all([
       apiFetch<SessionDetail>(`/api/sessions/${sessionId}`),
       apiFetch<{ traces: TraceSpan[] }>(`/api/sessions/${sessionId}/traces`),
       apiFetch<{ events: PersistedTaskClosureEvent[] }>(`/api/sessions/${sessionId}/task-closure-events`),
+      apiFetch<{ requests: SessionRequestEntry[] }>(`/api/sessions/${sessionId}/requests`),
     ])
-      .then(([data, traceResponse, taskClosureResponse]) => {
+      .then(([data, traceResponse, taskClosureResponse, requestResponse]) => {
         setSession(data)
         setTraces(traceResponse.traces ?? [])
         setTaskClosureEvents(taskClosureResponse.events ?? [])
+        setLlmRequests(requestResponse.requests ?? [])
         if (wasAtBottomRef.current) {
           requestAnimationFrame(() => {
             const el = timelineRef.current
@@ -341,6 +364,7 @@ export function SessionDetailScreen({
           totalTokens={session.totalTokens}
           inputTokens={session.inputTokens}
           outputTokens={session.outputTokens}
+          llmRequests={llmRequests}
           selectedToolId={selectedToolId}
           traces={traces}
           taskClosureEvents={taskClosureEvents}

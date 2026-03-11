@@ -102,6 +102,22 @@ interface TaskClosureEvaluation {
   traceSpanId?: string
 }
 
+interface PersistedTaskClosureEvent {
+  sessionId: string
+  event: 'task_closure_decision' | 'task_closure_skipped' | 'task_closure_trim_failed'
+  action?: string
+  reason?: string
+  skipReason?: string
+  trimFromPreview?: string
+  userMessagePreview?: string
+  assistantTailPreview?: string
+  rawClassifierResponse?: string
+  assistantMessageId?: string
+  assistantMessageCreatedAt?: string
+  assistantMessagePreview?: string
+  error?: string
+}
+
 export class Agent {
   private config: AgentConfig
   private adapter: ProviderAdapter
@@ -286,13 +302,16 @@ export class Agent {
       }
 
       if (taskClosureEvaluation.eventPayload) {
-        this.obs.bus?.emit('session:update', {
+        const persistedEvent = {
           sessionId: this.toolContext.sessionId,
           ...taskClosureEvaluation.eventPayload,
           assistantMessageId: assistantMsg.id,
           assistantMessageCreatedAt: assistantMsg.createdAt,
           assistantMessagePreview,
-        })
+        } satisfies PersistedTaskClosureEvent
+
+        this.logTaskClosureEvent(persistedEvent)
+        this.obs.bus?.emit('session:update', persistedEvent)
       }
 
       if (taskClosureDecision?.action === 'continue' && !shouldAutoContinueTaskClosure) {
@@ -311,7 +330,7 @@ export class Agent {
             assistantMessagePreview,
           })
         }
-        this.obs.bus?.emit('session:update', {
+        const persistedEvent = {
           sessionId: this.toolContext.sessionId,
           event: 'task_closure_trim_failed',
           reason: 'trim_from_not_found',
@@ -319,7 +338,10 @@ export class Agent {
           assistantMessageId: assistantMsg.id,
           assistantMessageCreatedAt: assistantMsg.createdAt,
           assistantMessagePreview,
-        })
+        } satisfies PersistedTaskClosureEvent
+
+        this.logTaskClosureEvent(persistedEvent)
+        this.obs.bus?.emit('session:update', persistedEvent)
       }
 
       // Emit session update event
@@ -951,19 +973,22 @@ export class Agent {
     durationMs: number
   ): void {
     const cost = computeCost(response.usage, this.obs.pricing)
+    const filter = this.obs.secretFilter
     const responseText = response.content
       .filter((b) => b.type === 'text')
       .map((b) => (b as { text: string }).text)
       .join('')
     const toolUseCount = response.content.filter((b) => b.type === 'tool_use').length
+    const safeUserPrompt = filter ? filter.filter(userPrompt) : userPrompt
+    const safeResponseText = filter ? filter.filter(responseText) : responseText
 
-    this.obs.logger?.logRequest({
+    this.obs.logger?.logSessionRequest({
       id: response.id,
       sessionId: this.toolContext.sessionId,
       model: this.obs.modelLabel ?? response.model,
       provider: this.obs.providerName ?? 'unknown',
-      userPrompt: userPrompt.slice(0, 500),
-      response: responseText.slice(0, 500),
+      userPrompt: safeUserPrompt,
+      response: safeResponseText,
       stopReason: response.stopReason,
       toolUseCount,
       tokens: {
@@ -973,6 +998,7 @@ export class Agent {
         cacheRead: response.usage.cacheRead,
       },
       cost,
+      durationMs,
     })
 
     this.obs.metrics?.recordRequest({
@@ -988,6 +1014,10 @@ export class Agent {
       durationMs,
       createdAt: now(),
     })
+  }
+
+  private logTaskClosureEvent(entry: PersistedTaskClosureEvent): void {
+    this.obs.logger?.logSessionClosure(entry)
   }
 
   /**

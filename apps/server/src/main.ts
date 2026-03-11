@@ -766,8 +766,11 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
   // Record tool call metrics from bus events
   globalBus.on('tool:call', (payload) => {
+    const sessionId = payload.data.sessionId as string | undefined
+    if (!sessionId) return
+
     metrics.recordOperation({
-      sessionId: (payload.data.sessionId as string) ?? '',
+      sessionId,
       tool: (payload.data.tool as string) ?? '',
       event: 'tool:call',
       success: true,

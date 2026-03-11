@@ -157,6 +157,104 @@ describe('API Routes Extended', () => {
     expect(Array.isArray(data.traces)).toBe(true)
   })
 
+  test('GET /api/sessions/:id/task-closure-events reads session-scoped closure ledger', async () => {
+    const session = zero.sessionManager.create('web')
+    zero.logger.logSessionClosure({
+      sessionId: session.data.id,
+      event: 'task_closure_decision',
+      action: 'finish',
+      reason: 'coverage_complete',
+      assistantMessageId: 'msg_closure_001',
+    })
+
+    const res = await app.request(`/api/sessions/${session.data.id}/task-closure-events`)
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(Array.isArray(data.events)).toBe(true)
+    expect(data.events[0].event).toBe('task_closure_decision')
+    expect(data.events[0].assistantMessageId).toBe('msg_closure_001')
+  })
+
+  test('GET /api/sessions/:id/task-closure-events falls back to legacy operations log', async () => {
+    const session = zero.sessionManager.create('web')
+    zero.logger.log('info', 'task_closure_trim_failed', {
+      sessionId: session.data.id,
+      reason: 'trim_from_not_found',
+    })
+
+    const res = await app.request(`/api/sessions/${session.data.id}/task-closure-events`)
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.events.some((entry: { event: string }) => entry.event === 'task_closure_trim_failed')).toBe(true)
+  })
+
+  test('GET /api/sessions/:id/requests returns session-scoped LLM requests', async () => {
+    const session = zero.sessionManager.create('web')
+    zero.logger.logSessionRequest({
+      id: 'req_session_route_001',
+      sessionId: session.data.id,
+      model: 'openai-codex/gpt-5.4-medium',
+      provider: 'openai-codex',
+      userPrompt: 'full prompt for session route',
+      response: 'full response for session route',
+      stopReason: 'end_turn',
+      toolUseCount: 0,
+      tokens: { input: 10, output: 20 },
+      cost: 0.42,
+      durationMs: 900,
+    })
+
+    const res = await app.request(`/api/sessions/${session.data.id}/requests`)
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.sessionId).toBe(session.data.id)
+    expect(Array.isArray(data.requests)).toBe(true)
+    expect(data.requests[0].id).toBe('req_session_route_001')
+    expect(data.requests[0].durationMs).toBe(900)
+  })
+
+  test('GET /api/sessions/:id/requests falls back to legacy global requests log', async () => {
+    const session = zero.sessionManager.create('web')
+    zero.logger.logRequest({
+      id: 'req_legacy_route_001',
+      sessionId: session.data.id,
+      model: 'openai-codex/gpt-5.4-medium',
+      provider: 'openai-codex',
+      userPrompt: 'legacy prompt for session route',
+      response: 'legacy response for session route',
+      stopReason: 'end_turn',
+      toolUseCount: 0,
+      tokens: { input: 1, output: 2 },
+      cost: 0.1,
+    })
+
+    const res = await app.request(`/api/sessions/${session.data.id}/requests`)
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.requests.some((entry: { id: string }) => entry.id === 'req_legacy_route_001')).toBe(true)
+  })
+
+  test('GET /api/logs?type=requests reads merged request ledgers', async () => {
+    const session = zero.sessionManager.create('web')
+    zero.logger.logSessionRequest({
+      id: 'req_logs_route_001',
+      sessionId: session.data.id,
+      model: 'openai-codex/gpt-5.4-medium',
+      provider: 'openai-codex',
+      userPrompt: 'request visible in logs',
+      response: 'response visible in logs',
+      stopReason: 'end_turn',
+      toolUseCount: 0,
+      tokens: { input: 5, output: 6 },
+      cost: 0.2,
+    })
+
+    const res = await app.request('/api/logs?type=requests&limit=20')
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.entries.some((entry: { id: string }) => entry.id === 'req_logs_route_001')).toBe(true)
+  })
+
   test('GET /api/sessions/channel/:channel/active returns active candidates only', async () => {
     const feishu = zero.sessionManager.getOrCreateForChannel('feishu', 'shared-room', 'feishu:ops').session
     feishu.data.updatedAt = '2026-03-08T00:00:02.000Z'

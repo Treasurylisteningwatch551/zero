@@ -25,6 +25,25 @@ interface MemoryResult {
   snippet: string
 }
 
+interface LlmRequestEntry {
+  id: string
+  model: string
+  provider: string
+  userPrompt: string
+  response: string
+  stopReason: string
+  toolUseCount: number
+  tokens: {
+    input: number
+    output: number
+    cacheWrite?: number
+    cacheRead?: number
+  }
+  cost: number
+  durationMs?: number
+  ts: string
+}
+
 interface PersistedTaskClosureEvent {
   ts: string
   event: string
@@ -64,6 +83,7 @@ interface Props {
   totalTokens: number
   inputTokens?: number
   outputTokens?: number
+  llmRequests?: LlmRequestEntry[]
   selectedToolId: string | null
   traces?: TraceSpan[]
   taskClosureEvents?: PersistedTaskClosureEvent[]
@@ -81,6 +101,7 @@ export function ContextPanel({
   totalTokens,
   inputTokens,
   outputTokens,
+  llmRequests = [],
   selectedToolId,
   traces = [],
   taskClosureEvents = [],
@@ -250,6 +271,37 @@ export function ContextPanel({
                       </div>
                     </div>
                   </div>
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {llmRequests.length > 0 && (
+            <Section title="LLM Requests">
+              <div className="space-y-2">
+                {llmRequests.slice(-5).reverse().map((request) => (
+                  <details key={request.id} className="rounded bg-white/[0.02] p-2">
+                    <summary className="cursor-pointer select-none text-[11px] text-[var(--color-text-secondary)]">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate font-mono text-[var(--color-accent)]">
+                          {request.model}
+                        </span>
+                        <span className="shrink-0 text-[10px] text-[var(--color-text-disabled)]">
+                          {formatTimeAgo(request.ts)}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex items-center gap-3 text-[10px] text-[var(--color-text-muted)]">
+                        <span>${request.cost.toFixed(4)}</span>
+                        <span>{request.tokens.input}/{request.tokens.output} tok</span>
+                        <span>{request.toolUseCount} tool</span>
+                        <span>{request.durationMs !== undefined ? `${request.durationMs}ms` : request.stopReason}</span>
+                      </div>
+                    </summary>
+                    <div className="mt-2 space-y-2">
+                      <TracePreview label="prompt" value={request.userPrompt} />
+                      <TracePreview label="response" value={request.response} />
+                    </div>
+                  </details>
                 ))}
               </div>
             </Section>

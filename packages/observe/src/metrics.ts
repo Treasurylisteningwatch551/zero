@@ -136,6 +136,9 @@ export class MetricsDB {
       CREATE INDEX IF NOT EXISTS idx_requests_created ON requests(created_at)
     `)
     this.db.run(`
+      CREATE INDEX IF NOT EXISTS idx_requests_session_created ON requests(session_id, created_at)
+    `)
+    this.db.run(`
       CREATE INDEX IF NOT EXISTS idx_operations_tool ON operations(tool)
     `)
     this.db.run(`

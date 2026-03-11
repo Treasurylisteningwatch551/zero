@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { now } from '@zero-os/shared'
 import type { StopReason } from '@zero-os/shared'
@@ -31,6 +31,7 @@ export interface RequestLogEntry {
     cacheRead?: number
   }
   cost: number
+  durationMs?: number
   ts: string
 }
 
@@ -46,6 +47,23 @@ export interface SnapshotEntry {
   messagesBefore?: number
   messagesAfter?: number
   ts: string
+}
+
+export interface ClosureLogEntry {
+  ts: string
+  sessionId: string
+  event: 'task_closure_decision' | 'task_closure_skipped' | 'task_closure_trim_failed'
+  action?: string
+  reason?: string
+  skipReason?: string
+  trimFromPreview?: string
+  userMessagePreview?: string
+  assistantTailPreview?: string
+  rawClassifierResponse?: string
+  assistantMessageId?: string
+  assistantMessageCreatedAt?: string
+  assistantMessagePreview?: string
+  error?: string
 }
 
 export interface OperationLogEntry {
@@ -97,10 +115,24 @@ export class JsonlLogger {
   }
 
   /**
+   * Log an LLM request to the session-scoped ledger.
+   */
+  logSessionRequest(entry: Omit<RequestLogEntry, 'ts'>): void {
+    this.appendLine(`sessions/${entry.sessionId}/requests.jsonl`, { ...entry, ts: now() })
+  }
+
+  /**
    * Log a context snapshot.
    */
   logSnapshot(entry: Omit<SnapshotEntry, 'ts'>): void {
     this.appendLine('snapshots.jsonl', { ...entry, ts: now() })
+  }
+
+  /**
+   * Log a session-scoped task closure event.
+   */
+  logSessionClosure(entry: Omit<ClosureLogEntry, 'ts'>): void {
+    this.appendLine(`sessions/${entry.sessionId}/closure.jsonl`, { ...entry, ts: now() })
   }
 
   /**
@@ -115,8 +147,78 @@ export class JsonlLogger {
    */
   readEntries<T = unknown>(file: string): T[] {
     const filePath = `${this.basePath}/${file}`
+    return this.readJsonlFile<T>(filePath)
+  }
+
+  /**
+   * Read entries from a session-scoped JSONL file.
+   */
+  readSessionEntries<T = unknown>(sessionId: string, file: string): T[] {
+    const filePath = `${this.basePath}/sessions/${sessionId}/${file}`
+    return this.readJsonlFile<T>(filePath)
+  }
+
+  /**
+   * Read requests for a session, falling back to legacy global requests.jsonl.
+   */
+  readSessionRequests(sessionId: string): RequestLogEntry[] {
+    const sessionFile = `${this.basePath}/sessions/${sessionId}/requests.jsonl`
+    if (existsSync(sessionFile)) {
+      return this.readJsonlFile<RequestLogEntry>(sessionFile)
+    }
+
+    return this.readEntries<RequestLogEntry>('requests.jsonl')
+      .filter((entry) => entry.sessionId === sessionId)
+      .sort((left, right) => left.ts.localeCompare(right.ts))
+  }
+
+  /**
+   * Read task closure events for a session, falling back to legacy operations.jsonl.
+   */
+  readSessionClosures(sessionId: string): ClosureLogEntry[] {
+    const sessionFile = `${this.basePath}/sessions/${sessionId}/closure.jsonl`
+    if (existsSync(sessionFile)) {
+      return this.readJsonlFile<ClosureLogEntry>(sessionFile)
+    }
+
+    return this.readEntries<ClosureLogEntry>('operations.jsonl')
+      .filter((entry) => {
+        return entry.sessionId === sessionId && (
+          entry.event === 'task_closure_decision' ||
+          entry.event === 'task_closure_skipped' ||
+          entry.event === 'task_closure_trim_failed'
+        )
+      })
+      .sort((left, right) => left.ts.localeCompare(right.ts))
+  }
+
+  /**
+   * Read all request entries across legacy global and session-scoped ledgers.
+   */
+  readAllRequests(): RequestLogEntry[] {
+    const deduped = new Map<string, RequestLogEntry>()
+
+    for (const entry of this.readEntries<RequestLogEntry>('requests.jsonl')) {
+      deduped.set(entry.id, entry)
+    }
+
+    const sessionsDir = `${this.basePath}/sessions`
+    if (existsSync(sessionsDir)) {
+      for (const dirent of readdirSync(sessionsDir, { withFileTypes: true })) {
+        if (!dirent.isDirectory()) continue
+        for (const entry of this.readSessionEntries<RequestLogEntry>(dirent.name, 'requests.jsonl')) {
+          deduped.set(entry.id, entry)
+        }
+      }
+    }
+
+    return Array.from(deduped.values()).sort((left, right) => left.ts.localeCompare(right.ts))
+  }
+
+  private readJsonlFile<T>(filePath: string): T[] {
     if (!existsSync(filePath)) return []
     const content = readFileSync(filePath, 'utf-8')
+    if (content.trim().length === 0) return []
     return content
       .trim()
       .split('\n')

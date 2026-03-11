@@ -46,6 +46,18 @@ export function createRoutes(zero: ZeroOS) {
     )
   }
 
+  function getSessionRow(id: string) {
+    const activeSession = zero.sessionManager.get(id)
+    if (activeSession) {
+      return {
+        id: activeSession.data.id,
+        source: activeSession.data.source,
+      }
+    }
+
+    return zero.sessionManager.getFromDB(id)
+  }
+
   const app = new Hono()
     .use('*', cors())
 
@@ -305,6 +317,20 @@ export function createRoutes(zero: ZeroOS) {
       })
     })
 
+    .get('/api/sessions/:id/requests', (c) => {
+      const id = c.req.param('id')
+      const session = getSessionRow(id)
+      if (!session) {
+        return c.json({ error: 'Session not found' }, 404)
+      }
+
+      const requests = zero.logger.readSessionRequests(id)
+      return c.json({
+        sessionId: id,
+        requests,
+      })
+    })
+
     .get('/api/sessions/:id/traces', (c) => {
       const id = c.req.param('id')
       const traces = zero.tracer.exportSession(id)
@@ -313,18 +339,12 @@ export function createRoutes(zero: ZeroOS) {
 
     .get('/api/sessions/:id/task-closure-events', (c) => {
       const id = c.req.param('id')
-      const entries = zero.logger
-        .readEntries<Record<string, unknown>>('operations.jsonl')
-        .filter((entry) => {
-          const sessionId = (entry.sessionId as string | undefined) ?? (entry.session_id as string | undefined)
-          const event = entry.event as string | undefined
-          return sessionId === id && (
-            event === 'task_closure_decision' ||
-            event === 'task_closure_skipped' ||
-            event === 'task_closure_trim_failed'
-          )
-        })
-        .sort((left, right) => String(left.ts ?? '').localeCompare(String(right.ts ?? '')))
+      const session = getSessionRow(id)
+      if (!session) {
+        return c.json({ error: 'Session not found' }, 404)
+      }
+
+      const entries = zero.logger.readSessionClosures(id)
 
       return c.json({ events: entries })
     })
@@ -590,11 +610,11 @@ export function createRoutes(zero: ZeroOS) {
         return c.json({ entries: traceEntries.slice(0, limit), limit })
       }
 
-      const file = type === 'requests' ? 'requests.jsonl'
-        : type === 'snapshots' ? 'snapshots.jsonl'
-        : 'operations.jsonl'
-
-      let entries = zero.logger.readEntries<Record<string, unknown>>(file)
+      let entries = type === 'requests'
+        ? zero.logger.readAllRequests().map((entry) => ({ ...entry }))
+        : zero.logger.readEntries<Record<string, unknown>>(
+            type === 'snapshots' ? 'snapshots.jsonl' : 'operations.jsonl'
+          )
 
       if (level && level !== 'all') {
         entries = entries.filter((e) => e.level === level)
