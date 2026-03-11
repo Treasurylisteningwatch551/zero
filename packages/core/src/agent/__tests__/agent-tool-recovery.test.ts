@@ -60,6 +60,51 @@ class FakeAdapter implements ProviderAdapter {
   }
 }
 
+class EmptyResponseRecoveryAdapter implements ProviderAdapter {
+  readonly apiType = 'fake-empty'
+  completeCalls = 0
+
+  async complete(req: CompletionRequest): Promise<CompletionResponse> {
+    this.completeCalls++
+    const lastUserText = [...req.messages]
+      .reverse()
+      .find((message) => message.role === 'user')
+      ?.content
+      .filter((block) => block.type === 'text')
+      .map((block) => (block as { type: 'text'; text: string }).text)
+      .join('') ?? ''
+
+    if (lastUserText.includes('Your previous reply was empty.')) {
+      return {
+        id: 'resp_recovered',
+        content: [{ type: 'text', text: 'recovered after empty response' }],
+        stopReason: 'end_turn',
+        usage: { input: 4, output: 4 },
+        model: 'fake-model',
+      }
+    }
+
+    return {
+      id: 'resp_empty',
+      content: [],
+      stopReason: 'end_turn',
+      usage: { input: 0, output: 0 },
+      model: 'fake-model',
+    }
+  }
+
+  async *stream(_req: CompletionRequest): AsyncIterable<StreamEvent> {
+    yield {
+      type: 'done',
+      data: { finishReason: 'end_turn' },
+    }
+  }
+
+  async healthCheck(): Promise<boolean> {
+    return true
+  }
+}
+
 describe('Agent tool recovery', () => {
   test('run: tool exceptions are converted into tool_result errors', async () => {
     const adapter = new FakeAdapter()
@@ -101,5 +146,39 @@ describe('Agent tool recovery', () => {
     const finalAssistant = messages[messages.length - 1]
     expect(finalAssistant.role).toBe('assistant')
     expect(finalAssistant.content.some((b) => b.type === 'text')).toBe(true)
+  })
+
+  test('run: empty completion is retried instead of storing an empty assistant message', async () => {
+    const adapter = new EmptyResponseRecoveryAdapter()
+    const registry = new ToolRegistry()
+
+    const toolContext: ToolContext = {
+      sessionId: 'test-session',
+      workDir: process.cwd(),
+      logger: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+      },
+    }
+
+    const agent = new Agent({
+      name: 'test-agent',
+      systemPrompt: 'Test prompt',
+    }, adapter, registry, toolContext)
+
+    const context: AgentContext = {
+      systemPrompt: 'Test prompt',
+      conversationHistory: [],
+      tools: registry.getDefinitions(),
+    }
+
+    const messages = await agent.run(context, 'Trigger empty response')
+    const assistantMessages = messages.filter((m) => m.role === 'assistant')
+
+    expect(assistantMessages).toHaveLength(1)
+    expect(assistantMessages[0].content).toEqual([{ type: 'text', text: 'recovered after empty response' }])
+    expect(messages.some((m) => m.role === 'assistant' && m.content.length === 0)).toBe(false)
+    expect(adapter.completeCalls).toBeGreaterThanOrEqual(2)
   })
 })

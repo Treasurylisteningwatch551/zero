@@ -52,6 +52,8 @@ describe('JsonlLogger', () => {
       provider: 'openai-codex',
       userPrompt: 'hello',
       response: 'hi',
+      stopReason: 'end_turn',
+      toolUseCount: 0,
       tokens: { input: 100, output: 50 },
       cost: 0.001,
     })
@@ -60,6 +62,8 @@ describe('JsonlLogger', () => {
     expect(entries.length).toBeGreaterThanOrEqual(1)
     const last = entries[entries.length - 1] as Record<string, unknown>
     expect(last.model).toBe('gpt-5.3-codex-medium')
+    expect(last.stopReason).toBe('end_turn')
+    expect(last.toolUseCount).toBe(0)
   })
 
   test('logSnapshot writes to snapshots.jsonl', () => {

@@ -138,7 +138,8 @@ function buildTaskClosureEvents(
   traces: TraceSpan[],
   persistedTaskClosureEvents: PersistedTaskClosureEvent[],
 ): TimelineItem[] {
-  const traceItems = flattenTraceSpans(traces)
+  const flattenedTraces = flattenTraceSpans(traces)
+  const traceItems = flattenedTraces
     .flatMap((span) => {
       if (span.name === 'task_closure_decision') {
         return [mapTaskClosureDecision(span)]
@@ -150,8 +151,25 @@ function buildTaskClosureEvents(
     })
     .filter((item): item is TimelineItem => item !== null)
 
-  const persistedItems = persistedTaskClosureEvents.map(mapPersistedTaskClosureEvent)
+  const persistedItems = filterDuplicateTaskClosureEvents(flattenedTraces, persistedTaskClosureEvents)
+    .map(mapPersistedTaskClosureEvent)
   return [...traceItems, ...persistedItems]
+}
+
+export function filterDuplicateTaskClosureEvents(
+  traces: TraceSpan[],
+  persistedTaskClosureEvents: PersistedTaskClosureEvent[],
+): PersistedTaskClosureEvent[] {
+  const traceKeys = new Set(
+    traces
+      .map(getTaskClosureTraceKey)
+      .filter((key): key is string => key !== null),
+  )
+
+  return persistedTaskClosureEvents.filter((event) => {
+    const eventKey = getPersistedTaskClosureEventKey(event)
+    return eventKey === null || !traceKeys.has(eventKey)
+  })
 }
 
 
@@ -236,8 +254,49 @@ function mapTaskClosureTrimFailed(span: TraceSpan): TimelineItem {
   }
 }
 
-function flattenTraceSpans(traces: TraceSpan[]): TraceSpan[] {
+export function flattenTraceSpans(traces: TraceSpan[]): TraceSpan[] {
   return traces.flatMap((span) => [span, ...flattenTraceSpans(span.children ?? [])])
+}
+
+function getTaskClosureTraceKey(span: TraceSpan): string | null {
+  const metadata = span.metadata ?? {}
+  const assistantMessageId = typeof metadata.assistantMessageId === 'string' ? metadata.assistantMessageId : ''
+
+  if (span.name === 'task_closure_decision') {
+    if (metadata.called === false) {
+      const skipReason = typeof metadata.skipReason === 'string' ? metadata.skipReason : 'unknown'
+      return `decision|skipped|${skipReason}|${assistantMessageId}`
+    }
+
+    const action = typeof metadata.action === 'string' ? metadata.action : 'unknown'
+    const reason = typeof metadata.reason === 'string' ? metadata.reason : ''
+    return `decision|${action}|${reason}|${assistantMessageId}`
+  }
+
+  if (span.name === 'task_closure_trim_failed') {
+    const reason = typeof metadata.reason === 'string' ? metadata.reason : 'trim_from_not_found'
+    return `trim_failed|${reason}|${assistantMessageId}`
+  }
+
+  return null
+}
+
+function getPersistedTaskClosureEventKey(event: PersistedTaskClosureEvent): string | null {
+  const assistantMessageId = event.assistantMessageId ?? ''
+
+  if (event.event === 'task_closure_skipped') {
+    return `decision|skipped|${event.skipReason ?? 'unknown'}|${assistantMessageId}`
+  }
+
+  if (event.event === 'task_closure_decision') {
+    return `decision|${event.action ?? 'unknown'}|${event.reason ?? ''}|${assistantMessageId}`
+  }
+
+  if (event.event === 'task_closure_trim_failed') {
+    return `trim_failed|${event.reason ?? 'trim_from_not_found'}|${assistantMessageId}`
+  }
+
+  return null
 }
 
 export function extractFilesTouched(items: TimelineItem[]): string[] {

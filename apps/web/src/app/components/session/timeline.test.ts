@@ -99,3 +99,39 @@ test('adds persisted task closure event when traces are unavailable', () => {
     expect(items[0].text).toContain('Task closure continue')
   }
 })
+
+test('deduplicates persisted task closure events when matching trace spans exist', () => {
+  const traces: TraceSpan[] = [
+    {
+      id: 'span_1',
+      sessionId: 'sess_1',
+      name: 'task_closure_decision',
+      startTime: '2026-03-08T00:00:01.000Z',
+      endTime: '2026-03-08T00:00:01.100Z',
+      durationMs: 100,
+      status: 'success',
+      metadata: {
+        called: false,
+        skipReason: 'tool_use',
+        assistantMessageId: 'msg_1',
+      },
+      children: [],
+    },
+  ]
+
+  const persisted: PersistedTaskClosureEvent[] = [
+    {
+      ts: '2026-03-08T00:00:01.200Z',
+      event: 'task_closure_skipped',
+      skipReason: 'tool_use',
+      assistantMessageId: 'msg_1',
+    },
+  ]
+
+  const items = buildTimeline([], traces, persisted)
+  expect(items).toHaveLength(1)
+  expect(items[0].type).toBe('system-event')
+  if (items[0].type === 'system-event') {
+    expect(items[0].text).toBe('Task closure skipped: tool_use')
+  }
+})

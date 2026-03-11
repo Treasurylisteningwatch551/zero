@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { now } from '@zero-os/shared'
+import type { StopReason } from '@zero-os/shared'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -21,6 +22,8 @@ export interface RequestLogEntry {
   provider: string
   userPrompt: string
   response: string
+  stopReason: StopReason
+  toolUseCount: number
   tokens: {
     input: number
     output: number

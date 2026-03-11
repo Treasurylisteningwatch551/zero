@@ -79,6 +79,8 @@ export interface AgentObservability {
   pricing?: import('@zero-os/shared').ModelPricing
 }
 
+const EMPTY_RESPONSE_RETRY_PROMPT = 'Your previous reply was empty. Continue the current task and provide the actual answer or the next required tool call. Do not return an empty response.'
+
 /**
  * Agent execution engine — runs the tool use loop.
  */
@@ -135,6 +137,7 @@ export class Agent {
   ): Promise<Message[]> {
     let continuationCount = 0
     let taskClosureRetryCount = 0
+    let emptyResponseRetryCount = 0
     const messages: Message[] = [...prepareConversationHistory(context.conversationHistory)]
     const newMessages: Message[] = []
 
@@ -196,13 +199,52 @@ export class Agent {
       // Log LLM request to observability
       this.logLLMRequest(response, userMessage, llmDurationMs)
 
-      const taskClosureEvaluation = await this.decideTaskClosure(
-        userMessage,
-        messages,
-        response,
-        hadQueuedMessages,
-        rootSpan?.id,
-      )
+      if (response.content.length === 0) {
+        this.toolContext.logger.warn('llm_empty_response', {
+          sessionId: this.toolContext.sessionId,
+          stopReason: response.stopReason,
+          retryCount: emptyResponseRetryCount,
+        })
+
+        if (emptyResponseRetryCount < CONTEXT_PARAMS.completion.maxEmptyResponseRetries) {
+          const retryMsg: Message = {
+            id: generateId(),
+            sessionId: this.toolContext.sessionId,
+            role: 'user',
+            messageType: 'message',
+            content: [{ type: 'text', text: EMPTY_RESPONSE_RETRY_PROMPT }],
+            createdAt: now(),
+          }
+          messages.push(retryMsg)
+          newMessages.push(retryMsg)
+          emptyResponseRetryCount++
+          continue
+        }
+
+        throw new Error(`LLM returned empty response (stopReason=${response.stopReason})`)
+      }
+
+      emptyResponseRetryCount = 0
+
+      let taskClosureEvaluation: TaskClosureEvaluation = {
+        decision: null,
+        eventPayload: null,
+      }
+      const shouldEvaluateTaskClosure =
+        response.stopReason === 'end_turn' &&
+        !hadQueuedMessages &&
+        hasAssistantText(response.content) &&
+        extractAssistantTail(response.content).length > 0
+
+      if (shouldEvaluateTaskClosure) {
+        taskClosureEvaluation = await this.decideTaskClosure(
+          userMessage,
+          messages,
+          response,
+          hadQueuedMessages,
+          rootSpan?.id,
+        )
+      }
       const taskClosureDecision = taskClosureEvaluation.decision
       const displayContent =
         taskClosureDecision?.action === 'continue' && taskClosureDecision.trimFrom
@@ -913,6 +955,7 @@ export class Agent {
       .filter((b) => b.type === 'text')
       .map((b) => (b as { text: string }).text)
       .join('')
+    const toolUseCount = response.content.filter((b) => b.type === 'tool_use').length
 
     this.obs.logger?.logRequest({
       id: response.id,
@@ -921,6 +964,8 @@ export class Agent {
       provider: this.obs.providerName ?? 'unknown',
       userPrompt: userPrompt.slice(0, 500),
       response: responseText.slice(0, 500),
+      stopReason: response.stopReason,
+      toolUseCount,
       tokens: {
         input: response.usage.input,
         output: response.usage.output,

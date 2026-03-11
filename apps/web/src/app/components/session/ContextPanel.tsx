@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { formatModelHistory, formatNumber, formatTimeAgo } from '../../lib/format'
 import { toolColors } from '../../lib/colors'
 import { apiFetch } from '../../lib/api'
+import { flattenTraceSpans, filterDuplicateTaskClosureEvents } from './timeline'
 
 interface ModelHistoryEntry {
   model: string
@@ -114,8 +115,8 @@ export function ContextPanel({
   )
 
   const persistedTaskClosureCards = useMemo(
-    () => taskClosureEvents.map(mapPersistedTaskClosureEventToCard),
-    [taskClosureEvents],
+    () => filterDuplicateTaskClosureEvents(flattenTraceSpans(traces), taskClosureEvents).map(mapPersistedTaskClosureEventToCard),
+    [traces, taskClosureEvents],
   )
 
   if (selectedTool) {
@@ -514,10 +515,6 @@ function StatusBadge({ status }: { status: TraceSpan['status'] }) {
       {status}
     </span>
   )
-}
-
-function flattenTraceSpans(spans: TraceSpan[]): TraceSpan[] {
-  return spans.flatMap((span) => [span, ...flattenTraceSpans(span.children ?? [])])
 }
 
 function formatMetadataValue(value: unknown): string {
