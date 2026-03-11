@@ -125,7 +125,7 @@ export class JsonlLogger {
    * Log a context snapshot.
    */
   logSnapshot(entry: Omit<SnapshotEntry, 'ts'>): void {
-    this.appendLine('snapshots.jsonl', { ...entry, ts: now() })
+    this.appendLine(`sessions/${entry.sessionId}/snapshots.jsonl`, { ...entry, ts: now() })
   }
 
   /**
@@ -193,6 +193,20 @@ export class JsonlLogger {
   }
 
   /**
+   * Read snapshots for a session, falling back to legacy global snapshots.jsonl.
+   */
+  readSessionSnapshots(sessionId: string): SnapshotEntry[] {
+    const sessionFile = `${this.basePath}/sessions/${sessionId}/snapshots.jsonl`
+    if (existsSync(sessionFile)) {
+      return this.readJsonlFile<SnapshotEntry>(sessionFile)
+    }
+
+    return this.readEntries<SnapshotEntry>('snapshots.jsonl')
+      .filter((entry) => entry.sessionId === sessionId)
+      .sort((left, right) => left.ts.localeCompare(right.ts))
+  }
+
+  /**
    * Read all request entries across legacy global and session-scoped ledgers.
    */
   readAllRequests(): RequestLogEntry[] {
@@ -207,6 +221,29 @@ export class JsonlLogger {
       for (const dirent of readdirSync(sessionsDir, { withFileTypes: true })) {
         if (!dirent.isDirectory()) continue
         for (const entry of this.readSessionEntries<RequestLogEntry>(dirent.name, 'requests.jsonl')) {
+          deduped.set(entry.id, entry)
+        }
+      }
+    }
+
+    return Array.from(deduped.values()).sort((left, right) => left.ts.localeCompare(right.ts))
+  }
+
+  /**
+   * Read all snapshots across legacy global and session-scoped ledgers.
+   */
+  readAllSnapshots(): SnapshotEntry[] {
+    const deduped = new Map<string, SnapshotEntry>()
+
+    for (const entry of this.readEntries<SnapshotEntry>('snapshots.jsonl')) {
+      deduped.set(entry.id, entry)
+    }
+
+    const sessionsDir = `${this.basePath}/sessions`
+    if (existsSync(sessionsDir)) {
+      for (const dirent of readdirSync(sessionsDir, { withFileTypes: true })) {
+        if (!dirent.isDirectory()) continue
+        for (const entry of this.readSessionEntries<SnapshotEntry>(dirent.name, 'snapshots.jsonl')) {
           deduped.set(entry.id, entry)
         }
       }

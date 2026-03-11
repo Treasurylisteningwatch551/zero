@@ -612,8 +612,10 @@ export function createRoutes(zero: ZeroOS) {
 
       let entries = type === 'requests'
         ? zero.logger.readAllRequests().map((entry) => ({ ...entry }))
+        : type === 'snapshots'
+          ? zero.logger.readAllSnapshots().map((entry) => ({ ...entry }))
         : zero.logger.readEntries<Record<string, unknown>>(
-            type === 'snapshots' ? 'snapshots.jsonl' : 'operations.jsonl'
+            'operations.jsonl'
           )
 
       if (level && level !== 'all') {
