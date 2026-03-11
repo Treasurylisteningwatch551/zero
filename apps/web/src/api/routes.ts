@@ -380,7 +380,7 @@ export function createRoutes(zero: ZeroOS) {
         session = zero.sessionManager.create('web')
         session.initAgent({
           name: 'zero-web',
-          systemPrompt: 'You are ZeRo OS, an AI agent system running on macOS. Be helpful, concise, and accurate.',
+          agentInstruction: 'You are ZeRo OS, an AI agent system running on macOS. Be helpful, concise, and accurate.',
         })
       }
 

@@ -63,7 +63,7 @@ function createAgent(configOverrides: Partial<AgentConfig> = {}, obs = {}) {
   const adapter = router.getAdapter()
   const agentConfig: AgentConfig = {
     name: 'test-agent',
-    systemPrompt: 'You are a helpful assistant. Reply briefly.',
+    agentInstruction: 'You are a helpful assistant. Reply briefly.',
     ...configOverrides,
   }
   return { agent: new Agent(agentConfig, adapter, registry, toolContext, obs), registry }
@@ -154,7 +154,7 @@ describe('Agent', () => {
 
     const agentConfig: AgentConfig = {
       name: 'test-agent',
-      systemPrompt: 'You must use FakeTool for every request.',
+      agentInstruction: 'You must use FakeTool for every request.',
     }
 
     const agent = new Agent(agentConfig, adapter, registry, toolContext)
@@ -226,8 +226,9 @@ describe('Agent', () => {
 
     const sessionUpdates = events.filter((e) => e.topic === 'session:update')
     expect(sessionUpdates.length).toBeGreaterThanOrEqual(1)
-    expect(sessionUpdates[0].data.sessionId).toBe('test-session')
-    expect(sessionUpdates[0].data.event).toBe('assistant_response')
+    const assistantResponse = sessionUpdates.find((event) => event.data.event === 'assistant_response')
+    expect(assistantResponse).toBeDefined()
+    expect(assistantResponse!.data.sessionId).toBe('test-session')
   }, 30000)
 
   test('run: bus emits tool:call event', async () => {

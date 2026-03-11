@@ -5,7 +5,7 @@ import type { TaskNode, TaskResult } from '../orchestrator'
 function makeNode(id: string, dependsOn: string[] = [], timeout = 5000): TaskNode {
   return {
     id,
-    agentConfig: { name: id, systemPrompt: 'test' },
+    agentConfig: { name: id, agentInstruction: 'test' },
     instruction: `Do ${id}`,
     dependsOn,
     timeout,

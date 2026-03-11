@@ -42,7 +42,8 @@ class ToolInputParseError extends Error {
 
 export interface AgentConfig {
   name: string
-  systemPrompt: string
+  /** High-level role or task intent consumed by the prompt builder, not the rendered system prompt. */
+  agentInstruction: string
   identityMemory?: string
   /** Controls which prompt sections are included. Defaults to 'full'. */
   promptMode?: import('@zero-os/shared').PromptMode
@@ -51,7 +52,6 @@ export interface AgentConfig {
 export interface AgentContext {
   systemPrompt: string
   identityMemory?: string
-  retrievedMemories?: string[]
   /** Dynamic context (<system-reminder>) injected into user message for the API only, not stored. */
   dynamicContext?: string
   conversationHistory: Message[]

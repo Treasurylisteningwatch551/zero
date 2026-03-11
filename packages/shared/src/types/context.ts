@@ -1,5 +1,4 @@
 import type { ToolDefinition } from './message'
-import type { Memory } from './memory'
 
 export interface SkillDefinition {
   name: string
@@ -69,9 +68,6 @@ export interface PromptComponents {
  * Currently reserved for runtime-discovered skill notifications only.
  */
 export interface DynamicContext {
-  currentTime?: string
-  memo?: string
-  retrievedMemories?: Memory[]
   newSkills?: SkillDefinition[]
 }
 

@@ -35,10 +35,8 @@ export interface SessionDeps {
   memoryRetriever?: MemoryRetriever
   memoryStore?: import('@zero-os/shared').ToolContext['memoryStore']
   identityMemory?: string
-  memoContent?: string
   globalIdentity?: string
   agentIdentity?: string
-  memoReader?: () => string
   identityReader?: (agentName: string) => { global: string; agent: string }
   bus?: {
     emit(topic: string, data: Record<string, unknown>): void
@@ -134,6 +132,9 @@ export class Session {
    */
   initAgent(config: AgentConfig): void {
     this.lastAgentConfig = config
+    this.cachedSystemPrompt = null
+    this.lastSystemPrompt = ''
+    this.knownSkillNames.clear()
     const resolved = this.activeModel ?? this.modelRouter.getDefaultModel() ?? this.modelRouter.getCurrentModel()
     if (!resolved) {
       throw new Error('No active model available for session.')
@@ -267,7 +268,7 @@ export class Session {
 
       this.cachedSystemPrompt = buildSystemPrompt({
         agentName,
-        agentDescription: '擅长 TypeScript 全栈开发，使用 Bun 运行时。',
+        agentDescription: this.lastAgentConfig?.agentInstruction || '擅长 TypeScript 全栈开发，使用 Bun 运行时。',
         tools,
         skills,
         globalIdentity,

@@ -154,7 +154,7 @@ describe('Agent task closure gate', () => {
     const registry = new ToolRegistry()
     const adapter = new TaskClosureAdapter('continue')
     const agent = new Agent(
-      { name: 'test-agent', systemPrompt: 'Test prompt' },
+      { name: 'test-agent', agentInstruction: 'Test prompt' },
       adapter,
       registry,
       createToolContext(),
@@ -176,7 +176,7 @@ describe('Agent task closure gate', () => {
     const registry = new ToolRegistry()
     const adapter = new TaskClosureAdapter('finish')
     const agent = new Agent(
-      { name: 'test-agent', systemPrompt: 'Test prompt' },
+      { name: 'test-agent', agentInstruction: 'Test prompt' },
       adapter,
       registry,
       createToolContext(),
@@ -195,7 +195,7 @@ describe('Agent task closure gate', () => {
     const registry = new ToolRegistry()
     const adapter = new TaskClosureAdapter('block')
     const agent = new Agent(
-      { name: 'test-agent', systemPrompt: 'Test prompt' },
+      { name: 'test-agent', agentInstruction: 'Test prompt' },
       adapter,
       registry,
       createToolContext(),
@@ -214,7 +214,7 @@ describe('Agent task closure gate', () => {
     const registry = new ToolRegistry()
     const adapter = new TaskClosureAdapter('malformed')
     const agent = new Agent(
-      { name: 'test-agent', systemPrompt: 'Test prompt' },
+      { name: 'test-agent', agentInstruction: 'Test prompt' },
       adapter,
       registry,
       createToolContext(),
@@ -234,7 +234,7 @@ describe('Agent task closure gate', () => {
     const adapter = new TaskClosureAdapter('continue')
     const tracer = new Tracer()
     const agent = new Agent(
-      { name: 'test-agent', systemPrompt: 'Test prompt' },
+      { name: 'test-agent', agentInstruction: 'Test prompt' },
       adapter,
       registry,
       createToolContext(),
@@ -262,7 +262,7 @@ describe('Agent task closure gate', () => {
     const registry = new ToolRegistry()
     const adapter = new TaskClosureAdapter('finish')
     const agent = new Agent(
-      { name: 'test-agent', systemPrompt: 'Test prompt' },
+      { name: 'test-agent', agentInstruction: 'Test prompt' },
       adapter,
       registry,
       createToolContext(),
@@ -276,7 +276,7 @@ describe('Agent task closure gate', () => {
     const registry = new ToolRegistry()
     const adapter = new TaskClosureAdapter('continue')
     const agent = new Agent(
-      { name: 'test-agent', systemPrompt: 'Test prompt' },
+      { name: 'test-agent', agentInstruction: 'Test prompt' },
       adapter,
       registry,
       createToolContext(),
@@ -296,7 +296,7 @@ describe('Agent task closure gate', () => {
     const registry = new ToolRegistry()
     const adapter = new TaskClosureAdapter('throw')
     const agent = new Agent(
-      { name: 'test-agent', systemPrompt: 'Test prompt' },
+      { name: 'test-agent', agentInstruction: 'Test prompt' },
       adapter,
       registry,
       createToolContext(),

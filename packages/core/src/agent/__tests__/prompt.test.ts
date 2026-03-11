@@ -7,8 +7,6 @@ import {
   buildToolRulesBlock,
   buildConstraintsBlock,
   buildIdentityBlock,
-  buildMemoBlock,
-  buildRetrievedMemoryBlock,
   buildSkillCatalog,
   buildDynamicContext,
   buildSkillReminder,
@@ -17,20 +15,6 @@ import {
   buildRuntimeBlock,
   buildBootstrapContextBlock,
 } from '../prompt'
-
-const makeMemory = (overrides: Partial<import('@zero-os/shared').Memory> = {}): import('@zero-os/shared').Memory => ({
-  id: 'mem_001',
-  type: 'runbook' as const,
-  title: 'Test Memory',
-  createdAt: '2026-01-01T00:00:00Z',
-  updatedAt: '2026-01-15T00:00:00Z',
-  status: 'verified' as const,
-  confidence: 0.92,
-  tags: ['test'],
-  related: [],
-  content: 'Memory content here',
-  ...overrides,
-})
 
 const makeTool = (name: string): import('@zero-os/shared').ToolDefinition => ({
   name,
@@ -207,58 +191,6 @@ describe('buildIdentityBlock', () => {
   })
 })
 
-describe('buildMemoBlock', () => {
-  test('wraps memo in <memo> tags', () => {
-    const result = buildMemoBlock('今天完成了核心模块的重构')
-
-    expect(result).toContain('<memo>')
-    expect(result).toContain('</memo>')
-    expect(result).toContain('今天完成了核心模块的重构')
-  })
-
-  test('handles empty memo', () => {
-    const result = buildMemoBlock('')
-
-    expect(result).toBe('<memo>\n</memo>')
-  })
-})
-
-describe('buildRetrievedMemoryBlock', () => {
-  test('renders memories with metadata attributes', () => {
-    const memories = [
-      makeMemory(),
-      makeMemory({
-        id: 'mem_002',
-        type: 'decision',
-        title: 'Architecture Decision',
-        confidence: 0.85,
-        updatedAt: '2026-02-01T00:00:00Z',
-        content: 'Decided to use Bun runtime',
-      }),
-    ]
-
-    const result = buildRetrievedMemoryBlock(memories)
-
-    expect(result).toContain('<retrieved_memories>')
-    expect(result).toContain('</retrieved_memories>')
-
-    // First memory
-    expect(result).toContain('type="runbook"')
-    expect(result).toContain('confidence="0.92"')
-    expect(result).toContain('id="mem_001"')
-    expect(result).toContain('updated="2026-01-15T00:00:00Z"')
-    expect(result).toContain('标题：Test Memory')
-    expect(result).toContain('Memory content here')
-
-    // Second memory
-    expect(result).toContain('type="decision"')
-    expect(result).toContain('confidence="0.85"')
-    expect(result).toContain('id="mem_002"')
-    expect(result).toContain('标题：Architecture Decision')
-    expect(result).toContain('Decided to use Bun runtime')
-  })
-})
-
 describe('buildSkillCatalog', () => {
   test('renders skill metadata in <skill_catalog> tags', () => {
     const skills = [makeSkill('browser', '通过 agent-browser CLI 控制浏览器。\n触发词：浏览器、打开网页。')]
@@ -301,12 +233,7 @@ describe('buildSkillCatalog', () => {
 
 describe('buildDynamicContext', () => {
   test('returns empty string when there are no new skills', () => {
-    const result = buildDynamicContext({
-      currentTime: '2026-03-05T12:00:00Z',
-      memo: 'ignored',
-      retrievedMemories: [makeMemory()],
-    })
-
+    const result = buildDynamicContext({})
     expect(result).toBe('')
   })
 
@@ -323,10 +250,7 @@ describe('buildDynamicContext', () => {
   })
 
   test('omits new_skills when undefined', () => {
-    const result = buildDynamicContext({
-      currentTime: '2026-03-05T12:00:00Z',
-    })
-
+    const result = buildDynamicContext({})
     expect(result).toBe('')
   })
 })

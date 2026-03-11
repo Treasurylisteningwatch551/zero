@@ -48,13 +48,14 @@ describe('Session Persistence', () => {
 
   test('initAgent persists agent config', () => {
     const session = new Session('web', modelRouter, toolRegistry, { sessionDb })
-    session.initAgent({ name: 'test-agent', systemPrompt: 'You are a test.' })
+    session.initAgent({ name: 'test-agent', agentInstruction: 'You are a test.' })
 
     const row = sessionDb.getSession(session.data.id)!
     expect(row.agentConfigJson).toBeDefined()
     const config = JSON.parse(row.agentConfigJson!)
     expect(config.name).toBe('test-agent')
-    expect(config.systemPrompt).toBe('You are a test.')
+    expect(config.agentInstruction).toBe('You are a test.')
+    expect(row.systemPrompt).toBeUndefined()
   })
 
   test('Session.restore creates session with correct data and messages', () => {
@@ -115,7 +116,7 @@ describe('Session Persistence', () => {
       channelName: 'feishu:ops',
       channelId: 'chat_feishu_1',
     }
-    sessionDb.saveSession(data1, '{"name":"zero-feishu","systemPrompt":"test"}')
+    sessionDb.saveSession(data1, '{"name":"zero-feishu","agentInstruction":"test"}')
     sessionDb.saveMessages('sess_mgr_1', [
       { id: 'm1', sessionId: 'sess_mgr_1', role: 'user', messageType: 'message',
         content: [{ type: 'text', text: 'Hi' }], createdAt: new Date().toISOString() },
@@ -145,6 +146,35 @@ describe('Session Persistence', () => {
     const { session, isNew } = manager.getOrCreateForChannel('feishu', 'chat_feishu_1', 'feishu:ops')
     expect(isNew).toBe(false)
     expect(session.data.id).toBe('sess_mgr_1')
+  })
+
+  test('SessionManager.restoreFromDB migrates legacy agent config payloads', () => {
+    const data: SessionData = {
+      id: 'sess_mgr_legacy',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      source: 'web',
+      status: 'active',
+      currentModel: 'gpt-5.3-codex-medium',
+      modelHistory: [{ model: 'gpt-5.3-codex-medium', from: new Date().toISOString(), to: null }],
+      tags: [],
+    }
+
+    sessionDb.saveSession(
+      data,
+      '{"name":"legacy-agent","systemPrompt":"legacy prompt"}',
+      '<role>legacy rendered prompt</role>'
+    )
+
+    const manager = new SessionManager(modelRouter, toolRegistry, { sessionDb }, sessionDb)
+    manager.restoreFromDB()
+
+    const session = manager.get('sess_mgr_legacy')
+    expect(session).toBeDefined()
+    expect(session!.getAgentConfig()).toEqual({
+      name: 'legacy-agent',
+      agentInstruction: 'legacy prompt',
+    })
   })
 
   test('SessionManager.flushAll saves all sessions to DB', () => {

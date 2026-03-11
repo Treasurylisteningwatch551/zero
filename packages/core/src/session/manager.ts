@@ -1,6 +1,7 @@
 import type { Session as SessionData, SessionSource, SessionStatus, Message } from '@zero-os/shared'
 import type { ModelRouter } from '@zero-os/model'
 import type { ToolRegistry } from '../tool/registry'
+import type { AgentConfig } from '../agent/agent'
 import { Session, type SessionDeps } from './session'
 import type { SessionDB, SessionRow, MetricsDB } from '@zero-os/observe'
 import type { MemoryStore } from '@zero-os/memory'
@@ -298,8 +299,10 @@ export class SessionManager {
 
       if (row.agentConfigJson) {
         try {
-          const agentConfig = JSON.parse(row.agentConfigJson)
-          session.initAgent(agentConfig)
+          const agentConfig = normalizeAgentConfig(row.agentConfigJson)
+          if (agentConfig) {
+            session.initAgent(agentConfig)
+          }
         } catch {
           // If agent config is invalid, skip re-init — session still usable
         }
@@ -360,5 +363,29 @@ export class SessionManager {
 
   listAllFromDB(filter?: { status?: SessionStatus; limit?: number; offset?: number }): SessionRow[] {
     return (this.sessionDb?.loadAllSessions(filter) ?? []).map((row) => this.normalizeRow(row))
+  }
+}
+
+function normalizeAgentConfig(raw: string): AgentConfig | null {
+  const value = JSON.parse(raw) as unknown
+  if (!value || typeof value !== 'object') return null
+
+  const candidate = value as Record<string, unknown>
+  const agentInstruction = candidate.agentInstruction ?? candidate.systemPrompt
+  if (typeof candidate.name !== 'string' || typeof agentInstruction !== 'string') return null
+
+  if (
+    candidate.promptMode !== undefined &&
+    candidate.promptMode !== 'full' &&
+    candidate.promptMode !== 'minimal' &&
+    candidate.promptMode !== 'none'
+  ) {
+    return null
+  }
+
+  return {
+    name: candidate.name,
+    agentInstruction,
+    ...(candidate.promptMode ? { promptMode: candidate.promptMode } : {}),
   }
 }

@@ -1,5 +1,5 @@
 import type { PromptComponents, DynamicContext, SkillDefinition, PromptMode, BootstrapFile, RuntimeInfo } from '@zero-os/shared'
-import type { ToolDefinition, Memory } from '@zero-os/shared'
+import type { ToolDefinition } from '@zero-os/shared'
 import { truncateToTokens } from '@zero-os/shared'
 import { enforceFixedBudget } from './budget'
 import { CONTEXT_PARAMS } from './params'
@@ -165,20 +165,6 @@ export function buildIdentityBlock(globalIdentity: string, agentIdentity: string
   return enforceFixedBudget(`<identity>\n${content}\n</identity>`, 3000, 'Identity')
 }
 
-export function buildMemoBlock(memo: string): string {
-  if (!memo) return '<memo>\n</memo>'
-  return enforceFixedBudget(`<memo>\n${memo}\n</memo>`, 1500, 'Memo')
-}
-
-export function buildRetrievedMemoryBlock(memories: Memory[]): string {
-  const memoryEntries = memories.map(m => {
-    const content = truncateToTokens(m.content, CONTEXT_PARAMS.retrieval.perMemoryMaxTokens)
-    return `  <memory type="${m.type}" confidence="${m.confidence}" id="${m.id}" updated="${m.updatedAt}">\n  标题：${m.title}\n  内容：\n${content}\n  </memory>`
-  })
-  const content = memoryEntries.join('\n\n')
-  return enforceFixedBudget(`<retrieved_memories>\n${content}\n</retrieved_memories>`, 2000, 'Retrieved Memories')
-}
-
 /**
  * Build lightweight skill catalog for System Prompt — only metadata, no full content.
  * Agent reads SKILL.md via Read tool when a skill is needed (Level 2 progressive disclosure).
@@ -275,16 +261,21 @@ export function buildSkillsBlock(skills: SkillDefinition[]): string {
 export function buildSubAgentPrompt(
   tools: ToolDefinition[],
   instruction: string,
+  agentInstruction?: string,
   upstreamResults?: Map<string, { output: string; success: boolean }>,
   dependsOn?: string[],
 ): string {
   const sections: string[] = []
 
   // Simplified role
-  sections.push(`<role>
-你是 ZeRo OS 的 SubAgent，负责执行一项特定任务。
-任务完成后输出结果，不需要与用户交互。
-</role>`)
+  const roleLines = [
+    '你是 ZeRo OS 的 SubAgent，负责执行一项特定任务。',
+    '任务完成后输出结果，不需要与用户交互。',
+  ]
+  if (agentInstruction) {
+    roleLines.push(`角色说明：${agentInstruction}`)
+  }
+  sections.push(`<role>\n${roleLines.join('\n')}\n</role>`)
 
   // Tool rules (reuse existing builder)
   sections.push(buildToolRulesBlock(tools))

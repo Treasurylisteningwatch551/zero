@@ -86,7 +86,7 @@ describe('TaskTool', () => {
       tasks: [{ id: 'bad', instruction: 'do something' }],
     })
     expect(result.success).toBe(false)
-    expect(result.output).toContain('must specify either preset or both name and systemPrompt')
+    expect(result.output).toContain('must specify either preset or both name and agentInstruction')
   })
 
   test('task tool excludes itself from SubAgent registry', () => {
@@ -190,7 +190,7 @@ describe('TaskTool', () => {
     expect(result.output).toContain('step2')
   }, 120_000)
 
-  test('custom agent with name and systemPrompt works', async () => {
+  test('custom agent with name and agentInstruction works', async () => {
     const registry = createToolRegistry()
     const router = new ModelRouter(config, secrets)
     router.init()
@@ -201,7 +201,7 @@ describe('TaskTool', () => {
         {
           id: 'custom',
           name: 'CustomBot',
-          systemPrompt: 'You are a helpful bot. Always respond concisely.',
+          agentInstruction: 'You are a helpful bot. Always respond concisely.',
           instruction: 'Run: echo "custom agent works". Return the output.',
           tools: ['bash'],
           timeout: 60_000,

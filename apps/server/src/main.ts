@@ -155,7 +155,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     }
   }
 
-  // 10. Session Manager — pass observability deps, memory, bus, secret filter, identity, memo
+  // 10. Session Manager — pass observability deps, memory, bus, secret filter, and identity
   const secretResolver = (ref: string) => vault.get(ref) ?? undefined
   // Pre-create scheduler + handles (trigger handler set later after sessionManager exists)
   const scheduler = new CronScheduler()
@@ -178,7 +178,6 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     memoryRetriever,
     memoryStore,
     identityReader,
-    memoReader: () => memoManager.read(),
     bus: globalBus,
     sessionDb,
     schedulerHandle,
@@ -216,14 +215,14 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
       if (result.isNew) {
         session.initAgent({
           name: `schedule-${schedConfig.name}`,
-          systemPrompt: schedConfig.instruction,
+          agentInstruction: schedConfig.instruction,
         })
       }
     } else {
       session = sessionManager.create('scheduler')
       session.initAgent({
         name: `schedule-${schedConfig.name}`,
-        systemPrompt: schedConfig.instruction,
+        agentInstruction: schedConfig.instruction,
       })
     }
 
@@ -450,7 +449,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
                 : undefined
               session.initAgent({
                 name: agentName,
-                systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+                agentInstruction: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
               })
 
               const replyText = buildNewSessionReply(session.data.currentModel, modelResult)
@@ -467,7 +466,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
             if (isNew) {
               session.initAgent({
                 name: agentName,
-                systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+                agentInstruction: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
               })
             }
 
@@ -608,7 +607,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
               : undefined
             session.initAgent({
               name: agentName,
-              systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+              agentInstruction: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
             })
             const replyText = buildNewSessionReply(session.data.currentModel, modelResult)
             if (messageId) {
@@ -629,7 +628,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
           if (isNew) {
             session.initAgent({
               name: agentName,
-              systemPrompt: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+              agentInstruction: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
             })
           }
 

@@ -82,7 +82,7 @@ function createAgent(adapter: ProviderAdapter, logger?: ToolContext['logger']): 
   return new Agent(
     {
       name: 'stream-agent',
-      systemPrompt: 'test',
+      agentInstruction: 'test',
     },
     adapter,
     new ToolRegistry(),

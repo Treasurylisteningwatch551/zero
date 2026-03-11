@@ -70,7 +70,7 @@ describe('Session', () => {
     const router = createRouter()
     const registry = createToolRegistry()
     const session = new Session('web', router, registry)
-    session.initAgent({ name: 'test', systemPrompt: 'test' })
+    session.initAgent({ name: 'test', agentInstruction: 'test' })
 
     const messages = await session.handleMessage('/model')
     const reply = messages[messages.length - 1]
@@ -83,7 +83,7 @@ describe('Session', () => {
     const router = createRouter()
     const registry = createToolRegistry()
     const session = new Session('web', router, registry)
-    session.initAgent({ name: 'test', systemPrompt: 'test' })
+    session.initAgent({ name: 'test', agentInstruction: 'test' })
 
     const messages = await session.handleMessage('/model list')
     const reply = messages[messages.length - 1]
@@ -112,7 +112,7 @@ describe('Session', () => {
     const session = new Session('web', router, registry)
     session.initAgent({
       name: 'test-agent',
-      systemPrompt: 'You are a helpful assistant. Reply briefly.',
+      agentInstruction: 'You are a helpful assistant. Reply briefly.',
     })
 
     const messages = await session.handleMessage('Say exactly "ZeRo OS running" and nothing else.')

@@ -14,7 +14,7 @@ interface SubAgentSpec {
   instruction: string
   preset?: string
   name?: string
-  systemPrompt?: string
+  agentInstruction?: string
   dependsOn?: string[]
   timeout?: number
   tools?: string[]
@@ -26,26 +26,26 @@ interface TaskInput {
 
 interface PresetConfig {
   name: string
-  systemPrompt: string
+  agentInstruction: string
   defaultTools: string[]
 }
 
 const PRESET_AGENTS: Record<string, PresetConfig> = {
   explorer: {
     name: 'Explorer',
-    systemPrompt:
+    agentInstruction:
       'You are an Explorer SubAgent for ZeRo OS. Research, investigate, and report findings. Be thorough and concise.',
     defaultTools: ['read', 'bash', 'fetch'],
   },
   coder: {
     name: 'Coder',
-    systemPrompt:
+    agentInstruction:
       'You are a Coder SubAgent for ZeRo OS. Write, modify, and test code. Make minimal, correct changes.',
     defaultTools: ['read', 'write', 'edit', 'bash'],
   },
   reviewer: {
     name: 'Reviewer',
-    systemPrompt:
+    agentInstruction:
       'You are a Reviewer SubAgent for ZeRo OS. Review code, identify bugs, and suggest improvements. Do not modify files.',
     defaultTools: ['read', 'bash'],
   },
@@ -71,7 +71,7 @@ export class TaskTool extends BaseTool {
               description: 'Preset SubAgent type',
             },
             name: { type: 'string', description: 'Custom agent name (required if no preset)' },
-            systemPrompt: { type: 'string', description: 'Custom system prompt (required if no preset)' },
+            agentInstruction: { type: 'string', description: 'Custom agent role instruction (required if no preset)' },
             dependsOn: {
               type: 'array',
               items: { type: 'string' },
@@ -116,7 +116,7 @@ export class TaskTool extends BaseTool {
       if (!config) {
         return {
           success: false,
-          output: `Task "${spec.id}": must specify either preset or both name and systemPrompt`,
+          output: `Task "${spec.id}": must specify either preset or both name and agentInstruction`,
           outputSummary: 'Invalid task config',
         }
       }
@@ -182,6 +182,7 @@ export class TaskTool extends BaseTool {
       const subAgentSystemPrompt = buildSubAgentPrompt(
         scopedRegistry.getDefinitions(),
         node.instruction,
+        node.agentConfig.agentInstruction,
         upstreamResults as Map<string, { output: string; success: boolean }>,
         node.dependsOn,
       )
@@ -235,14 +236,14 @@ export class TaskTool extends BaseTool {
       if (!preset) return null
       return {
         name: spec.name ?? preset.name,
-        systemPrompt: spec.systemPrompt ?? preset.systemPrompt,
+        agentInstruction: spec.agentInstruction ?? preset.agentInstruction,
       }
     }
 
-    if (spec.name && spec.systemPrompt) {
+    if (spec.name && spec.agentInstruction) {
       return {
         name: spec.name,
-        systemPrompt: spec.systemPrompt,
+        agentInstruction: spec.agentInstruction,
       }
     }
 

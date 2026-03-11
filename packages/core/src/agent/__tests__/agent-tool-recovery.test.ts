@@ -123,7 +123,7 @@ describe('Agent tool recovery', () => {
 
     const agent = new Agent({
       name: 'test-agent',
-      systemPrompt: 'Test prompt',
+      agentInstruction: 'Test prompt',
     }, adapter, registry, toolContext)
 
     const context: AgentContext = {
@@ -164,7 +164,7 @@ describe('Agent tool recovery', () => {
 
     const agent = new Agent({
       name: 'test-agent',
-      systemPrompt: 'Test prompt',
+      agentInstruction: 'Test prompt',
     }, adapter, registry, toolContext)
 
     const context: AgentContext = {
