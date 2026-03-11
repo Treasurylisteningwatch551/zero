@@ -578,10 +578,19 @@ export class Agent {
       }
       return streamed
     } catch (streamErr) {
+      const errorDetails = this.getStreamErrorDetails(streamErr)
+      const fallbackSkipped = this.shouldSkipStreamFallback(streamErr)
       this.toolContext.logger.warn('llm_stream_fallback_to_complete', {
         sessionId: this.toolContext.sessionId,
-        error: streamErr instanceof Error ? streamErr.message : String(streamErr),
+        apiType: this.adapter.apiType,
+        error: errorDetails.message,
+        status: errorDetails.status,
+        requestId: errorDetails.requestId,
+        fallbackSkipped,
       })
+      if (fallbackSkipped) {
+        throw streamErr
+      }
       return await this.adapter.complete({ ...request, stream: false })
     }
   }
@@ -962,6 +971,37 @@ export class Agent {
     return value && typeof value === 'object'
       ? value as Record<string, unknown>
       : {}
+  }
+
+  private getStreamErrorDetails(
+    streamErr: unknown,
+  ): { message: string; status?: number; requestId?: string } {
+    const data = this.toRecord(streamErr)
+    return {
+      message: streamErr instanceof Error ? streamErr.message : String(streamErr),
+      status: this.toNumber(data.status),
+      requestId: typeof data.request_id === 'string'
+        ? data.request_id
+        : typeof data.requestId === 'string'
+          ? data.requestId
+          : undefined,
+    }
+  }
+
+  private shouldSkipStreamFallback(streamErr: unknown): boolean {
+    if (this.adapter.apiType !== 'anthropic_messages') {
+      return false
+    }
+
+    const data = this.toRecord(streamErr)
+    if (this.toNumber(data.status) !== undefined) {
+      return true
+    }
+
+    const message = streamErr instanceof Error ? streamErr.message : String(streamErr)
+    return message.includes(
+      'Streaming is strongly recommended for operations that may take longer than 10 minutes'
+    )
   }
 
   /**

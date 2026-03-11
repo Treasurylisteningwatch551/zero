@@ -12,18 +12,22 @@ import { generateId, now } from '@zero-os/shared'
 const ANTHROPIC_TOKEN = process.env.ANTHROPIC_API_KEY ?? ''
 const HAS_KEY = ANTHROPIC_TOKEN.length > 0
 
-const adapter = new AnthropicAdapter({
-  baseUrl: 'https://api.anthropic.com',
-  auth: { type: 'api_key', apiKeyRef: 'anthropic' },
-  modelConfig: {
-    modelId: 'claude-sonnet-4-20250514',
-    maxContext: 200000,
-    maxOutput: 8192,
-    capabilities: ['tools', 'vision'],
-    tags: ['balanced'],
-  },
-  apiKey: ANTHROPIC_TOKEN || 'dummy',
-})
+function createAdapter(): AnthropicAdapter {
+  return new AnthropicAdapter({
+    baseUrl: 'https://api.anthropic.com',
+    auth: { type: 'api_key', apiKeyRef: 'anthropic' },
+    modelConfig: {
+      modelId: 'claude-sonnet-4-20250514',
+      maxContext: 200000,
+      maxOutput: 8192,
+      capabilities: ['tools', 'vision'],
+      tags: ['balanced'],
+    },
+    apiKey: ANTHROPIC_TOKEN || 'dummy',
+  })
+}
+
+const adapter = createAdapter()
 
 function makeMessage(role: 'user' | 'assistant', text: string): Message {
   return {
@@ -156,6 +160,97 @@ describe('Anthropic Adapter (Pure Logic)', () => {
 
   test('apiType is anthropic_messages', () => {
     expect(adapter.apiType).toBe('anthropic_messages')
+  })
+
+  test('stream uses raw SSE create and maps tool events correctly', async () => {
+    const streamAdapter = createAdapter()
+    const calls: Array<Record<string, unknown>> = []
+    let helperCalled = false
+
+    ;(streamAdapter as any).client = {
+      messages: {
+        create: async (params: Record<string, unknown>) => {
+          calls.push(params)
+          return (async function* () {
+            yield {
+              type: 'message_start',
+              message: {
+                model: 'claude-sonnet-4-20250514',
+                usage: { input_tokens: 11, output_tokens: 0 },
+              },
+            }
+            yield {
+              type: 'content_block_start',
+              index: 0,
+              content_block: { type: 'text', text: '' },
+            }
+            yield {
+              type: 'content_block_delta',
+              index: 0,
+              delta: { type: 'text_delta', text: 'hello' },
+            }
+            yield {
+              type: 'content_block_stop',
+              index: 0,
+            }
+            yield {
+              type: 'content_block_start',
+              index: 1,
+              content_block: { type: 'tool_use', id: 'toolu_123', name: 'calculator', input: {} },
+            }
+            yield {
+              type: 'content_block_delta',
+              index: 1,
+              delta: { type: 'input_json_delta', partial_json: '{"expr":"1+1"}' },
+            }
+            yield {
+              type: 'content_block_stop',
+              index: 1,
+            }
+            yield {
+              type: 'message_delta',
+              delta: { stop_reason: 'tool_use' },
+              usage: { output_tokens: 7 },
+            }
+            yield {
+              type: 'message_stop',
+            }
+          })()
+        },
+        stream: () => {
+          helperCalled = true
+          throw new Error('messages.stream should not be used')
+        },
+      },
+    }
+
+    const events: Array<{ type: string; data: unknown }> = []
+    for await (const event of streamAdapter.stream({
+      messages: [makeMessage('user', 'test')],
+      stream: true,
+      maxTokens: 123,
+    })) {
+      events.push(event)
+    }
+
+    expect(helperCalled).toBe(false)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].stream).toBe(true)
+    expect(calls[0].max_tokens).toBe(123)
+    expect(events).toEqual([
+      { type: 'text_delta', data: { text: 'hello' } },
+      { type: 'tool_use_start', data: { id: 'toolu_123', name: 'calculator' } },
+      { type: 'tool_use_delta', data: { arguments: '{"expr":"1+1"}' } },
+      { type: 'tool_use_end', data: { id: 'toolu_123' } },
+      {
+        type: 'done',
+        data: {
+          model: 'claude-sonnet-4-20250514',
+          usage: { input: 11, output: 7, cacheWrite: undefined, cacheRead: undefined },
+          finishReason: 'tool_use',
+        },
+      },
+    ])
   })
 })
 

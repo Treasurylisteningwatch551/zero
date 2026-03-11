@@ -57,17 +57,19 @@ export class AnthropicAdapter implements ProviderAdapter {
   }
 
   async *stream(req: CompletionRequest): AsyncIterable<StreamEvent> {
-    const stream = this.client.messages.stream({
+    const stream = await this.client.messages.create({
       model: req.model ?? this.modelId,
       system: req.system,
       messages: this.convertMessages(req),
       tools: req.tools ? this.convertTools(req.tools) : undefined,
       max_tokens: req.maxTokens ?? 4096,
+      stream: true,
     })
 
     let streamModel: string | undefined
     let streamUsage: TokenUsage | undefined
     let streamStopReason: string | undefined
+    const toolBlockIds = new Map<number, string>()
 
     for await (const event of stream) {
       if (event.type === 'content_block_delta') {
@@ -80,13 +82,23 @@ export class AnthropicAdapter implements ProviderAdapter {
       } else if (event.type === 'content_block_start') {
         const block = event.content_block as Record<string, unknown>
         if (block.type === 'tool_use') {
+          const toolId = typeof block.id === 'string' ? block.id : undefined
+          if (typeof event.index === 'number' && toolId) {
+            toolBlockIds.set(event.index, toolId)
+          }
           yield {
             type: 'tool_use_start',
-            data: { id: block.id, name: block.name },
+            data: { id: toolId, name: block.name },
           }
         }
       } else if (event.type === 'content_block_stop') {
-        yield { type: 'tool_use_end', data: {} }
+        const toolId = typeof event.index === 'number'
+          ? toolBlockIds.get(event.index)
+          : undefined
+        if (toolId) {
+          toolBlockIds.delete(event.index)
+          yield { type: 'tool_use_end', data: { id: toolId } }
+        }
       } else if (event.type === 'message_start') {
         const msg = (event as any).message
         if (msg?.model) {
