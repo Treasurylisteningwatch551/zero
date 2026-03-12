@@ -27,6 +27,27 @@ afterAll(async () => {
 })
 
 describe('startZeroOS Integration', () => {
+  test('runs core-ready hook before external channels start', async () => {
+    const observed = {
+      webRegistered: false,
+      externalChannelsRegistered: false,
+    }
+
+    const hookedZero = await startZeroOS({
+      dataDir: testDataDir,
+      skipProcessExit: true,
+      onCoreReady: (runtime) => {
+        observed.webRegistered = runtime.channels.has('web')
+        observed.externalChannelsRegistered = runtime.channels.size > 1
+      },
+    })
+
+    expect(observed.webRegistered).toBe(true)
+    expect(observed.externalChannelsRegistered).toBe(false)
+
+    await hookedZero.shutdown()
+  })
+
   test('returns all required components', () => {
     expect(zero.config).toBeDefined()
     expect(zero.vault).toBeDefined()

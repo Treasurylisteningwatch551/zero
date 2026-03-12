@@ -30,6 +30,7 @@ import type { ChannelInstanceConfig, Notification, SessionSource, ScheduleConfig
 export interface StartOptions {
   dataDir?: string
   skipProcessExit?: boolean
+  onCoreReady?: (zero: ZeroOS) => Promise<void> | void
 }
 
 interface ChannelRuntimeDefinition {
@@ -454,6 +455,56 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     secretRefs: [],
   })
 
+  let shuttingDown = false
+  const shutdown = async () => {
+    if (shuttingDown) return
+    shuttingDown = true
+    console.log('\n[ZeRo OS] Shutting down...')
+    scheduler.stop()
+    console.log('[ZeRo OS] Scheduler stopped')
+    heartbeat.stop()
+    console.log('[ZeRo OS] Heartbeat stopped')
+    for (const [, ch] of channels) {
+      try { await ch.stop() } catch {}
+    }
+    console.log('[ZeRo OS] Channels closed')
+    sessionManager.flushAll()
+    console.log('[ZeRo OS] Sessions flushed to DB')
+    sessionDb.close()
+    console.log('[ZeRo OS] Session DB closed')
+    metrics.close()
+    console.log('[ZeRo OS] Metrics DB closed')
+    console.log('[ZeRo OS] Shutdown complete.')
+    if (!options?.skipProcessExit) process.exit(0)
+  }
+
+  const zero: ZeroOS = {
+    config,
+    vault,
+    secretFilter,
+    logger,
+    metrics,
+    sessionDb,
+    modelRouter,
+    toolRegistry,
+    sessionManager,
+    memoryStore,
+    memoryRetriever,
+    memoManager,
+    tracer,
+    repairEngine,
+    heartbeat,
+    scheduler,
+    bus: globalBus,
+    channels,
+    channelDefinitions,
+    notifications,
+    addNotification,
+    shutdown,
+  }
+
+  await options?.onCoreReady?.(zero)
+
   const externalChannelDefinitions = buildExternalChannelDefinitions(config.channels, vault)
 
   for (const definition of externalChannelDefinitions) {
@@ -832,53 +883,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
   globalBus.emit('session:create', { event: 'system_start' })
 
-  let shuttingDown = false
-  const shutdown = async () => {
-    if (shuttingDown) return
-    shuttingDown = true
-    console.log('\n[ZeRo OS] Shutting down...')
-    scheduler.stop()
-    console.log('[ZeRo OS] Scheduler stopped')
-    heartbeat.stop()
-    console.log('[ZeRo OS] Heartbeat stopped')
-    for (const [, ch] of channels) {
-      try { await ch.stop() } catch {}
-    }
-    console.log('[ZeRo OS] Channels closed')
-    sessionManager.flushAll()
-    console.log('[ZeRo OS] Sessions flushed to DB')
-    sessionDb.close()
-    console.log('[ZeRo OS] Session DB closed')
-    metrics.close()
-    console.log('[ZeRo OS] Metrics DB closed')
-    console.log('[ZeRo OS] Shutdown complete.')
-    if (!options?.skipProcessExit) process.exit(0)
-  }
-
-  return {
-    config,
-    vault,
-    secretFilter,
-    logger,
-    metrics,
-    sessionDb,
-    modelRouter,
-    toolRegistry,
-    sessionManager,
-    memoryStore,
-    memoryRetriever,
-    memoManager,
-    tracer,
-    repairEngine,
-    heartbeat,
-    scheduler,
-    bus: globalBus,
-    channels,
-    channelDefinitions,
-    notifications,
-    addNotification,
-    shutdown,
-  }
+  return zero
 }
 
 function buildExternalChannelDefinitions(

@@ -120,12 +120,13 @@ async function start() {
     process.exit(1)
   }
 
-  const zero = await startZeroOS()
-
-  // Start the web API server
-  const { startWebServer } = await import('../../web/src/server')
-  const web = startWebServer(zero)
-  console.log(`[ZeRo OS] Web UI: http://localhost:${web.port}`)
+  const zero = await startZeroOS({
+    onCoreReady: async (runtime) => {
+      const { startWebServer } = await import('../../web/src/server')
+      const web = startWebServer(runtime)
+      console.log(`[ZeRo OS] Web UI: http://localhost:${web.port}`)
+    },
+  })
 
   process.on('SIGINT', () => zero.shutdown())
   process.on('SIGTERM', () => zero.shutdown())
