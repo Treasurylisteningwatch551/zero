@@ -94,5 +94,6 @@ export interface CompressionResult {
     messagesAfter: number
     tokensBefore: number
     tokensAfter: number
+    compressedRange?: string
   }
 }

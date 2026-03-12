@@ -3,6 +3,7 @@ import type {
   ContentBlock,
   CompletionRequest,
   CompletionResponse,
+  CompressionResult,
   ToolContext,
   ToolResult,
   ToolDefinition,
@@ -77,6 +78,11 @@ export interface AgentObservability {
   modelLabel?: string
   /** ModelPricing from config for cost calculation */
   pricing?: import('@zero-os/shared').ModelPricing
+  getCurrentSnapshotId?: () => string | undefined
+  onContextCompressed?: (event: {
+    summary: string
+    stats: CompressionResult['stats']
+  }) => void
 }
 
 const EMPTY_RESPONSE_RETRY_PROMPT = 'Your previous reply was empty. Continue the current task and provide the actual answer or the next required tool call. Do not return an empty response.'
@@ -505,14 +511,10 @@ export class Agent {
           const result = await compressConversation(messages, budget.conversation, this.adapter, this.toolContext.sessionId)
           messages.length = 0
           messages.push(...result.retainedMessages)
-          const { buildSnapshot } = await import('./snapshot')
-          this.obs.logger?.logSnapshot?.(buildSnapshot({
-            sessionId: this.toolContext.sessionId,
-            trigger: 'context_compression',
-            compressedSummary: result.summary,
-            messagesBefore: result.stats.messagesBefore,
-            messagesAfter: result.stats.messagesAfter,
-          }))
+          this.obs.onContextCompressed?.({
+            summary: result.summary,
+            stats: result.stats,
+          })
         }
       }
 
@@ -1059,6 +1061,7 @@ export class Agent {
     this.obs.logger?.logSessionRequest({
       id: response.id,
       sessionId: this.toolContext.sessionId,
+      snapshotId: this.obs.getCurrentSnapshotId?.(),
       model: this.obs.modelLabel ?? response.model,
       provider: this.obs.providerName ?? 'unknown',
       userPrompt: safeUserPrompt,

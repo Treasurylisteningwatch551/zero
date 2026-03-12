@@ -4,6 +4,7 @@ import { generatePrefixedId } from '@zero-os/shared'
 export interface SnapshotParams {
   sessionId: string
   trigger: string
+  model?: string
   systemPrompt?: string
   tools?: string[]
   parentSnapshot?: string
@@ -11,6 +12,7 @@ export interface SnapshotParams {
   compressedSummary?: string
   messagesBefore?: number
   messagesAfter?: number
+  compressedRange?: string
 }
 
 /**

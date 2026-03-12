@@ -43,6 +43,7 @@ export async function compressConversation(
         messagesAfter: messages.length,
         tokensBefore,
         tokensAfter: tokensBefore,
+        compressedRange: undefined,
       },
     }
   }
@@ -77,6 +78,7 @@ export async function compressConversation(
       messagesAfter: retainedMessages.length,
       tokensBefore,
       tokensAfter,
+      compressedRange: `0..${splitIndex - 1}`,
     },
   }
 }

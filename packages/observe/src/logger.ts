@@ -39,6 +39,7 @@ export interface SnapshotEntry {
   id: string
   sessionId: string
   trigger: string
+  model?: string
   parentSnapshot?: string
   systemPrompt?: string
   tools?: string[]
@@ -46,6 +47,7 @@ export interface SnapshotEntry {
   compressedSummary?: string
   messagesBefore?: number
   messagesAfter?: number
+  compressedRange?: string
   ts: string
 }
 

@@ -11,6 +11,7 @@ describe('buildSnapshot', () => {
     const params = {
       sessionId: 'sess_abc',
       trigger: 'compression',
+      model: 'openai-codex/gpt-5.4',
       systemPrompt: 'You are helpful.',
       tools: ['read', 'write'],
       parentSnapshot: 'snap_prev',
@@ -18,10 +19,12 @@ describe('buildSnapshot', () => {
       compressedSummary: 'prior conversation summary',
       messagesBefore: 20,
       messagesAfter: 8,
+      compressedRange: '0..11',
     }
     const result = buildSnapshot(params)
     expect(result.sessionId).toBe('sess_abc')
     expect(result.trigger).toBe('compression')
+    expect(result.model).toBe('openai-codex/gpt-5.4')
     expect(result.systemPrompt).toBe('You are helpful.')
     expect(result.tools).toEqual(['read', 'write'])
     expect(result.parentSnapshot).toBe('snap_prev')
@@ -29,6 +32,7 @@ describe('buildSnapshot', () => {
     expect(result.compressedSummary).toBe('prior conversation summary')
     expect(result.messagesBefore).toBe(20)
     expect(result.messagesAfter).toBe(8)
+    expect(result.compressedRange).toBe('0..11')
   })
 
   test('omits ts field (added by logger)', () => {

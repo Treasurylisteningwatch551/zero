@@ -5,6 +5,7 @@ import type {
   Message,
   ToolDefinition,
   SecretFilter,
+  CompressionResult,
 } from '@zero-os/shared'
 import { generateSessionId, generateId, now, Mutex } from '@zero-os/shared'
 import { join } from 'node:path'
@@ -20,7 +21,7 @@ import { estimateConversationTokens } from '../agent/context'
 import type { QueuedMessage } from '../agent/queue'
 import { buildSnapshot } from '../agent/snapshot'
 import type { ToolRegistry } from '../tool/registry'
-import type { JsonlLogger, MetricsDB, Tracer, SessionDB } from '@zero-os/observe'
+import type { JsonlLogger, MetricsDB, Tracer, SessionDB, SnapshotEntry } from '@zero-os/observe'
 import type { MemoryRetriever } from '@zero-os/memory'
 
 /**
@@ -59,6 +60,13 @@ export interface HandleMessageOptions {
   images?: Array<{ mediaType: string; data: string }>
 }
 
+interface SnapshotContext {
+  model: string
+  systemPrompt: string
+  tools: string[]
+  identityMemory?: string
+}
+
 /**
  * Session — manages the lifecycle of a single conversation.
  */
@@ -76,7 +84,10 @@ export class Session {
   private lastAgentConfig: AgentConfig | null = null
   private lastSystemPrompt: string = ''
   private cachedSystemPrompt: string | null = null
+  private cachedToolNames: string[] = []
   private knownSkillNames = new Set<string>()
+  private currentSnapshotId?: string
+  private lastSnapshotContext: SnapshotContext | null = null
 
   constructor(
     source: SessionSource,
@@ -116,13 +127,6 @@ export class Session {
       model: this.data.currentModel,
     })
 
-    // Log session start snapshot
-    this.deps.logger?.logSnapshot?.(buildSnapshot({
-      sessionId: this.data.id,
-      trigger: 'session_start',
-      tools: this.toolRegistry.getDefinitions().map(t => t.name),
-    }))
-
     // Persist session metadata to DB
     this.deps.sessionDb?.saveSession(this.data)
   }
@@ -133,6 +137,7 @@ export class Session {
   initAgent(config: AgentConfig): void {
     this.lastAgentConfig = config
     this.cachedSystemPrompt = null
+    this.cachedToolNames = []
     this.lastSystemPrompt = ''
     this.knownSkillNames.clear()
     const resolved = this.activeModel ?? this.modelRouter.getDefaultModel() ?? this.modelRouter.getCurrentModel()
@@ -192,6 +197,10 @@ export class Session {
       providerName: resolved?.providerName,
       modelLabel: this.modelRouter.getModelLabel(resolved),
       pricing: resolved?.modelConfig.pricing,
+      getCurrentSnapshotId: () => this.currentSnapshotId,
+      onContextCompressed: (event) => {
+        this.logCompressionSnapshot(event.summary, event.stats)
+      },
     }
 
     this.agent = new Agent(config, adapter, this.toolRegistry, toolContext, agentObs)
@@ -234,29 +243,62 @@ export class Session {
     }
   }
 
-  private async processMessage(content: string, options?: HandleMessageOptions): Promise<Message[]> {
+  private static sameStringArray(left: string[], right: string[]): boolean {
+    return left.length === right.length && left.every((value, index) => value === right[index])
+  }
+
+  private static snapshotContextFromEntry(entry?: SnapshotEntry): SnapshotContext | null {
+    if (!entry?.model || !entry.systemPrompt) {
+      return null
+    }
+
+    return {
+      model: entry.model,
+      systemPrompt: entry.systemPrompt,
+      tools: entry.tools ?? [],
+      identityMemory: entry.identityMemory,
+    }
+  }
+
+  private getCurrentModelLabel(): string | undefined {
+    const resolved = this.activeModel ?? this.modelRouter.getDefaultModel() ?? this.modelRouter.getCurrentModel()
+    return resolved ? this.modelRouter.getModelLabel(resolved) : undefined
+  }
+
+  private getAgentName(): string {
+    return this.lastAgentConfig?.name ?? 'zero'
+  }
+
+  private getToolNames(tools: ToolDefinition[]): string[] {
+    return tools.map((tool) => tool.name)
+  }
+
+  private ensureStaticContext(): {
+    currentModel: ResolvedModel | undefined
+    tools: ToolDefinition[]
+    toolNames: string[]
+    systemPrompt: string
+    projectRoot: string
+    workspacePath: string
+  } {
     const currentModel = this.activeModel
     const tools = this.toolRegistry.getDefinitions()
-    const agentName = this.lastAgentConfig?.name ?? 'zero'
+    const toolNames = this.getToolNames(tools)
+    const agentName = this.getAgentName()
     const projectRoot = process.cwd()
     const workspacePath = join(projectRoot, '.zero', 'workspace', agentName)
 
-    // === STATIC: System Prompt (built once per session, prompt cache friendly) ===
-    if (!this.cachedSystemPrompt) {
+    if (!this.cachedSystemPrompt || !Session.sameStringArray(toolNames, this.cachedToolNames)) {
       const identity = this.deps.identityReader?.(agentName)
       const globalIdentity = identity?.global ?? this.deps.globalIdentity ?? ''
       const agentIdentity = identity?.agent ?? this.deps.agentIdentity ?? ''
       const promptMode = this.lastAgentConfig?.promptMode ?? 'full'
 
-      // Multi-source skill loading: global + workspace
       const globalSkills = loadSkills(join(projectRoot, '.zero', 'skills'))
       const workspaceSkills = loadSkills(join(workspacePath, 'skills'))
       const skills = [...globalSkills, ...workspaceSkills]
-
-      // Load bootstrap files (SOUL.md, USER.md, TOOLS.md) from agent workspace
       const bootstrapFiles = loadBootstrapFiles(workspacePath, promptMode)
 
-      // Build compact runtime info
       const runtimeInfo = {
         agentId: agentName,
         host: hostname(),
@@ -279,12 +321,117 @@ export class Session {
         bootstrapFiles,
         runtimeInfo,
       })
+      this.cachedToolNames = [...toolNames]
 
-      for (const s of skills) this.knownSkillNames.add(s.name)
+      for (const skill of skills) this.knownSkillNames.add(skill.name)
     }
 
     const systemPrompt = this.cachedSystemPrompt
     this.lastSystemPrompt = systemPrompt
+
+    return {
+      currentModel,
+      tools,
+      toolNames,
+      systemPrompt,
+      projectRoot,
+      workspacePath,
+    }
+  }
+
+  private getCurrentSnapshotContext(toolNames = this.cachedToolNames): SnapshotContext | null {
+    const model = this.getCurrentModelLabel()
+    if (!model || !this.lastSystemPrompt) {
+      return null
+    }
+
+    return {
+      model,
+      systemPrompt: this.lastSystemPrompt,
+      tools: [...toolNames],
+      identityMemory: this.deps.identityMemory,
+    }
+  }
+
+  private writeSnapshot(
+    trigger: string,
+    context: SnapshotContext,
+    extra: Partial<Omit<SnapshotEntry, 'id' | 'sessionId' | 'trigger' | 'ts'>> = {},
+  ): string | undefined {
+    if (!this.deps.logger) return undefined
+
+    const snapshot = buildSnapshot({
+      sessionId: this.data.id,
+      trigger,
+      model: context.model,
+      systemPrompt: context.systemPrompt,
+      tools: [...context.tools],
+      identityMemory: context.identityMemory,
+      parentSnapshot: extra.parentSnapshot ?? this.currentSnapshotId,
+      compressedSummary: extra.compressedSummary,
+      messagesBefore: extra.messagesBefore,
+      messagesAfter: extra.messagesAfter,
+      compressedRange: extra.compressedRange,
+    })
+
+    this.deps.logger.logSnapshot(snapshot)
+    this.currentSnapshotId = snapshot.id
+    this.lastSnapshotContext = {
+      model: context.model,
+      systemPrompt: context.systemPrompt,
+      tools: [...context.tools],
+      identityMemory: context.identityMemory,
+    }
+    return snapshot.id
+  }
+
+  private ensureCurrentContextSnapshot(toolNames: string[]): void {
+    const context = this.getCurrentSnapshotContext(toolNames)
+    if (!context) return
+
+    if (!this.currentSnapshotId || !this.lastSnapshotContext) {
+      this.writeSnapshot('session_start', context)
+      return
+    }
+
+    if (
+      this.lastSnapshotContext.model === context.model &&
+      this.lastSnapshotContext.systemPrompt === context.systemPrompt &&
+      this.lastSnapshotContext.identityMemory === context.identityMemory &&
+      Session.sameStringArray(this.lastSnapshotContext.tools, context.tools)
+    ) {
+      return
+    }
+
+    const trigger = Session.sameStringArray(this.lastSnapshotContext.tools, context.tools)
+      ? 'context_updated'
+      : 'tools_changed'
+    this.writeSnapshot(trigger, context)
+  }
+
+  private logCompressionSnapshot(summary: string, stats: CompressionResult['stats']): void {
+    const context = this.getCurrentSnapshotContext()
+    if (!context) return
+
+    this.writeSnapshot('context_compression', context, {
+      compressedSummary: summary,
+      messagesBefore: stats.messagesBefore,
+      messagesAfter: stats.messagesAfter,
+      compressedRange: stats.compressedRange,
+    })
+  }
+
+  private restoreSnapshotStateFromLogger(): void {
+    const lastSnapshot = this.deps.logger?.readSessionSnapshots(this.data.id).at(-1)
+    if (!lastSnapshot) return
+
+    this.currentSnapshotId = lastSnapshot.id
+    this.lastSnapshotContext = Session.snapshotContextFromEntry(lastSnapshot)
+  }
+
+  private async processMessage(content: string, options?: HandleMessageOptions): Promise<Message[]> {
+    const { currentModel, tools, toolNames, systemPrompt, projectRoot, workspacePath } = this.ensureStaticContext()
+    this.ensureCurrentContextSnapshot(toolNames)
 
     // === DYNAMIC: Per-message context ===
 
@@ -369,11 +516,14 @@ export class Session {
       to: nextModelLabel,
     })
 
-    this.deps.logger?.logSnapshot?.(buildSnapshot({
-      sessionId: this.data.id,
-      trigger: 'model_switch',
-      tools: this.toolRegistry.getDefinitions().map(t => t.name),
-    }))
+    this.reinitializeAgent()
+    if (this.lastAgentConfig) {
+      const { toolNames } = this.ensureStaticContext()
+      const context = this.getCurrentSnapshotContext(toolNames)
+      if (context) {
+        this.writeSnapshot('model_switch', context)
+      }
+    }
 
     if (this.messages.length > 0) {
       const newBudget = allocateBudget(
@@ -391,10 +541,10 @@ export class Session {
         )
         this.messages.length = 0
         this.messages.push(...compResult.retainedMessages)
+        this.logCompressionSnapshot(compResult.summary, compResult.stats)
       }
     }
 
-    this.reinitializeAgent()
     this.persistState()
     return result
   }
@@ -499,7 +649,11 @@ export class Session {
     ;(session as any).lastAgentConfig = null
     ;(session as any).lastSystemPrompt = systemPrompt ?? ''
     ;(session as any).cachedSystemPrompt = null
+    ;(session as any).cachedToolNames = []
     ;(session as any).knownSkillNames = new Set<string>()
+    ;(session as any).currentSnapshotId = undefined
+    ;(session as any).lastSnapshotContext = null
+    session.restoreSnapshotStateFromLogger()
     return session
   }
 

@@ -178,14 +178,18 @@ describe('JsonlLogger', () => {
       id: 'snap_001',
       sessionId: 'sess_test',
       trigger: 'session_start',
+      model: 'openai-codex/gpt-5.4',
       systemPrompt: 'You are ZeRo OS',
       tools: ['read', 'write', 'bash'],
+      compressedRange: '0..3',
     })
 
-    const entries = logger.readEntries('snapshots.jsonl')
+    const entries = logger.readSessionSnapshots('sess_test')
     expect(entries.length).toBeGreaterThanOrEqual(1)
     const last = entries[entries.length - 1] as Record<string, unknown>
     expect(last.trigger).toBe('session_start')
+    expect(last.model).toBe('openai-codex/gpt-5.4')
+    expect(last.compressedRange).toBe('0..3')
   })
 
   test('readEntries returns empty array for missing file', () => {
