@@ -107,9 +107,9 @@ export function buildToolRulesBlock(tools: ToolDefinition[]): string {
     edit: 'Edit：修改文件前先 Read 确认当前内容，避免基于过期认知做编辑。',
     bash: 'Bash：命令在工作目录中执行，操作项目源码时使用绝对路径。命令执行前检查是否命中熔断名单。长时间运行的命令加 timeout。',
     fetch: 'Fetch：用于读取网页内容、调用 API、下载文件。HTML 自动通过 readability 提取正文转为 Markdown。需要 JavaScript 渲染或交互操作时，通过 Bash 调用 agent-browser。',
-    memory_search: 'Memory Search：回答过往工作、决策、日期、偏好、待办前，先搜索 `.zero/memory/**` 里的记忆；如果没找到，要明确说明已检查。',
-    memory_get: 'Memory Get：根据 memory_search 返回的 path 精读 `.zero/memory/**` 下的记忆文件；只读取需要的内容，memo.md 不在此工具范围内。',
-    memory: 'Memory：仅用于显式写入或维护记忆。当用户要求"记住"某事时，用 create + note；用户偏好用 preference；架构决策用 decision。不要用它做 recall。',
+    memory_search: 'Memory Search：回答过往工作、决策、偏好前，先搜索 `.zero/memory/**`。查询要具体（项目名/技术名/日期），支持语义搜索。搜索无结果时明确告知用户。',
+    memory_get: 'Memory Get：根据 memory_search 返回的 path 精读记忆文件。仅在 snippet 不足以回答时使用。',
+    memory: 'Memory：显式写入或维护记忆。create + note 记录发现，create + preference 记录偏好，create + decision 记录决策及理由。每次会话如有值得持久化的信息，主动 create。',
     task: 'Task：拆分 SubAgent 时明确每个子任务的输入、输出和依赖关系。不要把含糊的大任务直接丢给 SubAgent。',
   }
 

@@ -61,6 +61,10 @@ export const CONTEXT_PARAMS = {
     confidenceThreshold: 0.6,
     maxQueries: 3,
     perMemoryMaxTokens: 400,
+    vectorWeight: 0.5,
+    keywordWeight: 0.3,
+    recencyWeight: 0.2,
+    recencyHalfLifeDays: 30,
   },
 
   /** SubAgent context */

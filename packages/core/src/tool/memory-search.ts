@@ -34,7 +34,14 @@ export class MemorySearchTool extends BaseTool {
     const results = ctx.memoryRetriever.retrieveScored
       ? await ctx.memoryRetriever.retrieveScored(query, { topN: maxResults ?? 5, types: DEFAULT_TYPES, confidenceThreshold: 0 })
       : (await ctx.memoryRetriever.retrieve(query, { topN: maxResults ?? 5, types: DEFAULT_TYPES, confidenceThreshold: 0 }))
-        .map(memory => ({ memory, score: 0 }))
+        .map((memory) => ({
+          memory,
+          score: 0,
+          scoreBreakdown: {
+            keyword: 0,
+            recency: 0,
+          },
+        }))
 
     if (results.length === 0) {
       return {
@@ -52,7 +59,8 @@ export class MemorySearchTool extends BaseTool {
           `${index + 1}. [${entry.memory.type}] ${entry.memory.title}`,
           `   id: ${entry.memory.id}`,
           `   path: ${path}`,
-          `   score: ${entry.score}`,
+          `   score: ${formatScore(entry.score)} (${formatScoreBreakdown(entry.scoreBreakdown)})`,
+          `   age: ${formatAge(entry.memory.updatedAt)}`,
           `   snippet: ${snippet}`,
         ].join('\n')
       })
@@ -70,4 +78,34 @@ function truncateSnippet(content: string, maxLength = 240): string {
   const normalized = content.replace(/\s+/g, ' ').trim()
   if (normalized.length <= maxLength) return normalized
   return `${normalized.slice(0, maxLength - 1)}…`
+}
+
+function formatScore(value: number): string {
+  return value.toFixed(2)
+}
+
+function formatScoreBreakdown(breakdown: { keyword: number; recency: number; vector?: number }): string {
+  const parts = []
+  if (breakdown.vector !== undefined) {
+    parts.push(`vector: ${formatScore(breakdown.vector)}`)
+  }
+  parts.push(`keyword: ${formatScore(breakdown.keyword)}`)
+  parts.push(`recency: ${formatScore(breakdown.recency)}`)
+  return parts.join(', ')
+}
+
+function formatAge(updatedAt: string): string {
+  const diffMs = Date.now() - new Date(updatedAt).getTime()
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return '0m'
+
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 60) return `${minutes}m`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}d`
+
+  return `${Math.floor(days / 30)}mo`
 }

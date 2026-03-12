@@ -23,17 +23,17 @@ const makeCtx = () => ({
   memoryRetriever: retriever,
 })
 
-beforeAll(() => {
+beforeAll(async () => {
   mkdirSync(join(testDir, 'notes'), { recursive: true })
   store = new MemoryStore(testDir)
   retriever = new MemoryRetriever(store)
 
-  store.create('note', 'Deploy Checklist', 'Run bun run check before release', {
+  await store.create('note', 'Deploy Checklist', 'Run bun run check before release', {
     status: 'verified',
     confidence: 0.92,
     tags: ['deploy', 'release'],
   })
-  const preference = store.create('preference', 'Language Preference', 'User prefers TypeScript over JavaScript', {
+  const preference = await store.create('preference', 'Language Preference', 'User prefers TypeScript over JavaScript', {
     status: 'verified',
     confidence: 0.95,
     tags: ['preference', 'typescript'],
@@ -59,6 +59,9 @@ describe('Memory recall tools', () => {
     expect(result.output).toContain('Language Preference')
     expect(result.output).toContain(`.zero/memory/preferences/${preferenceId}.md`)
     expect(result.output).toContain('score:')
+    expect(result.output).toContain('keyword:')
+    expect(result.output).toContain('recency:')
+    expect(result.output).toContain('age:')
     expect(result.output).toContain('User prefers TypeScript')
   })
 

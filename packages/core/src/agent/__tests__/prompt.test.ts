@@ -102,9 +102,11 @@ describe('buildToolRulesBlock', () => {
     expect(result).toContain('</tool_rules>')
     expect(result).toContain('Read：优先使用 Read 查看文件内容')
     expect(result).toContain('Bash：命令在工作目录中执行')
-    expect(result).toContain('Memory Search：回答过往工作')
+    expect(result).toContain('Memory Search：回答过往工作、决策、偏好前')
+    expect(result).toContain('支持语义搜索')
     expect(result).toContain('Memory Get：根据 memory_search 返回的 path')
-    expect(result).toContain('不要用它做 recall')
+    expect(result).toContain('仅在 snippet 不足以回答时使用')
+    expect(result).toContain('主动 create')
     // Should not contain rules for tools not in the list
     expect(result).not.toContain('Write：')
     expect(result).not.toContain('Edit：')

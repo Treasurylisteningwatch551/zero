@@ -4,13 +4,11 @@ import type { ZeroOS } from '../../../server/src/main'
 import { ChatGptOAuthBroker } from '../../../server/src/chatgpt-oauth'
 import { ensureChatgptProviderConfig, getConfigPath, getChatgptOAuthTokenRef } from '../../../server/src/chatgpt-provider'
 import { loadConfig } from '@zero-os/core'
-import { MemoryRetriever } from '@zero-os/memory'
 import type { MemoryType, SessionStatus } from '@zero-os/shared'
 import type { SessionRow } from '@zero-os/observe'
 import { GitOps } from '@zero-os/supervisor'
 
 export function createRoutes(zero: ZeroOS) {
-  const retriever = new MemoryRetriever(zero.memoryStore)
   const chatgptOAuth = new ChatGptOAuthBroker(zero.vault)
 
   function readCurrentConfig() {
@@ -359,9 +357,9 @@ export function createRoutes(zero: ZeroOS) {
       return c.json({ ok: true })
     })
 
-    .delete('/api/sessions/:id', (c) => {
+    .delete('/api/sessions/:id', async (c) => {
       const id = c.req.param('id')
-      const deleted = zero.sessionManager.deleteSession(id, zero.memoryStore, zero.metrics)
+      const deleted = await zero.sessionManager.deleteSession(id, zero.memoryStore, zero.metrics)
       if (!deleted) {
         return c.json({ error: 'Session not found' }, 404)
       }
@@ -418,7 +416,7 @@ export function createRoutes(zero: ZeroOS) {
     .get('/api/memory/search', async (c) => {
       const q = c.req.query('q') ?? ''
       if (!q) return c.json({ results: [], query: q })
-      const results = await retriever.retrieve(q, { topN: 20, confidenceThreshold: 0 })
+      const results = await zero.memoryRetriever.retrieve(q, { topN: 20, confidenceThreshold: 0 })
       return c.json({ results, query: q })
     })
 
@@ -434,7 +432,7 @@ export function createRoutes(zero: ZeroOS) {
       if (!body.type || !body.title || !body.content) {
         return c.json({ error: 'type, title, and content are required' }, 400)
       }
-      const memory = zero.memoryStore.create(body.type, body.title, body.content, {
+      const memory = await zero.memoryStore.create(body.type, body.title, body.content, {
         tags: body.tags ?? [],
         status: body.status ?? 'draft',
         confidence: body.confidence ?? 0.5,
@@ -454,15 +452,15 @@ export function createRoutes(zero: ZeroOS) {
       const type = c.req.param('type') as MemoryType
       const id = c.req.param('id')
       const body = await c.req.json<Record<string, unknown>>()
-      const updated = zero.memoryStore.update(type, id, body)
+      const updated = await zero.memoryStore.update(type, id, body)
       if (!updated) return c.json({ error: 'Memory not found' }, 404)
       return c.json({ memory: updated })
     })
 
-    .delete('/api/memory/:type/:id', (c) => {
+    .delete('/api/memory/:type/:id', async (c) => {
       const type = c.req.param('type') as MemoryType
       const id = c.req.param('id')
-      const deleted = zero.memoryStore.delete(type, id)
+      const deleted = await zero.memoryStore.delete(type, id)
       if (!deleted) return c.json({ error: 'Memory not found' }, 404)
       return c.json({ ok: true })
     })

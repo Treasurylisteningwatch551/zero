@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, appendFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { loadConfig, loadFuseList } from '@zero-os/core'
+import { CONTEXT_PARAMS, loadConfig, loadFuseList } from '@zero-os/core'
 import { ModelRouter } from '@zero-os/model'
 import { ToolRegistry, ReadTool, WriteTool, EditTool, BashTool, FetchTool, TaskTool, MemoryTool, MemorySearchTool, MemoryGetTool, ScheduleTool } from '@zero-os/core'
 import { SessionManager } from '@zero-os/core'
@@ -8,7 +8,15 @@ import { Vault, generateMasterKey, setMasterKey, getMasterKey } from '@zero-os/s
 import { OutputSecretFilter } from '@zero-os/secrets'
 import { JsonlLogger, MetricsDB, Tracer, SessionDB } from '@zero-os/observe'
 import { rebuildWebBundle } from './web-build'
-import { MemoryStore, MemoManager, MemoryRetriever } from '@zero-os/memory'
+import {
+  EmbeddingClient,
+  IndexedMemoryStore,
+  MemoManager,
+  MemoryRetriever,
+  MemoryStore,
+  VectorIndex,
+} from '@zero-os/memory'
+import type { MemoryRepository } from '@zero-os/memory'
 import { RepairEngine } from '@zero-os/supervisor'
 import { HeartbeatWriter } from '@zero-os/supervisor'
 import { CronScheduler } from '@zero-os/scheduler'
@@ -60,7 +68,8 @@ export interface ZeroOS {
   modelRouter: ModelRouter
   toolRegistry: ToolRegistry
   sessionManager: SessionManager
-  memoryStore: MemoryStore
+  memoryStore: MemoryRepository
+  memoryRetriever: MemoryRetriever
   memoManager: MemoManager
   tracer: Tracer
   repairEngine: RepairEngine
@@ -117,7 +126,10 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   const metrics = new MetricsDB(join(logsDir, 'metrics.db'))
   const sessionDb = new SessionDB(join(logsDir, 'sessions.db'))
   const tracer = new Tracer()
+  const heartbeat = new HeartbeatWriter(join(ZERO_DIR, 'heartbeat.json'))
+  heartbeat.start()
   console.log('[ZeRo OS] Logging initialized')
+  console.log('[ZeRo OS] Heartbeat writer started')
 
   // 7. Initialize Model Router
   const secrets = new Map(vault.entries())
@@ -142,9 +154,52 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
   // 9. Memory
   const memoryDir = join(ZERO_DIR, 'memory')
-  const memoryStore = new MemoryStore(memoryDir)
+  const baseMemoryStore = new MemoryStore(memoryDir)
+  let memoryStore: MemoryRepository = baseMemoryStore
   const memoManager = new MemoManager(join(memoryDir, 'memo.md'))
-  const memoryRetriever = new MemoryRetriever(memoryStore)
+  let embeddingClient: EmbeddingClient | undefined
+  let vectorIndex: VectorIndex | undefined
+
+  const embeddingConfig = config.embedding
+  if (embeddingConfig?.baseUrl && embeddingConfig.apiKeyRef && embeddingConfig.model) {
+    const apiKey = vault.get(embeddingConfig.apiKeyRef)
+    if (apiKey) {
+      try {
+        embeddingClient = new EmbeddingClient({
+          baseUrl: embeddingConfig.baseUrl,
+          apiKey,
+          model: embeddingConfig.model,
+          dimensions: embeddingConfig.dimensions,
+        })
+        vectorIndex = new VectorIndex(join(memoryDir, 'vectors'))
+        const indexedMemoryStore = new IndexedMemoryStore(baseMemoryStore, embeddingClient, vectorIndex)
+        memoryStore = indexedMemoryStore
+        const reindexed = await indexedMemoryStore.reindexAll()
+        console.log(`[ZeRo OS] Memory vector index ready (${reindexed} items)`)
+      } catch (error) {
+        embeddingClient = undefined
+        vectorIndex = undefined
+        memoryStore = baseMemoryStore
+        console.warn('[ZeRo OS] Memory vector index unavailable, falling back to keyword retrieval', {
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
+    } else {
+      console.warn(`[ZeRo OS] Embedding secret "${embeddingConfig.apiKeyRef}" not found, memory search will use keyword fallback`)
+    }
+  }
+
+  const memoryRetriever = new MemoryRetriever(
+    memoryStore,
+    embeddingClient,
+    vectorIndex,
+    {
+      vectorWeight: CONTEXT_PARAMS.retrieval.vectorWeight,
+      keywordWeight: CONTEXT_PARAMS.retrieval.keywordWeight,
+      recencyWeight: CONTEXT_PARAMS.retrieval.recencyWeight,
+      recencyHalfLifeDays: CONTEXT_PARAMS.retrieval.recencyHalfLifeDays,
+    },
+  )
 
   // 9.5 Identity reader — hot-reloads identity on each turn per agent name
   const identityReader = (agentName: string) => {
@@ -192,11 +247,6 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
   // 11. Repair Engine
   const repairEngine = new RepairEngine()
-
-  // 12. Heartbeat Writer
-  const heartbeat = new HeartbeatWriter(join(ZERO_DIR, 'heartbeat.json'))
-  heartbeat.start()
-  console.log('[ZeRo OS] Heartbeat writer started')
 
   // 13. Scheduler — trigger handler (scheduler + handles created in step 10)
   const channels = new Map<string, Channel>()
@@ -816,6 +866,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     toolRegistry,
     sessionManager,
     memoryStore,
+    memoryRetriever,
     memoManager,
     tracer,
     repairEngine,

@@ -1,11 +1,11 @@
 import { BaseTool } from './base'
-import type { ToolContext, ToolResult } from '@zero-os/shared'
+import type { MemoryType, ToolContext, ToolResult } from '@zero-os/shared'
 
 type MemoryAction = 'create' | 'update' | 'delete' | 'list'
 
 interface MemoryInput {
   action: MemoryAction
-  type?: string
+  type?: MemoryType
   title?: string
   content?: string
   tags?: string[]
@@ -68,7 +68,7 @@ export class MemoryTool extends BaseTool {
             outputSummary: 'Missing required fields for create',
           }
         }
-        const memory = ctx.memoryStore.create(type, title, content, {
+        const memory = await ctx.memoryStore.create(type, title, content, {
           status: 'verified',
           confidence: 0.85,
           tags: tags ?? [],
@@ -89,7 +89,7 @@ export class MemoryTool extends BaseTool {
             outputSummary: 'Missing type or id for update',
           }
         }
-        const updated = ctx.memoryStore.update(type, id, updates ?? {})
+        const updated = await ctx.memoryStore.update(type, id, updates ?? {})
         if (!updated) {
           return {
             success: false,
@@ -112,7 +112,7 @@ export class MemoryTool extends BaseTool {
             outputSummary: 'Missing type or id for delete',
           }
         }
-        const deleted = ctx.memoryStore.delete(type, id)
+        const deleted = await ctx.memoryStore.delete(type, id)
         return {
           success: deleted,
           output: deleted ? `Memory deleted: ${type}/${id}` : `Memory not found: ${type}/${id}`,

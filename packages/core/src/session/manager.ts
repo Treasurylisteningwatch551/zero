@@ -4,7 +4,7 @@ import type { ToolRegistry } from '../tool/registry'
 import type { AgentConfig } from '../agent/agent'
 import { Session, type SessionDeps } from './session'
 import type { SessionDB, SessionRow, MetricsDB } from '@zero-os/observe'
-import type { MemoryStore } from '@zero-os/memory'
+import type { MemoryRepository } from '@zero-os/memory'
 
 interface SessionCreateOptions {
   channelId?: string
@@ -342,11 +342,11 @@ export class SessionManager {
   /**
    * Permanently delete a session and all associated data.
    */
-  deleteSession(id: string, memoryStore?: MemoryStore, metrics?: MetricsDB): boolean {
+  async deleteSession(id: string, memoryStore?: MemoryRepository, metrics?: MetricsDB): Promise<boolean> {
     this.remove(id)
     const dbDeleted = this.sessionDb?.deleteSession(id) ?? false
     metrics?.deleteSessionMetrics(id)
-    memoryStore?.deleteBySessionId(id)
+    await memoryStore?.deleteBySessionId(id)
     return dbDeleted
   }
 
