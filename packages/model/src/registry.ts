@@ -3,6 +3,7 @@ import type { ProviderAdapter, AdapterConfig } from './adapters/base'
 import { OpenAIChatAdapter } from './adapters/openai-chat'
 import { AnthropicAdapter } from './adapters/anthropic'
 import { OpenAIResponsesAdapter } from './adapters/openai-resp'
+import { LiteLLMPricing } from './pricing'
 
 export interface ResolvedModel {
   providerName: string
@@ -46,7 +47,7 @@ export class ModelRegistry {
           return {
             providerName,
             modelName: name,
-            modelConfig: model,
+            modelConfig: this.enrichPricing(model),
             providerConfig: provider,
             adapter,
           }
@@ -76,7 +77,7 @@ export class ModelRegistry {
           results.push({
             providerName,
             modelName: name,
-            modelConfig: model,
+            modelConfig: this.enrichPricing(model),
             providerConfig: provider,
             adapter,
           })
@@ -129,6 +130,16 @@ export class ModelRegistry {
     adapter = this.createAdapter(provider.apiType, config)
     this.adapters.set(key, adapter)
     return adapter
+  }
+
+  /**
+   * Inject LiteLLM fallback pricing when config has no explicit pricing.
+   */
+  private enrichPricing(model: ModelConfig): ModelConfig {
+    if (model.pricing) return model
+    const fallback = LiteLLMPricing.getInstance()?.lookup(model.modelId)
+    if (!fallback) return model
+    return { ...model, pricing: fallback }
   }
 
   private createAdapter(apiType: ApiType, config: AdapterConfig): ProviderAdapter {

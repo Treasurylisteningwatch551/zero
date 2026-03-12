@@ -294,7 +294,7 @@ export function SessionsPage() {
                   {' · '}
                   {formatNumber(s.totalTokens)} tokens
                   {' · '}
-                  {formatCost(s.totalCost)}
+                  ${formatCost(s.totalCost)}
                 </div>
               </div>
             )

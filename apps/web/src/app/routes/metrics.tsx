@@ -167,8 +167,8 @@ function CostTab({ range }: { range: TimeRange }) {
               <BarChart data={costTrendData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
                 <XAxis dataKey="period" tick={{ fontSize: 10, fill: CHART_TEXT }} />
-                <YAxis tick={{ fontSize: 10, fill: CHART_TEXT }} tickFormatter={(v: number) => formatCost(v)} />
-                <Tooltip {...TOOLTIP_STYLE} formatter={(value: number) => formatCost(value)} />
+                <YAxis tick={{ fontSize: 10, fill: CHART_TEXT }} tickFormatter={(v: number) => `$${formatCost(v)}`} />
+                <Tooltip {...TOOLTIP_STYLE} formatter={(value: number) => `$${formatCost(value)}`} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 {costModels.map((model, i) => (
                   <Bar key={model} dataKey={model} stackId="cost" fill={MODEL_COLORS[i % MODEL_COLORS.length]} radius={i === costModels.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
@@ -222,7 +222,7 @@ function CostTab({ range }: { range: TimeRange }) {
                     <Cell key={i} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip {...TOOLTIP_STYLE} formatter={(value: number) => formatCost(value)} />
+                <Tooltip {...TOOLTIP_STYLE} formatter={(value: number) => `$${formatCost(value)}`} />
               </PieChart>
             </ResponsiveContainer>
           )}
@@ -276,7 +276,7 @@ function CostTab({ range }: { range: TimeRange }) {
                       <td className="py-1.5 pr-4 text-right text-[var(--color-text-secondary)]">{formatNumber(d.input)}</td>
                       <td className="py-1.5 pr-4 text-right text-[var(--color-text-secondary)]">{formatNumber(d.output)}</td>
                       <td className="py-1.5 pr-4 text-right text-[var(--color-text-muted)]">{formatNumber(d.cacheRead)}</td>
-                      <td className="py-1.5 text-right">{formatCost(d.cost)}</td>
+                      <td className="py-1.5 text-right">${formatCost(d.cost)}</td>
                     </tr>
                   ))}
                 </tbody>

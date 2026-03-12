@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, appendFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { CONTEXT_PARAMS, loadConfig, loadFuseList } from '@zero-os/core'
-import { ModelRouter } from '@zero-os/model'
+import { ModelRouter, LiteLLMPricing } from '@zero-os/model'
 import { ToolRegistry, ReadTool, WriteTool, EditTool, BashTool, FetchTool, TaskTool, MemoryTool, MemorySearchTool, MemoryGetTool, ScheduleTool } from '@zero-os/core'
 import { SessionManager } from '@zero-os/core'
 import { Vault, generateMasterKey, setMasterKey, getMasterKey } from '@zero-os/secrets'
@@ -131,6 +131,12 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   heartbeat.start()
   console.log('[ZeRo OS] Logging initialized')
   console.log('[ZeRo OS] Heartbeat writer started')
+
+  // 6.5. Initialize LiteLLM pricing fallback
+  const litellmPricing = LiteLLMPricing.init(join(ZERO_DIR, 'cache'))
+  await litellmPricing.ensureLoaded()
+  litellmPricing.startRefresh()
+  console.log('[ZeRo OS] LiteLLM pricing fallback initialized')
 
   // 7. Initialize Model Router
   const secrets = new Map(vault.entries())
@@ -460,6 +466,8 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     if (shuttingDown) return
     shuttingDown = true
     console.log('\n[ZeRo OS] Shutting down...')
+    litellmPricing.dispose()
+    console.log('[ZeRo OS] LiteLLM pricing disposed')
     scheduler.stop()
     console.log('[ZeRo OS] Scheduler stopped')
     heartbeat.stop()
@@ -991,6 +999,7 @@ function ensureDirectories(ZERO_DIR: string): void {
     join(ZERO_DIR, 'memory/notes'),
     join(ZERO_DIR, 'memory/inbox'),
     join(ZERO_DIR, 'memory/archive'),
+    join(ZERO_DIR, 'cache'),
     join(ZERO_DIR, 'workspace'),
     join(ZERO_DIR, 'workspace/shared'),
   ]
