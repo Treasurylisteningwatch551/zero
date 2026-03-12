@@ -28,6 +28,35 @@ class StreamingOnlyAdapter implements ProviderAdapter {
   }
 }
 
+class ReasoningStreamingAdapter implements ProviderAdapter {
+  readonly apiType = 'fake-reasoning'
+
+  async complete(_req: CompletionRequest): Promise<CompletionResponse> {
+    return {
+      id: 'resp-reasoning',
+      content: [{ type: 'text', text: 'fallback' }],
+      stopReason: 'end_turn',
+      usage: { input: 1, output: 1, reasoning: 2 },
+      model: 'fake-reasoning',
+      reasoningContent: 'fallback reasoning',
+    }
+  }
+
+  async *stream(_req: CompletionRequest): AsyncIterable<StreamEvent> {
+    yield { type: 'reasoning_delta', data: { text: 'step 1. ' } }
+    yield { type: 'reasoning_delta', data: { text: 'step 2.' } }
+    yield { type: 'text_delta', data: { text: 'visible answer' } }
+    yield {
+      type: 'done',
+      data: { finishReason: 'end_turn', usage: { input: 3, output: 2, reasoning: 7 }, model: 'fake-reasoning' },
+    }
+  }
+
+  async healthCheck(): Promise<boolean> {
+    return true
+  }
+}
+
 class FallbackAdapter implements ProviderAdapter {
   readonly apiType = 'fake-fallback'
   completeCalls = 0
@@ -90,7 +119,8 @@ function createAgent(adapter: ProviderAdapter, logger?: ToolContext['logger']): 
       sessionId: 'sess-stream',
       workDir: process.cwd(),
       logger: logger ?? { info: () => {}, warn: () => {}, error: () => {} },
-    }
+    },
+    {}
   )
 }
 
@@ -226,5 +256,41 @@ describe('Agent streaming callback', () => {
       apiType: 'anthropic_messages',
       fallbackSkipped: true,
     })
+  })
+
+  test('reasoning deltas are aggregated and logged to session requests', async () => {
+    const entries: Array<Record<string, unknown>> = []
+    const adapter = new ReasoningStreamingAdapter()
+    const agent = new Agent(
+      {
+        name: 'stream-agent',
+        agentInstruction: 'test',
+      },
+      adapter,
+      new ToolRegistry(),
+      {
+        sessionId: 'sess-stream',
+        workDir: process.cwd(),
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+      },
+      {
+        logger: {
+          logSessionRequest: (entry: Record<string, unknown>) => entries.push(entry),
+          logSessionClosure: () => {},
+        } as any,
+      }
+    )
+
+    const messages = await agent.run(createContext(), 'reason please')
+    const assistant = messages.find((m) => m.role === 'assistant')
+    const visibleText = assistant?.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { text: string }).text)
+      .join('')
+
+    expect(visibleText).toBe('visible answer')
+    expect(entries).toHaveLength(1)
+    expect(entries[0].reasoningContent).toBe('step 1. step 2.')
+    expect((entries[0].tokens as Record<string, unknown>).reasoning).toBe(7)
   })
 })

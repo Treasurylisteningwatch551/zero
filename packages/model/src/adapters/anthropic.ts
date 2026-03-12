@@ -14,8 +14,11 @@ import type { ProviderAdapter, AdapterConfig } from './base'
  */
 export class AnthropicAdapter implements ProviderAdapter {
   readonly apiType = 'anthropic_messages'
+  private static readonly DEFAULT_THINKING_TOKENS = 512
+  private static readonly MIN_THINKING_TOKENS = 1024
   private client: Anthropic
   private modelId: string
+  private thinkingTokens?: number
 
   constructor(config: AdapterConfig) {
     this.client = new Anthropic({
@@ -31,14 +34,17 @@ export class AnthropicAdapter implements ProviderAdapter {
       }),
     })
     this.modelId = config.modelConfig.modelId
+    this.thinkingTokens = config.modelConfig.thinkingTokens
   }
 
   async complete(req: CompletionRequest): Promise<CompletionResponse> {
+    const thinking = this.buildThinkingConfig(req.maxTokens)
     const response = await this.client.messages.create({
       model: req.model ?? this.modelId,
       system: req.system,
       messages: this.convertMessages(req),
       tools: req.tools ? this.convertTools(req.tools) : undefined,
+      ...(thinking ? { thinking } : {}),
       max_tokens: req.maxTokens ?? 4096,
     })
 
@@ -53,15 +59,18 @@ export class AnthropicAdapter implements ProviderAdapter {
         cacheRead: (response.usage as Record<string, number>).cache_read_input_tokens,
       },
       model: response.model,
+      reasoningContent: this.extractReasoningContent(response.content),
     }
   }
 
   async *stream(req: CompletionRequest): AsyncIterable<StreamEvent> {
+    const thinking = this.buildThinkingConfig(req.maxTokens)
     const stream = await this.client.messages.create({
       model: req.model ?? this.modelId,
       system: req.system,
       messages: this.convertMessages(req),
       tools: req.tools ? this.convertTools(req.tools) : undefined,
+      ...(thinking ? { thinking } : {}),
       max_tokens: req.maxTokens ?? 4096,
       stream: true,
     })
@@ -76,6 +85,8 @@ export class AnthropicAdapter implements ProviderAdapter {
         const delta = event.delta as Record<string, unknown>
         if (delta.type === 'text_delta') {
           yield { type: 'text_delta', data: { text: delta.text } }
+        } else if (delta.type === 'thinking_delta') {
+          yield { type: 'reasoning_delta', data: { text: delta.thinking } }
         } else if (delta.type === 'input_json_delta') {
           yield { type: 'tool_use_delta', data: { arguments: delta.partial_json } }
         }
@@ -198,20 +209,52 @@ export class AnthropicAdapter implements ProviderAdapter {
   }
 
   private parseContent(content: Anthropic.ContentBlock[]): ContentBlock[] {
-    return content.map((block) => {
+    const blocks: ContentBlock[] = []
+
+    for (const block of content) {
       if (block.type === 'text') {
-        return { type: 'text' as const, text: block.text }
-      }
-      if (block.type === 'tool_use') {
-        return {
-          type: 'tool_use' as const,
+        blocks.push({ type: 'text', text: block.text })
+      } else if (block.type === 'tool_use') {
+        blocks.push({
+          type: 'tool_use',
           id: block.id,
           name: block.name,
           input: block.input as Record<string, unknown>,
-        }
+        })
       }
-      return { type: 'text' as const, text: JSON.stringify(block) }
-    })
+    }
+
+    return blocks
+  }
+
+  private extractReasoningContent(content: Anthropic.ContentBlock[]): string | undefined {
+    const thinkingParts = content
+      .filter((block): block is Anthropic.ThinkingBlock => block.type === 'thinking')
+      .map((block) => block.thinking.trim())
+      .filter((text) => text.length > 0)
+
+    if (thinkingParts.length === 0) return undefined
+    return thinkingParts.join('\n')
+  }
+
+  private buildThinkingConfig(maxTokens?: number): { type: 'enabled'; budget_tokens: number } | undefined {
+    const requestMaxTokens = maxTokens ?? 4096
+    if (requestMaxTokens <= AnthropicAdapter.MIN_THINKING_TOKENS) {
+      return undefined
+    }
+
+    const requestedBudget = this.thinkingTokens ?? AnthropicAdapter.DEFAULT_THINKING_TOKENS
+    const clampedBudget = Math.max(requestedBudget, AnthropicAdapter.MIN_THINKING_TOKENS)
+    const budgetTokens = Math.min(clampedBudget, requestMaxTokens - 1)
+
+    if (budgetTokens < AnthropicAdapter.MIN_THINKING_TOKENS) {
+      return undefined
+    }
+
+    return {
+      type: 'enabled',
+      budget_tokens: budgetTokens,
+    }
   }
 
   private mapStopReason(reason: string | null): CompletionResponse['stopReason'] {

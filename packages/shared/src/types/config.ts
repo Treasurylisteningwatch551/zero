@@ -35,6 +35,7 @@ export interface ModelConfig {
   modelId: string
   maxContext: number
   maxOutput: number
+  thinkingTokens?: number
   capabilities: string[]
   tags: string[]
   pricing?: ModelPricing

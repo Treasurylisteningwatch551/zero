@@ -22,6 +22,7 @@ export interface RequestLogEntry {
   provider: string
   userPrompt: string
   response: string
+  reasoningContent?: string
   stopReason: StopReason
   toolUseCount: number
   tokens: {
@@ -29,6 +30,7 @@ export interface RequestLogEntry {
     output: number
     cacheWrite?: number
     cacheRead?: number
+    reasoning?: number
   }
   cost: number
   durationMs?: number

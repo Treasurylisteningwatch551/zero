@@ -297,6 +297,7 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
     })
 
     expect(body.instructions).toBe('You are a helpful assistant.')
+    expect(body.reasoning).toEqual({ summary: 'auto' })
   })
 
   test('buildChatGptBody omits unsupported max_output_tokens', () => {
@@ -336,6 +337,11 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
       id: 'resp_123',
       output: [
         { type: 'message', content: [{ type: 'output_text', text: 'Hello world' }] },
+        {
+          type: 'reasoning',
+          id: 'rs_1',
+          summary: [{ type: 'summary_text', text: 'Checked the request before answering.' }],
+        },
       ],
       usage: { input_tokens: 10, output_tokens: 5 },
       model: 'test-model',
@@ -350,6 +356,7 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
     expect(result.model).toBe('test-model')
     expect(result.usage.input).toBe(10)
     expect(result.usage.output).toBe(5)
+    expect(result.reasoningContent).toBe('Checked the request before answering.')
   })
 
   test('parseUsage: token counts extracted correctly', () => {
@@ -393,6 +400,29 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
     })
   })
 
+  test('parseChatGptCompletion extracts reasoning summary text', () => {
+    const result = (adapter as any).parseChatGptCompletion([
+      {
+        type: 'response.reasoning_summary_text.delta',
+        item_id: 'rs_1',
+        summary_index: 0,
+        delta: 'First half. ',
+      },
+      {
+        type: 'response.reasoning_summary_text.delta',
+        item_id: 'rs_1',
+        summary_index: 0,
+        delta: 'Second half.',
+      },
+      {
+        type: 'response.completed',
+        response: { id: 'resp_2', model: 'test-model', status: 'completed', usage: {} },
+      },
+    ])
+
+    expect(result.reasoningContent).toBe('First half. Second half.')
+  })
+
   test('streamFromChatGpt emits call_id on tool deltas', async () => {
     const chatgptAdapter = new OpenAIResponsesAdapter({
       providerName: 'chatgpt',
@@ -421,6 +451,8 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
         '',
         'data: {"type":"response.function_call_arguments.delta","call_id":"call_123","delta":"chunk-1"}',
         '',
+        'data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_1","summary_index":0,"delta":"considering"}',
+        '',
         'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_123"}}',
         '',
         'data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5.4-medium","status":"completed","usage":{}}}',
@@ -440,6 +472,7 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
 
       expect(events).toContainEqual({ type: 'tool_use_start', data: { id: 'call_123', name: 'read' } })
       expect(events).toContainEqual({ type: 'tool_use_delta', data: { id: 'call_123', arguments: 'chunk-1' } })
+      expect(events).toContainEqual({ type: 'reasoning_delta', data: { text: 'considering' } })
       expect(events).toContainEqual({ type: 'tool_use_end', data: { id: 'call_123' } })
     } finally {
       globalThis.fetch = originalFetch

@@ -606,6 +606,7 @@ export class Agent {
     const responseId = generatePrefixedId('resp_')
 
     const textParts: string[] = []
+    const reasoningParts: string[] = []
     const toolCalls = new Map<string, { id: string; name: string; args: string }>()
 
     let currentToolId: string | null = null
@@ -620,6 +621,14 @@ export class Agent {
         if (!delta) continue
         textParts.push(delta)
         onTextDelta?.(delta, { role: 'assistant', turnId })
+        continue
+      }
+
+      if (event.type === 'reasoning_delta') {
+        const data = this.toRecord(event.data)
+        const delta = typeof data.text === 'string' ? data.text : ''
+        if (!delta) continue
+        reasoningParts.push(delta)
         continue
       }
 
@@ -718,6 +727,7 @@ export class Agent {
       stopReason,
       usage,
       model,
+      reasoningContent: reasoningParts.length > 0 ? reasoningParts.join('') : undefined,
     }
   }
 
@@ -1057,6 +1067,9 @@ export class Agent {
     const toolUseCount = response.content.filter((b) => b.type === 'tool_use').length
     const safeUserPrompt = filter ? filter.filter(userPrompt) : userPrompt
     const safeResponseText = filter ? filter.filter(responseText) : responseText
+    const safeReasoningContent = response.reasoningContent
+      ? (filter ? filter.filter(response.reasoningContent) : response.reasoningContent)
+      : undefined
 
     this.obs.logger?.logSessionRequest({
       id: response.id,
@@ -1066,6 +1079,7 @@ export class Agent {
       provider: this.obs.providerName ?? 'unknown',
       userPrompt: safeUserPrompt,
       response: safeResponseText,
+      reasoningContent: safeReasoningContent,
       stopReason: response.stopReason,
       toolUseCount,
       tokens: {
@@ -1073,6 +1087,7 @@ export class Agent {
         output: response.usage.output,
         cacheWrite: response.usage.cacheWrite,
         cacheRead: response.usage.cacheRead,
+        reasoning: response.usage.reasoning,
       },
       cost,
       durationMs,

@@ -12,8 +12,11 @@ import type { ProviderAdapter, AdapterConfig } from './base'
 interface ChatGptSseEvent {
   type?: string
   delta?: string
+  text?: string
   call_id?: string
   arguments?: string
+  item_id?: string
+  summary_index?: number
   item?: Record<string, unknown>
   response?: Record<string, unknown>
 }
@@ -74,6 +77,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       model: req.model ?? this.modelId,
       input,
       tools,
+      reasoning: this.buildReasoningConfig(),
       max_output_tokens: req.maxTokens,
       stream: false,
     })
@@ -94,13 +98,33 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       model: req.model ?? this.modelId,
       input,
       tools,
+      reasoning: this.buildReasoningConfig(),
       max_output_tokens: req.maxTokens,
       stream: true,
     })
 
+    const reasoningBuffers = new Map<string, string>()
+
     for await (const event of stream) {
       if (event.type === 'response.output_text.delta') {
         yield { type: 'text_delta', data: { text: event.delta } }
+      } else if (event.type === 'response.reasoning_summary_text.delta') {
+        const key = this.getReasoningSummaryKey(event)
+        const delta = typeof event.delta === 'string' ? event.delta : ''
+        if (!delta) continue
+        if (key) {
+          reasoningBuffers.set(key, `${reasoningBuffers.get(key) ?? ''}${delta}`)
+        }
+        yield { type: 'reasoning_delta', data: { text: delta } }
+      } else if (event.type === 'response.reasoning_summary_text.done') {
+        const key = this.getReasoningSummaryKey(event)
+        const text = typeof event.text === 'string' ? event.text : ''
+        if (!text) continue
+        if (key) {
+          if ((reasoningBuffers.get(key) ?? '').length > 0) continue
+          reasoningBuffers.set(key, text)
+        }
+        yield { type: 'reasoning_delta', data: { text } }
       } else if (event.type === 'response.function_call_arguments.delta') {
         yield { type: 'tool_use_delta', data: { arguments: event.delta } }
       } else if (event.type === 'response.completed') {
@@ -180,10 +204,28 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
     }
 
     const toolCallBuffers = new Map<string, { name: string; arguments: string; itemId?: string }>()
+    const reasoningBuffers = new Map<string, string>()
 
     for await (const event of this.iterSseEvents(response)) {
       if (event.type === 'response.output_text.delta') {
         yield { type: 'text_delta', data: { text: event.delta ?? '' } }
+      } else if (event.type === 'response.reasoning_summary_text.delta') {
+        const key = this.getReasoningSummaryKey(event)
+        const delta = event.delta ?? ''
+        if (!delta) continue
+        if (key) {
+          reasoningBuffers.set(key, `${reasoningBuffers.get(key) ?? ''}${delta}`)
+        }
+        yield { type: 'reasoning_delta', data: { text: delta } }
+      } else if (event.type === 'response.reasoning_summary_text.done') {
+        const key = this.getReasoningSummaryKey(event)
+        const text = event.text ?? ''
+        if (!text) continue
+        if (key) {
+          if ((reasoningBuffers.get(key) ?? '').length > 0) continue
+          reasoningBuffers.set(key, text)
+        }
+        yield { type: 'reasoning_delta', data: { text } }
       } else if (event.type === 'response.output_item.added') {
         const item = event.item ?? {}
         if (item.type === 'function_call') {
@@ -320,6 +362,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       instructions: req.system?.trim() || DEFAULT_CHATGPT_INSTRUCTIONS,
       input: this.buildInput(req),
       ...(tools ? { tools, tool_choice: 'auto', parallel_tool_calls: true } : {}),
+      reasoning: this.buildReasoningConfig(),
       text: { verbosity: 'medium' },
       include: ['reasoning.encrypted_content'],
       prompt_cache_key: this.computePromptCacheKey(req),
@@ -396,6 +439,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
   private parseChatGptCompletion(events: ChatGptSseEvent[]): CompletionResponse {
     const textParts: string[] = []
     const toolCalls = new Map<string, { name: string; arguments: string; itemId?: string }>()
+    const reasoningBuffers = new Map<string, string>()
     let responseId = crypto.randomUUID()
     let responseModel = this.modelId
     let usage: TokenUsage = { input: 0, output: 0 }
@@ -404,6 +448,24 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
     for (const event of events) {
       if (event.type === 'response.output_text.delta') {
         textParts.push(event.delta ?? '')
+      } else if (event.type === 'response.reasoning_summary_text.delta') {
+        const key = this.getReasoningSummaryKey(event)
+        const delta = event.delta ?? ''
+        if (!delta) continue
+        if (key) {
+          reasoningBuffers.set(key, `${reasoningBuffers.get(key) ?? ''}${delta}`)
+        }
+      } else if (event.type === 'response.reasoning_summary_text.done') {
+        const key = this.getReasoningSummaryKey(event)
+        const text = event.text ?? ''
+        if (!text) continue
+        if (key) {
+          if ((reasoningBuffers.get(key) ?? '').length === 0) {
+            reasoningBuffers.set(key, text)
+          }
+        } else {
+          reasoningBuffers.set(`${reasoningBuffers.size}`, text)
+        }
       } else if (event.type === 'response.output_item.added') {
         const item = event.item ?? {}
         if (item.type === 'function_call') {
@@ -452,6 +514,18 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
             arguments: typeof item.arguments === 'string' ? item.arguments : existing?.arguments ?? '',
             itemId: typeof item.id === 'string' ? item.id : existing?.itemId,
           })
+        } else if (item.type === 'reasoning') {
+          const summaryTexts = this.extractReasoningSummaryTexts(item.summary)
+          const itemId = typeof item.id === 'string' ? item.id : undefined
+          const alreadyTracked = itemId
+            ? Array.from(reasoningBuffers.keys()).some((key) => key === itemId || key.startsWith(`${itemId}:`))
+            : false
+          if (summaryTexts.length > 0 && !alreadyTracked) {
+            reasoningBuffers.set(
+              itemId ?? `${reasoningBuffers.size}`,
+              summaryTexts.join('\n')
+            )
+          }
         }
       } else if (event.type === 'response.completed') {
         responseId = typeof event.response?.id === 'string' ? event.response.id : responseId
@@ -481,6 +555,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       stopReason: hasToolUse ? 'tool_use' : 'end_turn',
       usage,
       model: responseModel,
+      reasoningContent: this.joinReasoningBuffers(reasoningBuffers),
     }
   }
 
@@ -551,8 +626,41 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
     }))
   }
 
+  private buildReasoningConfig(): { summary: 'auto' } {
+    return { summary: 'auto' }
+  }
+
+  private getReasoningSummaryKey(event: {
+    item_id?: string
+    summary_index?: number
+  }): string | undefined {
+    if (typeof event.item_id !== 'string') return undefined
+    const summaryIndex = typeof event.summary_index === 'number' ? event.summary_index : 0
+    return `${event.item_id}:${summaryIndex}`
+  }
+
+  private extractReasoningSummaryTexts(summary: unknown): string[] {
+    if (!Array.isArray(summary)) return []
+    return summary
+      .map((part) => {
+        if (!part || typeof part !== 'object') return null
+        const text = (part as { text?: unknown }).text
+        return typeof text === 'string' && text.trim().length > 0 ? text : null
+      })
+      .filter((text): text is string => text !== null)
+  }
+
+  private joinReasoningBuffers(reasoningBuffers: Map<string, string>): string | undefined {
+    const parts = Array.from(reasoningBuffers.values())
+      .map((text) => text.trim())
+      .filter((text) => text.length > 0)
+    if (parts.length === 0) return undefined
+    return parts.join('\n')
+  }
+
   private parseResponse(response: any): CompletionResponse {
     const content: ContentBlock[] = []
+    const reasoningBuffers = new Map<string, string>()
     let hasToolUse = false
 
     const output = response.output ?? []
@@ -574,6 +682,14 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
           name: item.name,
           input: JSON.parse(item.arguments || '{}'),
         })
+      } else if (item.type === 'reasoning') {
+        const summaryTexts = this.extractReasoningSummaryTexts(item.summary)
+        if (summaryTexts.length > 0) {
+          reasoningBuffers.set(
+            typeof item.id === 'string' ? item.id : `${reasoningBuffers.size}`,
+            summaryTexts.join('\n')
+          )
+        }
       }
     }
 
@@ -591,6 +707,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       stopReason,
       usage: this.parseUsage(response.usage),
       model: response.model ?? this.modelId,
+      reasoningContent: this.joinReasoningBuffers(reasoningBuffers),
     }
   }
 

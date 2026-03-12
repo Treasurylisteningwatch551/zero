@@ -31,6 +31,7 @@ function normalizeConfig(raw: Record<string, unknown>): SystemConfig {
         modelId: (m.model_id as string) ?? mName,
         maxContext: (m.max_context as number) ?? 128000,
         maxOutput: (m.max_output as number) ?? 8192,
+        thinkingTokens: m.thinking_tokens as number | undefined,
         capabilities: (m.capabilities as string[]) ?? [],
         tags: (m.tags as string[]) ?? [],
         pricing: m.pricing as SystemConfig['providers'][string]['models'][string]['pricing'],

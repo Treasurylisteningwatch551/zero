@@ -67,10 +67,12 @@ export interface CompletionResponse {
   stopReason: StopReason
   usage: TokenUsage
   model: string
+  reasoningContent?: string
 }
 
 export type StreamEventType =
   | 'text_delta'
+  | 'reasoning_delta'
   | 'tool_use_start'
   | 'tool_use_delta'
   | 'tool_use_end'

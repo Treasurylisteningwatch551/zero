@@ -158,6 +158,27 @@ describe('Anthropic Adapter (Pure Logic)', () => {
     expect(parsed[0].input).toEqual({ expr: '1+1' })
   })
 
+  test('parseContent ignores thinking blocks in assistant-visible content', () => {
+    const content = [
+      { type: 'thinking', thinking: 'private chain', signature: 'sig_1' },
+      { type: 'text', text: 'Visible answer' },
+    ]
+
+    const parsed = (adapter as any).parseContent(content)
+
+    expect(parsed).toEqual([{ type: 'text', text: 'Visible answer' }])
+  })
+
+  test('extractReasoningContent reads thinking blocks only', () => {
+    const reasoning = (adapter as any).extractReasoningContent([
+      { type: 'thinking', thinking: 'step one', signature: 'sig_1' },
+      { type: 'redacted_thinking' },
+      { type: 'thinking', thinking: 'step two', signature: 'sig_2' },
+    ])
+
+    expect(reasoning).toBe('step one\nstep two')
+  })
+
   test('apiType is anthropic_messages', () => {
     expect(adapter.apiType).toBe('anthropic_messages')
   })
@@ -190,8 +211,22 @@ describe('Anthropic Adapter (Pure Logic)', () => {
               delta: { type: 'text_delta', text: 'hello' },
             }
             yield {
+              type: 'content_block_delta',
+              index: 0,
+              delta: { type: 'thinking_delta', thinking: 'internal-summary' },
+            }
+            yield {
               type: 'content_block_stop',
               index: 0,
+            }
+            yield {
+              type: 'content_block_start',
+              index: 2,
+              content_block: { type: 'redacted_thinking' },
+            }
+            yield {
+              type: 'content_block_stop',
+              index: 2,
             }
             yield {
               type: 'content_block_start',
@@ -237,8 +272,10 @@ describe('Anthropic Adapter (Pure Logic)', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0].stream).toBe(true)
     expect(calls[0].max_tokens).toBe(123)
+    expect(calls[0].thinking).toBeUndefined()
     expect(events).toEqual([
       { type: 'text_delta', data: { text: 'hello' } },
+      { type: 'reasoning_delta', data: { text: 'internal-summary' } },
       { type: 'tool_use_start', data: { id: 'toolu_123', name: 'calculator' } },
       { type: 'tool_use_delta', data: { arguments: '{"expr":"1+1"}' } },
       { type: 'tool_use_end', data: { id: 'toolu_123' } },
@@ -251,6 +288,90 @@ describe('Anthropic Adapter (Pure Logic)', () => {
         },
       },
     ])
+  })
+
+  test('complete enables thinking with a clamped default budget when max_tokens allows it', async () => {
+    const thinkingAdapter = new AnthropicAdapter({
+      baseUrl: 'https://api.anthropic.com',
+      auth: { type: 'api_key', apiKeyRef: 'anthropic' },
+      modelConfig: {
+        modelId: 'claude-sonnet-4-20250514',
+        maxContext: 200000,
+        maxOutput: 8192,
+        capabilities: ['tools', 'vision'],
+        tags: ['balanced'],
+      },
+      apiKey: 'dummy',
+    })
+
+    const calls: Array<Record<string, unknown>> = []
+    ;(thinkingAdapter as any).client = {
+      messages: {
+        create: async (params: Record<string, unknown>) => {
+          calls.push(params)
+          return {
+            id: 'msg_123',
+            content: [
+              { type: 'thinking', thinking: 'internal summary', signature: 'sig_1' },
+              { type: 'text', text: 'final answer' },
+            ],
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 11, output_tokens: 7 },
+            model: 'claude-sonnet-4-20250514',
+          }
+        },
+      },
+    }
+
+    const result = await thinkingAdapter.complete({
+      messages: [makeMessage('user', 'test')],
+      stream: false,
+      maxTokens: 2048,
+    })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].thinking).toEqual({ type: 'enabled', budget_tokens: 1024 })
+    expect(result.reasoningContent).toBe('internal summary')
+  })
+
+  test('complete honors configured thinkingTokens above the minimum', async () => {
+    const thinkingAdapter = new AnthropicAdapter({
+      baseUrl: 'https://api.anthropic.com',
+      auth: { type: 'api_key', apiKeyRef: 'anthropic' },
+      modelConfig: {
+        modelId: 'claude-sonnet-4-20250514',
+        maxContext: 200000,
+        maxOutput: 8192,
+        thinkingTokens: 2048,
+        capabilities: ['tools', 'vision'],
+        tags: ['balanced'],
+      },
+      apiKey: 'dummy',
+    })
+
+    const calls: Array<Record<string, unknown>> = []
+    ;(thinkingAdapter as any).client = {
+      messages: {
+        create: async (params: Record<string, unknown>) => {
+          calls.push(params)
+          return {
+            id: 'msg_124',
+            content: [{ type: 'text', text: 'answer' }],
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 11, output_tokens: 7 },
+            model: 'claude-sonnet-4-20250514',
+          }
+        },
+      },
+    }
+
+    await thinkingAdapter.complete({
+      messages: [makeMessage('user', 'test')],
+      stream: false,
+      maxTokens: 4096,
+    })
+
+    expect(calls[0].thinking).toEqual({ type: 'enabled', budget_tokens: 2048 })
   })
 })
 

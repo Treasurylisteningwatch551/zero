@@ -69,6 +69,7 @@ providers:
         model_id: claude-3
         max_context: 200000
         max_output: 16384
+        thinking_tokens: 2048
         capabilities: []
         tags: []
 default_model: test/claude
@@ -85,6 +86,7 @@ default_model: test/claude
     expect(model.modelId).toBe('claude-3')
     expect(model.maxContext).toBe(200000)
     expect(model.maxOutput).toBe(16384)
+    expect(model.thinkingTokens).toBe(2048)
   })
 
   test('missing optional fields get defaults', () => {

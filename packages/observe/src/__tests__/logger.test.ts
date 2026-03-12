@@ -52,9 +52,10 @@ describe('JsonlLogger', () => {
       provider: 'openai-codex',
       userPrompt: 'hello',
       response: 'hi',
+      reasoningContent: 'checked prompt first',
       stopReason: 'end_turn',
       toolUseCount: 0,
-      tokens: { input: 100, output: 50 },
+      tokens: { input: 100, output: 50, reasoning: 25 },
       cost: 0.001,
       durationMs: 123,
     })
@@ -66,6 +67,8 @@ describe('JsonlLogger', () => {
     expect(last.stopReason).toBe('end_turn')
     expect(last.toolUseCount).toBe(0)
     expect(last.durationMs).toBe(123)
+    expect(last.reasoningContent).toBe('checked prompt first')
+    expect((last.tokens as Record<string, unknown>).reasoning).toBe(25)
   })
 
   test('logSessionRequest writes to session-scoped requests ledger', () => {
