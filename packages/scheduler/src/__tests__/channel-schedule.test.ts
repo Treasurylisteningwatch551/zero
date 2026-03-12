@@ -1,6 +1,8 @@
 import { describe, test, expect } from 'bun:test'
 import { CronScheduler } from '../cron'
 
+const waitForTick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
 describe('CronScheduler — new methods', () => {
   test('remove() deletes a schedule and returns true', () => {
     const scheduler = new CronScheduler()
@@ -123,5 +125,120 @@ describe('CronScheduler — new methods', () => {
     expect(scheduler.getStatus()).toHaveLength(0)
 
     scheduler.stop()
+  })
+
+  test('queue overlap executes every queued run', async () => {
+    const scheduler = new CronScheduler()
+    let callCount = 0
+    let resolveFirst: (() => void) | undefined
+
+    scheduler.add({
+      name: 'queue_job',
+      cron: '0 0 * * *',
+      instruction: 'queue test',
+      overlapPolicy: { type: 'queue' },
+    })
+
+    scheduler.setTriggerHandler(async () => {
+      callCount++
+      if (callCount === 1) {
+        await new Promise<void>((resolve) => {
+          resolveFirst = resolve
+        })
+      }
+    })
+
+    const entry = scheduler.getEntry('queue_job')
+    expect(entry).toBeDefined()
+
+    const firstRun = (scheduler as any).fire('queue_job', entry!)
+    await waitForTick()
+    expect(callCount).toBe(1)
+
+    await (scheduler as any).fire('queue_job', entry!)
+    expect(callCount).toBe(1)
+
+    resolveFirst?.()
+    await firstRun
+    await waitForTick()
+
+    expect(callCount).toBe(2)
+    scheduler.stop()
+  })
+
+  test('replace overlap coalesces to one rerun after current execution', async () => {
+    const scheduler = new CronScheduler()
+    let callCount = 0
+    let resolveFirst: (() => void) | undefined
+
+    scheduler.add({
+      name: 'replace_job',
+      cron: '0 0 * * *',
+      instruction: 'replace test',
+      overlapPolicy: { type: 'replace' },
+    })
+
+    scheduler.setTriggerHandler(async () => {
+      callCount++
+      if (callCount === 1) {
+        await new Promise<void>((resolve) => {
+          resolveFirst = resolve
+        })
+      }
+    })
+
+    const entry = scheduler.getEntry('replace_job')
+    expect(entry).toBeDefined()
+
+    const firstRun = (scheduler as any).fire('replace_job', entry!)
+    await waitForTick()
+    expect(callCount).toBe(1)
+
+    await (scheduler as any).fire('replace_job', entry!)
+    await (scheduler as any).fire('replace_job', entry!)
+    expect(callCount).toBe(1)
+
+    resolveFirst?.()
+    await firstRun
+    await waitForTick()
+
+    expect(callCount).toBe(2)
+    scheduler.stop()
+  })
+
+  test('launchFire catches trigger errors and logs them', async () => {
+    const scheduler = new CronScheduler()
+    const originalConsoleError = console.error
+    const errors: unknown[][] = []
+
+    scheduler.add({
+      name: 'error_job',
+      cron: '0 0 * * *',
+      instruction: 'throw',
+    })
+
+    scheduler.setTriggerHandler(async () => {
+      throw new Error('boom')
+    })
+
+    console.error = (...args: unknown[]) => {
+      errors.push(args)
+    }
+
+    try {
+      const entry = scheduler.getEntry('error_job')
+      expect(entry).toBeDefined()
+
+      ;(scheduler as any).launchFire('error_job', entry!)
+      await waitForTick()
+
+      expect(errors).toHaveLength(1)
+      expect(String(errors[0][0])).toContain('schedule "error_job" failed')
+      expect(errors[0][1]).toBeInstanceOf(Error)
+      expect((errors[0][1] as Error).message).toBe('boom')
+    } finally {
+      console.error = originalConsoleError
+      scheduler.stop()
+    }
   })
 })

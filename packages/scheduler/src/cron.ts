@@ -17,7 +17,7 @@ export class CronScheduler {
   private onTrigger: ((config: ScheduleConfig) => Promise<void>) | null = null
   private onRemoved: ((name: string) => void) | null = null
   private queued: Map<string, ScheduleConfig[]> = new Map()
-  private runningAbort: Map<string, AbortController> = new Map()
+  private pendingReplace: Set<string> = new Set()
 
   /**
    * Set the trigger handler called when a schedule fires.
@@ -67,9 +67,7 @@ export class CronScheduler {
     if (timer) clearTimeout(timer)
     this.timers.delete(name)
     this.queued.delete(name)
-    const abort = this.runningAbort.get(name)
-    if (abort) abort.abort()
-    this.runningAbort.delete(name)
+    this.pendingReplace.delete(name)
     return this.entries.delete(name)
   }
 
@@ -129,7 +127,7 @@ export class CronScheduler {
       // Missed execution — check misfire policy
       const policy = entry.config.misfirePolicy ?? 'skip'
       if (policy === 'run_once') {
-        this.fire(name, entry)
+        this.launchFire(name, entry)
       }
       // Calculate next run
       const interval = parser.parseExpression(entry.config.cron)
@@ -139,10 +137,16 @@ export class CronScheduler {
     }
 
     const timer = setTimeout(() => {
-      this.fire(name, entry)
+      this.launchFire(name, entry)
     }, delay)
 
     this.timers.set(name, timer)
+  }
+
+  private launchFire(name: string, entry: ScheduleEntry): void {
+    void this.fire(name, entry).catch((err) => {
+      console.error(`[CronScheduler] schedule "${name}" failed:`, err)
+    })
   }
 
   private async fire(name: string, entry: ScheduleEntry): Promise<void> {
@@ -152,39 +156,25 @@ export class CronScheduler {
       switch (policy) {
         case 'skip':
           // Skip this execution
-          break
+          this.scheduleFollowingRun(entry)
+          return
         case 'queue':
           // Queue for later execution
           if (!this.queued.has(name)) {
             this.queued.set(name, [])
           }
           this.queued.get(name)!.push(entry.config)
-          break
+          this.scheduleFollowingRun(entry)
+          return
         case 'replace':
-          // Abort the running execution (signal via abort controller), then re-run
-          const controller = this.runningAbort.get(name)
-          if (controller) {
-            controller.abort()
-          }
-          // Wait a tick for the abort to propagate, then fall through to execute
-          await new Promise((r) => setTimeout(r, 10))
-          break
-      }
-
-      if (policy !== 'replace') {
-        // Schedule next run
-        const interval = parser.parseExpression(entry.config.cron)
-        entry.nextRun = interval.next().toDate()
-        this.scheduleNext(name, entry)
-        return
+          // Coalesce overlapping replace events into a single immediate rerun.
+          this.pendingReplace.add(name)
+          return
       }
     }
 
     entry.running = true
     entry.lastRun = new Date()
-
-    const abortController = new AbortController()
-    this.runningAbort.set(name, abortController)
 
     try {
       if (this.onTrigger) {
@@ -192,7 +182,6 @@ export class CronScheduler {
       }
     } finally {
       entry.running = false
-      this.runningAbort.delete(name)
 
       // oneShot: remove after single execution
       if (entry.config.oneShot) {
@@ -203,21 +192,31 @@ export class CronScheduler {
         return
       }
 
+      if (this.pendingReplace.delete(name)) {
+        this.launchFire(name, entry)
+        return
+      }
+
       // Process queued executions
       const queue = this.queued.get(name)
       if (queue && queue.length > 0) {
         queue.shift()
-        if (queue.length > 0) {
-          // Re-fire immediately for queued item
-          this.fire(name, entry)
-          return
+        if (queue.length === 0) {
+          this.queued.delete(name)
         }
+        // Re-fire immediately for the queued item we just consumed
+        this.launchFire(name, entry)
+        return
       }
 
       // Schedule next run
-      const interval = parser.parseExpression(entry.config.cron)
-      entry.nextRun = interval.next().toDate()
-      this.scheduleNext(name, entry)
+      this.scheduleFollowingRun(entry)
     }
+  }
+
+  private scheduleFollowingRun(entry: ScheduleEntry): void {
+    const interval = parser.parseExpression(entry.config.cron)
+    entry.nextRun = interval.next().toDate()
+    this.scheduleNext(entry.config.name, entry)
   }
 }
