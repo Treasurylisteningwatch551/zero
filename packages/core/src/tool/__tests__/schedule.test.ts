@@ -50,6 +50,14 @@ function createMockContext(overrides: Partial<ToolContext> = {}): ToolContext {
 describe('ScheduleTool', () => {
   const tool = new ScheduleTool()
 
+  test('tool definition tells the model to ground relative time against current local time', () => {
+    const definition = tool.toDefinition()
+
+    expect(definition.description).toContain('first obtain the current local time')
+    expect(definition.description).toContain('verify that the returned cron')
+    expect(String(definition.parameters.properties?.cron.description)).toContain('first check the current local time')
+  })
+
   test('create: adds schedule with channel binding', async () => {
     const ctx = createMockContext()
     const result = await tool.run(ctx, {

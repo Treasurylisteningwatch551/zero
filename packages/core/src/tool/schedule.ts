@@ -19,7 +19,9 @@ export class ScheduleTool extends BaseTool {
   name = 'schedule'
   description =
     'Create, list, or cancel scheduled tasks. ' +
-    'Schedules created here are bound to the current conversation — results will be delivered back to this channel.'
+    'Schedules created here are bound to the current conversation — results will be delivered back to this channel. ' +
+    'Before creating a schedule from a relative request such as "in 2 minutes", "tonight", or "tomorrow morning", first obtain the current local time from the runtime, then convert the request into an exact cron expression. ' +
+    'After creating the schedule, verify that the returned cron and planned fire time match the user intent before telling the user it is set.'
   parameters = {
     type: 'object',
     properties: {
@@ -35,7 +37,7 @@ export class ScheduleTool extends BaseTool {
       cron: {
         type: 'string',
         description:
-          'Cron expression, e.g. "*/5 * * * *" for every 5 minutes, "0 9 * * *" for daily at 9am (required for create).',
+          'Cron expression, e.g. "*/5 * * * *" for every 5 minutes, "0 9 * * *" for daily at 9am (required for create). For relative-time user requests, first check the current local time and only then derive this cron expression.',
       },
       instruction: {
         type: 'string',
