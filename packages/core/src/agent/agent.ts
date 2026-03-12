@@ -977,14 +977,16 @@ export class Agent {
     streamErr: unknown,
   ): { message: string; status?: number; requestId?: string } {
     const data = this.toRecord(streamErr)
+    const message = streamErr instanceof Error ? streamErr.message : String(streamErr)
+    const anthropicPayload = this.parseAnthropicStreamErrorPayload(message)
     return {
-      message: streamErr instanceof Error ? streamErr.message : String(streamErr),
+      message,
       status: this.toNumber(data.status),
       requestId: typeof data.request_id === 'string'
         ? data.request_id
         : typeof data.requestId === 'string'
           ? data.requestId
-          : undefined,
+          : anthropicPayload?.requestId,
     }
   }
 
@@ -999,9 +1001,41 @@ export class Agent {
     }
 
     const message = streamErr instanceof Error ? streamErr.message : String(streamErr)
+    if (this.parseAnthropicStreamErrorPayload(message)) {
+      return true
+    }
+
     return message.includes(
       'Streaming is strongly recommended for operations that may take longer than 10 minutes'
     )
+  }
+
+  private parseAnthropicStreamErrorPayload(
+    message: string
+  ): { requestId?: string; errorType?: string } | undefined {
+    if (!message.startsWith('{')) {
+      return undefined
+    }
+
+    try {
+      const parsed = JSON.parse(message)
+      if (!parsed || typeof parsed !== 'object') {
+        return undefined
+      }
+
+      const data = parsed as Record<string, unknown>
+      const nested = this.toRecord(data.error)
+      const requestId = typeof data.request_id === 'string' ? data.request_id : undefined
+      const errorType = typeof nested.type === 'string' ? nested.type : undefined
+
+      if (!requestId && !errorType && data.type !== 'error') {
+        return undefined
+      }
+
+      return { requestId, errorType }
+    } catch {
+      return undefined
+    }
   }
 
   /**

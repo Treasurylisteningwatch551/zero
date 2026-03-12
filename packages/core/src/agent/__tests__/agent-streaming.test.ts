@@ -173,6 +173,37 @@ describe('Agent streaming callback', () => {
     })
   })
 
+  test('Anthropic SSE JSON errors do not fallback to complete', async () => {
+    const streamError = new Error(
+      JSON.stringify({
+        type: 'error',
+        error: {
+          details: null,
+          type: 'overloaded_error',
+          message: 'Overloaded',
+        },
+        request_id: 'req_456',
+      })
+    )
+    const adapter = new AnthropicFailingAdapter(streamError)
+    const warnings: Array<Record<string, unknown>> = []
+    const agent = createAgent(adapter, {
+      info: () => {},
+      warn: (_event, data) => warnings.push(data ?? {}),
+      error: () => {},
+    })
+
+    await expect(agent.run(createContext(), 'say hi')).rejects.toThrow('Overloaded')
+
+    expect(adapter.completeCalls).toBe(0)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({
+      apiType: 'anthropic_messages',
+      requestId: 'req_456',
+      fallbackSkipped: true,
+    })
+  })
+
   test('Anthropic SDK streaming guidance errors do not fallback to complete', async () => {
     const streamError = new Error(
       'Streaming is strongly recommended for operations that may take longer than 10 minutes.'
