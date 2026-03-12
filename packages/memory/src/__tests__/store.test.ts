@@ -10,11 +10,11 @@ describe('MemoryStore', () => {
     rmSync(join(import.meta.dir, '__fixtures__'), { recursive: true, force: true })
   })
 
-  test('create and get memory', () => {
+  test('create and get memory', async () => {
     mkdirSync(testDir, { recursive: true })
     const store = new MemoryStore(testDir)
 
-    const mem = store.create('note', 'Test Note', 'This is a test note.', {
+    const mem = await store.create('note', 'Test Note', 'This is a test note.', {
       tags: ['test', 'note'],
       confidence: 0.9,
     })
@@ -32,12 +32,12 @@ describe('MemoryStore', () => {
     expect(retrieved!.content).toBe('This is a test note.')
   })
 
-  test('list memories by type', () => {
+  test('list memories by type', async () => {
     const store = new MemoryStore(testDir)
 
-    store.create('incident', 'Incident 1', 'First incident')
-    store.create('incident', 'Incident 2', 'Second incident')
-    store.create('note', 'Note 1', 'A note')
+    await store.create('incident', 'Incident 1', 'First incident')
+    await store.create('incident', 'Incident 2', 'Second incident')
+    await store.create('note', 'Note 1', 'A note')
 
     const incidents = store.list('incident')
     expect(incidents.length).toBeGreaterThanOrEqual(2)
@@ -46,11 +46,11 @@ describe('MemoryStore', () => {
     expect(notes.length).toBeGreaterThanOrEqual(1)
   })
 
-  test('update memory', () => {
+  test('update memory', async () => {
     const store = new MemoryStore(testDir)
-    const mem = store.create('decision', 'Test Decision', 'Original content')
+    const mem = await store.create('decision', 'Test Decision', 'Original content')
 
-    const updated = store.update('decision', mem.id, {
+    const updated = await store.update('decision', mem.id, {
       content: 'Updated content',
       status: 'verified',
       confidence: 0.95,
@@ -62,26 +62,38 @@ describe('MemoryStore', () => {
     expect(updated!.confidence).toBe(0.95)
   })
 
-  test('delete memory', () => {
+  test('delete memory', async () => {
     const store = new MemoryStore(testDir)
-    const mem = store.create('note', 'To Delete', 'Will be deleted')
+    const mem = await store.create('note', 'To Delete', 'Will be deleted')
 
-    expect(store.delete('note', mem.id)).toBe(true)
+    expect(await store.delete('note', mem.id)).toBe(true)
     expect(store.get('note', mem.id)).toBeUndefined()
-    expect(store.delete('note', mem.id)).toBe(false)
+    expect(await store.delete('note', mem.id)).toBe(false)
   })
 
-  test('searchByTags finds matching memories', () => {
+  test('searchByTags finds matching memories', async () => {
     const store = new MemoryStore(testDir)
-    store.create('runbook', 'Deploy Process', 'Steps to deploy', {
+    await store.create('runbook', 'Deploy Process', 'Steps to deploy', {
       tags: ['deploy', 'ops'],
     })
-    store.create('runbook', 'Backup Process', 'Steps to backup', {
+    await store.create('runbook', 'Backup Process', 'Steps to backup', {
       tags: ['backup', 'ops'],
     })
 
     const results = store.searchByTags(['deploy'])
     expect(results.length).toBeGreaterThanOrEqual(1)
     expect(results[0].tags).toContain('deploy')
+  })
+
+  test('parseFile keeps optional access metadata when present', async () => {
+    const store = new MemoryStore(testDir)
+    const memory = await store.create('note', 'Accessed Note', 'Track access metadata', {
+      accessCount: 3,
+      lastAccessedAt: '2026-03-11T00:00:00.000Z',
+    })
+
+    const retrieved = store.get('note', memory.id)
+    expect(retrieved?.accessCount).toBe(3)
+    expect(retrieved?.lastAccessedAt).toBe('2026-03-11T00:00:00.000Z')
   })
 })

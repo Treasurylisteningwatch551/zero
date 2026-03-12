@@ -1,29 +1,47 @@
-import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'node:fs'
-import { join, basename, resolve, relative, sep } from 'node:path'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
+import { basename, join, relative, resolve, sep } from 'node:path'
 import matter from 'gray-matter'
-import type { Memory, MemoryType, MemoryStatus } from '@zero-os/shared'
+import type { Memory, MemoryType } from '@zero-os/shared'
 import { generatePrefixedId, now } from '@zero-os/shared'
+
+export interface MemoryRepository {
+  create(type: MemoryType, title: string, content: string, options?: Partial<Memory>): Promise<Memory>
+  save(memory: Memory): Promise<void>
+  get(type: MemoryType, id: string): Memory | undefined
+  getRelativePath(type: MemoryType, id: string): string
+  list(type: MemoryType): Memory[]
+  searchByTags(tags: string[], types?: MemoryType[]): Memory[]
+  update(type: MemoryType, id: string, updates: Partial<Memory>): Promise<Memory | undefined>
+  delete(type: MemoryType, id: string): Promise<boolean>
+  getAgentPreference(agentName: string): string
+  deleteBySessionId(sessionId: string): Promise<number>
+  readByPath(path: string, options?: { from?: number; lines?: number }): { path: string; text: string } | undefined
+}
 
 /**
  * Memory store — CRUD operations for Markdown + Frontmatter memory files.
  */
-export class MemoryStore {
-  private basePath: string
-
-  constructor(basePath: string) {
-    this.basePath = basePath
-  }
+export class MemoryStore implements MemoryRepository {
+  constructor(private basePath: string) {}
 
   /**
    * Create a new memory entry.
    */
-  create(type: MemoryType, title: string, content: string, options?: Partial<Memory>): Memory {
+  async create(type: MemoryType, title: string, content: string, options?: Partial<Memory>): Promise<Memory> {
+    const timestamp = now()
     const memory: Memory = {
       id: generatePrefixedId('mem'),
       type,
       title,
-      createdAt: now(),
-      updatedAt: now(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
       status: 'draft',
       confidence: 0.5,
       tags: [],
@@ -32,14 +50,14 @@ export class MemoryStore {
       ...options,
     }
 
-    this.save(memory)
+    await this.save(memory)
     return memory
   }
 
   /**
    * Save a memory to disk as Markdown + Frontmatter.
    */
-  save(memory: Memory): void {
+  async save(memory: Memory): Promise<void> {
     const dir = this.typeDir(memory.type)
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true })
@@ -85,14 +103,14 @@ export class MemoryStore {
    * Search memories by tags.
    */
   searchByTags(tags: string[], types?: MemoryType[]): Memory[] {
-    const targetTypes = types ?? (['session', 'incident', 'runbook', 'decision', 'note'] as MemoryType[])
+    const targetTypes = types ?? ['session', 'incident', 'runbook', 'decision', 'note']
     const results: Memory[] = []
 
     for (const type of targetTypes) {
       const memories = this.list(type)
-      for (const mem of memories) {
-        if (tags.some((t) => mem.tags.includes(t))) {
-          results.push(mem)
+      for (const memory of memories) {
+        if (tags.some((tag) => memory.tags.includes(tag))) {
+          results.push(memory)
         }
       }
     }
@@ -103,7 +121,7 @@ export class MemoryStore {
   /**
    * Update a memory's metadata.
    */
-  update(type: MemoryType, id: string, updates: Partial<Memory>): Memory | undefined {
+  async update(type: MemoryType, id: string, updates: Partial<Memory>): Promise<Memory | undefined> {
     const memory = this.get(type, id)
     if (!memory) return undefined
 
@@ -116,17 +134,16 @@ export class MemoryStore {
       updatedAt: now(),
     }
 
-    this.save(updated)
+    await this.save(updated)
     return updated
   }
 
   /**
    * Delete a memory file.
    */
-  delete(type: MemoryType, id: string): boolean {
+  async delete(type: MemoryType, id: string): Promise<boolean> {
     const filePath = join(this.typeDir(type), `${id}.md`)
     if (!existsSync(filePath)) return false
-    const { unlinkSync } = require('node:fs')
     unlinkSync(filePath)
     return true
   }
@@ -145,8 +162,7 @@ export class MemoryStore {
   /**
    * Delete all memory files associated with a session.
    */
-  deleteBySessionId(sessionId: string): number {
-    const { unlinkSync } = require('node:fs') as typeof import('node:fs')
+  async deleteBySessionId(sessionId: string): Promise<number> {
     const allTypes: MemoryType[] = ['session', 'incident', 'runbook', 'decision', 'note', 'preference', 'inbox']
     let deleted = 0
 
@@ -154,7 +170,7 @@ export class MemoryStore {
       const dir = this.typeDir(type)
       if (!existsSync(dir)) continue
 
-      for (const file of readdirSync(dir).filter(f => f.endsWith('.md'))) {
+      for (const file of readdirSync(dir).filter((entry) => entry.endsWith('.md'))) {
         const filePath = join(dir, file)
         const memory = this.parseFile(filePath)
         if (memory?.sessionId === sessionId) {
@@ -262,6 +278,8 @@ export class MemoryStore {
         content: content.trim(),
       }
       if (data.sessionId) memory.sessionId = data.sessionId
+      if (typeof data.accessCount === 'number') memory.accessCount = data.accessCount
+      if (typeof data.lastAccessedAt === 'string') memory.lastAccessedAt = data.lastAccessedAt
       return memory
     } catch {
       return undefined

@@ -1,0 +1,47 @@
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { VectorIndex } from '../vector-index'
+
+describe('VectorIndex', () => {
+  let dir: string
+  let index: VectorIndex
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'zero-vector-index-'))
+    index = new VectorIndex(dir)
+  })
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('ensureIndex creates an empty index', async () => {
+    await index.ensureIndex()
+    await expect(index.getStats()).resolves.toEqual({ itemCount: 0 })
+  })
+
+  test('upsert/query/delete round-trip', async () => {
+    await index.upsert('mem_1', [1, 0], {
+      memoryId: 'mem_1',
+      type: 'note',
+      title: 'Deploy',
+      updatedAt: '2026-03-11T00:00:00.000Z',
+    })
+    await index.upsert('mem_2', [0, 1], {
+      memoryId: 'mem_2',
+      type: 'note',
+      title: 'Database',
+      updatedAt: '2026-03-11T00:00:00.000Z',
+    })
+
+    const results = await index.query([1, 0], 2)
+    expect(results[0].memoryId).toBe('mem_1')
+    expect(results[0].score).toBeGreaterThan(0.9)
+
+    await index.delete('mem_1')
+    const afterDelete = await index.query([1, 0], 2)
+    expect(afterDelete.some((entry) => entry.memoryId === 'mem_1')).toBe(false)
+  })
+})

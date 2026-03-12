@@ -15,12 +15,26 @@ export interface Memory {
   title: string
   createdAt: string
   updatedAt: string
+  accessCount?: number
+  lastAccessedAt?: string
   status: MemoryStatus
   sessionId?: string
   confidence: number
   tags: string[]
   related: string[]
   content: string
+}
+
+export interface MemoryScoreBreakdown {
+  keyword: number
+  recency: number
+  vector?: number
+}
+
+export interface ScoredMemoryMatch {
+  memory: Memory
+  score: number
+  scoreBreakdown: MemoryScoreBreakdown
 }
 
 export interface MemorySearchOptions {

@@ -149,6 +149,27 @@ channels:
       botTokenRef: 'telegram_alerts_bot_token',
     })
   })
+
+  test('parses embedding config with snake_case keys', () => {
+    const configPath = join(tmpDir, 'embedding.yaml')
+    writeFileSync(configPath, `
+providers: {}
+embedding:
+  base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  api_key_ref: dashscope_api_key
+  model: text-embedding-v4
+  dimensions: 1024
+`)
+
+    const config = loadConfig(configPath)
+
+    expect(config.embedding).toEqual({
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      apiKeyRef: 'dashscope_api_key',
+      model: 'text-embedding-v4',
+      dimensions: 1024,
+    })
+  })
 })
 
 describe('loadFuseList', () => {

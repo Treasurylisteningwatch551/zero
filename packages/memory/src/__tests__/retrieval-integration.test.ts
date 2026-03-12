@@ -24,7 +24,7 @@ afterAll(() => {
 
 describe('Memory Pipeline: Store → Lifecycle → Retrieval', () => {
   test('lifecycle creates session memory → retriever finds it', async () => {
-    lifecycle.createSessionMemory('sess-001', 'Deployed API gateway successfully', ['deploy', 'api'])
+    await lifecycle.createSessionMemory('sess-001', 'Deployed API gateway successfully', ['deploy', 'api'])
 
     const results = await retriever.retrieve('deploy api', { topN: 10 })
     expect(results.length).toBeGreaterThan(0)
@@ -33,9 +33,9 @@ describe('Memory Pipeline: Store → Lifecycle → Retrieval', () => {
   })
 
   test('lifecycle creates incident → retriever finds by tag after verification', async () => {
-    const mem = lifecycle.createIncident('Database timeout', 'Connection pool exhausted', 'sess-002', ['database', 'timeout'])
+    const mem = await lifecycle.createIncident('Database timeout', 'Connection pool exhausted', 'sess-002', ['database', 'timeout'])
     // Incidents start as draft; verify before retrieval (only verified memories are retrievable)
-    lifecycle.verify('incident', mem.id)
+    await lifecycle.verify('incident', mem.id)
 
     const results = await retriever.retrieve('database', { tags: ['incident'] })
     expect(results.length).toBeGreaterThan(0)
@@ -45,8 +45,8 @@ describe('Memory Pipeline: Store → Lifecycle → Retrieval', () => {
   })
 
   test('lifecycle archives → retriever excludes by default', async () => {
-    const mem = lifecycle.createSessionMemory('sess-003', 'Old session data', ['old'])
-    store.update('session', mem.id, { status: 'archived' })
+    const mem = await lifecycle.createSessionMemory('sess-003', 'Old session data', ['old'])
+    await store.update('session', mem.id, { status: 'archived' })
 
     const results = await retriever.retrieve('old session', { topN: 20 })
     const archivedFound = results.find((m) => m.id === mem.id)
@@ -54,14 +54,14 @@ describe('Memory Pipeline: Store → Lifecycle → Retrieval', () => {
   })
 
   test('lifecycle conflict resolution → retriever returns winner only', async () => {
-    const m1 = store.create('note', 'Conflicting note A', 'First version', {
+    const m1 = await store.create('note', 'Conflicting note A', 'First version', {
       tags: ['conflict-test'], status: 'verified', confidence: 0.9,
     })
-    const m2 = store.create('note', 'Conflicting note B', 'Second version', {
+    const m2 = await store.create('note', 'Conflicting note B', 'Second version', {
       tags: ['conflict-test'], status: 'verified', confidence: 0.6,
     })
 
-    lifecycle.resolveConflict('note', m1.id, m2.id)
+    await lifecycle.resolveConflict('note', m1.id, m2.id)
 
     const results = await retriever.retrieve('conflict-test version', {
       tags: ['conflict-test'], topN: 10,
@@ -73,10 +73,10 @@ describe('Memory Pipeline: Store → Lifecycle → Retrieval', () => {
   })
 
   test('only verified memories are returned by default (drafts excluded)', async () => {
-    store.create('note', 'Draft ranking note', 'Some ranking content', {
+    await store.create('note', 'Draft ranking note', 'Some ranking content', {
       tags: ['ranking'], status: 'draft', confidence: 0.7,
     })
-    store.create('note', 'Verified ranking note', 'Some ranking content', {
+    await store.create('note', 'Verified ranking note', 'Some ranking content', {
       tags: ['ranking'], status: 'verified', confidence: 0.9,
     })
 

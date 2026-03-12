@@ -20,8 +20,8 @@ describe('MemoryLifecycle', () => {
     rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  test('createSessionMemory sets title, status, and confidence', () => {
-    const mem = lifecycle.createSessionMemory('sess-001', 'Completed deploy task', ['deploy'])
+  test('createSessionMemory sets title, status, and confidence', async () => {
+    const mem = await lifecycle.createSessionMemory('sess-001', 'Completed deploy task', ['deploy'])
 
     expect(mem.title).toBe('Session sess-001')
     expect(mem.status).toBe('verified')
@@ -31,8 +31,8 @@ describe('MemoryLifecycle', () => {
     expect(mem.content).toBe('Completed deploy task')
   })
 
-  test('createIncident prefixes tags with incident and sets draft status', () => {
-    const mem = lifecycle.createIncident(
+  test('createIncident prefixes tags with incident and sets draft status', async () => {
+    const mem = await lifecycle.createIncident(
       'OOM Crash',
       'Process killed by OOM',
       'sess-002',
@@ -48,20 +48,20 @@ describe('MemoryLifecycle', () => {
     expect(mem.sessionId).toBe('sess-002')
   })
 
-  test('verify updates status to verified with specified confidence', () => {
-    const mem = lifecycle.createIncident('Bug', 'A bug', 'sess-003', ['bug'])
+  test('verify updates status to verified with specified confidence', async () => {
+    const mem = await lifecycle.createIncident('Bug', 'A bug', 'sess-003', ['bug'])
     expect(mem.status).toBe('draft')
 
-    const verified = lifecycle.verify('incident', mem.id, 0.95)
+    const verified = await lifecycle.verify('incident', mem.id, 0.95)
     expect(verified).toBeDefined()
     expect(verified!.status).toBe('verified')
     expect(verified!.confidence).toBe(0.95)
   })
 
-  test('verify uses default confidence 0.9 when not specified', () => {
-    const mem = lifecycle.createIncident('Issue', 'An issue', 'sess-004', ['issue'])
+  test('verify uses default confidence 0.9 when not specified', async () => {
+    const mem = await lifecycle.createIncident('Issue', 'An issue', 'sess-004', ['issue'])
 
-    const verified = lifecycle.verify('incident', mem.id)
+    const verified = await lifecycle.verify('incident', mem.id)
     expect(verified).toBeDefined()
     expect(verified!.status).toBe('verified')
     expect(verified!.confidence).toBe(0.9)
@@ -72,7 +72,7 @@ describe('MemoryLifecycle', () => {
     const archiveStore = new MemoryStore(archiveDir)
     const archiveLifecycle = new MemoryLifecycle(archiveStore)
 
-    archiveStore.create('note', 'Recent note', 'Just created', {
+    await archiveStore.create('note', 'Recent note', 'Just created', {
       status: 'verified',
       confidence: 0.8,
     })
@@ -81,7 +81,7 @@ describe('MemoryLifecycle', () => {
     await Bun.sleep(10)
 
     // olderThanDays=0 means cutoff = Date.now(), so anything created before now is older
-    const count = archiveLifecycle.archiveOld('note', 0)
+    const count = await archiveLifecycle.archiveOld('note', 0)
     expect(count).toBe(1)
 
     const notes = archiveStore.list('note')
@@ -95,30 +95,30 @@ describe('MemoryLifecycle', () => {
     const archiveStore = new MemoryStore(archiveDir)
     const archiveLifecycle = new MemoryLifecycle(archiveStore)
 
-    archiveStore.create('note', 'Already archived', 'Old stuff', {
+    await archiveStore.create('note', 'Already archived', 'Old stuff', {
       status: 'archived',
       confidence: 0.5,
     })
 
     await Bun.sleep(10)
 
-    const count = archiveLifecycle.archiveOld('note', 0)
+    const count = await archiveLifecycle.archiveOld('note', 0)
     expect(count).toBe(0)
 
     rmSync(archiveDir, { recursive: true, force: true })
   })
 
-  test('resolveConflict archives lower confidence memory', () => {
-    const m1 = store.create('note', 'High confidence', 'Winner content', {
+  test('resolveConflict archives lower confidence memory', async () => {
+    const m1 = await store.create('note', 'High confidence', 'Winner content', {
       confidence: 0.9,
       status: 'verified',
     })
-    const m2 = store.create('note', 'Low confidence', 'Loser content', {
+    const m2 = await store.create('note', 'Low confidence', 'Loser content', {
       confidence: 0.6,
       status: 'verified',
     })
 
-    const winner = lifecycle.resolveConflict('note', m1.id, m2.id)
+    const winner = await lifecycle.resolveConflict('note', m1.id, m2.id)
     expect(winner).toBeDefined()
     expect(winner!.id).toBe(m1.id)
     expect(winner!.related).toContain(m2.id)
@@ -129,7 +129,7 @@ describe('MemoryLifecycle', () => {
   })
 
   test('resolveConflict with same confidence picks more recently updated', async () => {
-    const m1 = store.create('note', 'Older note', 'Created first', {
+    const m1 = await store.create('note', 'Older note', 'Created first', {
       confidence: 0.8,
       status: 'verified',
     })
@@ -137,12 +137,12 @@ describe('MemoryLifecycle', () => {
     // Wait to ensure different updatedAt timestamps
     await Bun.sleep(10)
 
-    const m2 = store.create('note', 'Newer note', 'Created second', {
+    const m2 = await store.create('note', 'Newer note', 'Created second', {
       confidence: 0.8,
       status: 'verified',
     })
 
-    const winner = lifecycle.resolveConflict('note', m1.id, m2.id)
+    const winner = await lifecycle.resolveConflict('note', m1.id, m2.id)
     expect(winner).toBeDefined()
     expect(winner!.id).toBe(m2.id)
     expect(winner!.related).toContain(m1.id)

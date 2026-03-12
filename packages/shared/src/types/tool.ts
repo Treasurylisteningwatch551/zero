@@ -1,5 +1,5 @@
 import type { SecretFilter, ScheduleConfig } from './config'
-import type { Memory, MemorySearchOptions } from './memory'
+import type { Memory, MemorySearchOptions, MemoryType, ScoredMemoryMatch } from './memory'
 
 /**
  * Minimal interface for structured logging from tools.
@@ -35,15 +35,15 @@ export interface ToolContext {
   secretResolver?: (ref: string) => string | undefined
   memoryRetriever?: {
     retrieve(query: string, options?: MemorySearchOptions): Promise<Memory[]>
-    retrieveScored?(query: string, options?: MemorySearchOptions): Promise<Array<{ memory: Memory; score: number }>>
+    retrieveScored?(query: string, options?: MemorySearchOptions): Promise<ScoredMemoryMatch[]>
   }
   memoryStore?: {
-    create(type: string, title: string, content: string, options?: Record<string, unknown>): { id: string; type: string; title: string }
-    update(type: string, id: string, updates: Record<string, unknown>): { id: string } | undefined
-    delete(type: string, id: string): boolean
-    list(type: string): Array<{ id: string; type: string; title: string; content: string; tags: string[]; status: string }>
-    get(type: string, id: string): { id: string; type: string; title: string; content: string } | undefined
-    getRelativePath?(type: string, id: string): string | undefined
+    create(type: MemoryType, title: string, content: string, options?: Record<string, unknown>): Promise<Memory>
+    update(type: MemoryType, id: string, updates: Record<string, unknown>): Promise<Memory | undefined>
+    delete(type: MemoryType, id: string): Promise<boolean>
+    list(type: MemoryType): Memory[]
+    get(type: MemoryType, id: string): Memory | undefined
+    getRelativePath?(type: MemoryType, id: string): string | undefined
     readByPath?(path: string, options?: { from?: number; lines?: number }): { path: string; text: string } | undefined
   }
   channelBinding?: {

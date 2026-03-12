@@ -1,0 +1,126 @@
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import type { EmbeddingProvider } from '../embedding'
+import { IndexedMemoryStore } from '../indexed-store'
+import { MemoryStore } from '../store'
+import type { VectorIndexLike } from '../vector-index'
+
+describe('IndexedMemoryStore', () => {
+  let dir: string
+  let baseStore: MemoryStore
+  let upserts: string[]
+  let deletes: string[]
+  let failNextUpsert = false
+
+  const embeddingClient: EmbeddingProvider = {
+    async embed(text: string): Promise<number[]> {
+      return [text.length, 1]
+    },
+    async embedBatch(texts: string[]): Promise<number[][]> {
+      return texts.map((text) => [text.length, 1])
+    },
+    memoryToText(memory) {
+      return `${memory.title}\n${memory.content}`
+    },
+  }
+
+  const vectorIndex: VectorIndexLike = {
+    async ensureIndex() {},
+    async upsert(memoryId) {
+      if (failNextUpsert) {
+        failNextUpsert = false
+        throw new Error('upsert failed')
+      }
+      upserts.push(memoryId)
+    },
+    async query() {
+      return []
+    },
+    async delete(memoryId) {
+      deletes.push(memoryId)
+    },
+    async getStats() {
+      return { itemCount: upserts.length }
+    },
+  }
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'zero-indexed-store-'))
+    baseStore = new MemoryStore(dir)
+    upserts = []
+    deletes = []
+  })
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test('create writes both store and vector index', async () => {
+    const store = new IndexedMemoryStore(baseStore, embeddingClient, vectorIndex)
+    const memory = await store.create('note', 'Deploy', 'Ship it', {
+      status: 'verified',
+    })
+
+    expect(baseStore.get('note', memory.id)?.title).toBe('Deploy')
+    expect(upserts).toContain(memory.id)
+  })
+
+  test('create rolls back file when vector upsert fails', async () => {
+    const store = new IndexedMemoryStore(baseStore, embeddingClient, vectorIndex)
+    failNextUpsert = true
+
+    await expect(store.create('note', 'Broken', 'Should rollback')).rejects.toThrow('upsert failed')
+    expect(baseStore.list('note').some((memory) => memory.title === 'Broken')).toBe(false)
+  })
+
+  test('update restores previous memory when vector upsert fails', async () => {
+    const store = new IndexedMemoryStore(baseStore, embeddingClient, vectorIndex)
+    const memory = await store.create('note', 'Stable', 'Before update', {
+      status: 'verified',
+    })
+
+    failNextUpsert = true
+    await expect(store.update('note', memory.id, { content: 'After update' })).rejects.toThrow('upsert failed')
+    expect(baseStore.get('note', memory.id)?.content).toBe('Before update')
+  })
+
+  test('delete removes vector and markdown file', async () => {
+    const store = new IndexedMemoryStore(baseStore, embeddingClient, vectorIndex)
+    const memory = await store.create('note', 'Remove me', 'bye', {
+      status: 'verified',
+    })
+
+    await expect(store.delete('note', memory.id)).resolves.toBe(true)
+    expect(baseStore.get('note', memory.id)).toBeUndefined()
+    expect(deletes).toContain(memory.id)
+  })
+
+  test('reindexAll replays all memories into vector index', async () => {
+    const reindexDir = mkdtempSync(join(tmpdir(), 'zero-indexed-reindex-'))
+    const reindexBaseStore = new MemoryStore(reindexDir)
+    await reindexBaseStore.create('note', 'One', 'first', { status: 'verified' })
+    await reindexBaseStore.create('note', 'Two', 'second', { status: 'verified' })
+
+    const seen: string[] = []
+    const reindexStore = new IndexedMemoryStore(reindexBaseStore, embeddingClient, {
+      async ensureIndex() {},
+      async upsert(memoryId) {
+        seen.push(memoryId)
+      },
+      async query() {
+        return []
+      },
+      async delete() {},
+      async getStats() {
+        return { itemCount: seen.length }
+      },
+    })
+
+    await expect(reindexStore.reindexAll()).resolves.toBe(2)
+    expect(seen).toHaveLength(2)
+
+    rmSync(reindexDir, { recursive: true, force: true })
+  })
+})

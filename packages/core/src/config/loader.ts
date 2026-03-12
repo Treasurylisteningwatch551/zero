@@ -68,6 +68,7 @@ function normalizeConfig(raw: Record<string, unknown>): SystemConfig {
     schedules: (raw.schedules as SystemConfig['schedules']) ?? [],
     fuseList: (raw.fuse_list as FuseRule[]) ?? [],
     ...(raw.channels !== undefined ? { channels } : {}),
+    ...(raw.embedding !== undefined ? { embedding: normalizeEmbeddingConfig(raw.embedding as Record<string, unknown>) } : {}),
   }
 }
 
@@ -136,6 +137,15 @@ function normalizeChannelConfig(raw: Record<string, unknown>): ChannelInstanceCo
   return null
 }
 
+function normalizeEmbeddingConfig(raw: Record<string, unknown>): NonNullable<SystemConfig['embedding']> {
+  return {
+    baseUrl: readString(raw, 'baseUrl', 'base_url') ?? '',
+    apiKeyRef: readString(raw, 'apiKeyRef', 'api_key_ref') ?? '',
+    model: readString(raw, 'model') ?? '',
+    dimensions: readNumber(raw, 'dimensions'),
+  }
+}
+
 function readString(raw: Record<string, unknown>, ...keys: string[]): string | undefined {
   for (const key of keys) {
     const value = raw[key]
@@ -150,6 +160,14 @@ function readBoolean(raw: Record<string, unknown>, ...keys: string[]): boolean |
   for (const key of keys) {
     const value = raw[key]
     if (typeof value === 'boolean') return value
+  }
+  return undefined
+}
+
+function readNumber(raw: Record<string, unknown>, ...keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = raw[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
   }
   return undefined
 }

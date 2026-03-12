@@ -1,21 +1,16 @@
 import type { Memory, MemoryType } from '@zero-os/shared'
-import { now } from '@zero-os/shared'
-import type { MemoryStore } from './store'
+import type { MemoryRepository } from './store'
 
 /**
  * Memory lifecycle manager — handles write, organize, archive, and conflict resolution.
  */
 export class MemoryLifecycle {
-  private store: MemoryStore
-
-  constructor(store: MemoryStore) {
-    this.store = store
-  }
+  constructor(private store: MemoryRepository) {}
 
   /**
    * Create a session memory from a completed session.
    */
-  createSessionMemory(sessionId: string, summary: string, tags: string[]): Memory {
+  async createSessionMemory(sessionId: string, summary: string, tags: string[]): Promise<Memory> {
     return this.store.create('session', `Session ${sessionId}`, summary, {
       sessionId,
       tags,
@@ -27,12 +22,12 @@ export class MemoryLifecycle {
   /**
    * Create an incident record from a failure event.
    */
-  createIncident(
+  async createIncident(
     title: string,
     description: string,
     sessionId: string,
     tags: string[]
-  ): Memory {
+  ): Promise<Memory> {
     return this.store.create('incident', title, description, {
       sessionId,
       tags: ['incident', ...tags],
@@ -44,7 +39,7 @@ export class MemoryLifecycle {
   /**
    * Verify a memory (mark as verified with high confidence).
    */
-  verify(type: MemoryType, id: string, confidence?: number): Memory | undefined {
+  async verify(type: MemoryType, id: string, confidence?: number): Promise<Memory | undefined> {
     return this.store.update(type, id, {
       status: 'verified',
       confidence: confidence ?? 0.9,
@@ -54,14 +49,14 @@ export class MemoryLifecycle {
   /**
    * Archive old or low-value memories.
    */
-  archiveOld(type: MemoryType, olderThanDays: number): number {
+  async archiveOld(type: MemoryType, olderThanDays: number): Promise<number> {
     const cutoff = new Date(Date.now() - olderThanDays * 86_400_000).toISOString()
     const memories = this.store.list(type)
     let archived = 0
 
     for (const mem of memories) {
       if (mem.updatedAt < cutoff && mem.status !== 'archived') {
-        this.store.update(type, mem.id, { status: 'archived' })
+        await this.store.update(type, mem.id, { status: 'archived' })
         archived++
       }
     }
@@ -73,7 +68,7 @@ export class MemoryLifecycle {
    * Resolve conflicts between two memories.
    * Higher confidence wins; if equal, more recent wins.
    */
-  resolveConflict(type: MemoryType, id1: string, id2: string): Memory | undefined {
+  async resolveConflict(type: MemoryType, id1: string, id2: string): Promise<Memory | undefined> {
     const m1 = this.store.get(type, id1)
     const m2 = this.store.get(type, id2)
     if (!m1 || !m2) return undefined
@@ -90,7 +85,7 @@ export class MemoryLifecycle {
     }
 
     // Archive the loser
-    this.store.update(type, loser.id, { status: 'archived' })
+    await this.store.update(type, loser.id, { status: 'archived' })
 
     // Add reference to the winner
     const related = [...winner.related, loser.id]

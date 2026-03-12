@@ -103,6 +103,13 @@ export type ChannelInstanceConfig =
   | TelegramChannelInstanceConfig
   | WebChannelInstanceConfig
 
+export interface EmbeddingModelConfig {
+  baseUrl: string
+  apiKeyRef: string
+  model: string
+  dimensions?: number
+}
+
 export interface SystemConfig {
   providers: Record<string, ProviderConfig>
   defaultModel: string
@@ -110,6 +117,7 @@ export interface SystemConfig {
   schedules: ScheduleConfig[]
   fuseList: FuseRule[]
   channels?: ChannelInstanceConfig[]
+  embedding?: EmbeddingModelConfig
 }
 
 export interface SecretFilter {

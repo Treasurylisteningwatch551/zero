@@ -1,0 +1,91 @@
+import { afterEach, describe, expect, test, mock } from 'bun:test'
+import { EmbeddingClient } from '../embedding'
+
+const originalFetch = globalThis.fetch
+
+afterEach(() => {
+  globalThis.fetch = originalFetch
+})
+
+describe('EmbeddingClient', () => {
+  test('embed returns a single vector', async () => {
+    globalThis.fetch = mock(async () => new Response(JSON.stringify({
+      data: [{ embedding: [0.1, 0.2, 0.3] }],
+    }))) as typeof fetch
+
+    const client = new EmbeddingClient({
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'test-key',
+      model: 'text-embedding-v4',
+      dimensions: 1024,
+    })
+
+    await expect(client.embed('hello')).resolves.toEqual([0.1, 0.2, 0.3])
+  })
+
+  test('embedBatch returns all vectors', async () => {
+    globalThis.fetch = mock(async () => new Response(JSON.stringify({
+      data: [
+        { embedding: [1, 0] },
+        { embedding: [0, 1] },
+      ],
+    }))) as typeof fetch
+
+    const client = new EmbeddingClient({
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'test-key',
+      model: 'text-embedding-v4',
+    })
+
+    await expect(client.embedBatch(['a', 'b'])).resolves.toEqual([[1, 0], [0, 1]])
+  })
+
+  test('throws on non-ok response', async () => {
+    globalThis.fetch = mock(async () => new Response('bad gateway', { status: 502 })) as typeof fetch
+
+    const client = new EmbeddingClient({
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'test-key',
+      model: 'text-embedding-v4',
+    })
+
+    await expect(client.embed('hello')).rejects.toThrow('Embedding request failed with status 502')
+  })
+
+  test('throws on malformed response payload', async () => {
+    globalThis.fetch = mock(async () => new Response(JSON.stringify({ data: [] }))) as typeof fetch
+
+    const client = new EmbeddingClient({
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'test-key',
+      model: 'text-embedding-v4',
+    })
+
+    await expect(client.embed('hello')).rejects.toThrow('Embedding service returned an unexpected payload')
+  })
+
+  test('memoryToText includes title tags and trimmed content', () => {
+    const client = new EmbeddingClient({
+      baseUrl: 'https://example.test/v1',
+      apiKey: 'test-key',
+      model: 'text-embedding-v4',
+    })
+
+    const text = client.memoryToText({
+      id: 'mem_1',
+      type: 'note',
+      title: 'Deploy Runbook',
+      createdAt: '2026-03-11T00:00:00.000Z',
+      updatedAt: '2026-03-11T00:00:00.000Z',
+      status: 'verified',
+      confidence: 0.9,
+      tags: ['deploy', 'ops'],
+      related: [],
+      content: 'Step 1\n\nStep 2',
+    })
+
+    expect(text).toContain('Deploy Runbook')
+    expect(text).toContain('deploy ops')
+    expect(text).toContain('Step 1 Step 2')
+  })
+})
