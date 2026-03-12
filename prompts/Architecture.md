@@ -69,32 +69,48 @@ ZeRo OS 的所有数据统一存放在 `.zero/` 目录下：
 
 ```
 .zero/
-  ├─ config.yaml       # 系统配置（模型注册表、Scheduler、降级链等）
-  ├─ fuse_list.yaml    # 熔断名单，AI 执行命令前检查，命中则拒绝并告警
-  ├─ secrets.enc       # 加密密钥文件，主密钥存于 macOS Keychain
-  ├─ channels/         # AI 自建或用户后续接入的 Channel 扩展（运行时目录）
-  │                    # 内置 Channel（飞书、Telegram、Web）在源码 packages/channel 中
-  ├─ tools/            # AI 构建的自定义工具
-  ├─ skills/           # AI 的技能定义，封装复杂业务流程
-  ├─ logs/             # 日志与请求记录
-  │   ├─ requests.jsonl  #   LLM 请求记录（追加写入）
-  │   ├─ snapshots.jsonl #   上下文快照（变化时写入）
-  │   ├─ operations.jsonl#   工具调用记录（追加写入）
-  │   └─ metrics.db      #   SQLite，聚合查询用
-  ├─ memory/           # 记忆库
-  │   ├─ memo.md       #   备忘录（AI 与人类共同编辑）
-  │   ├─ memory.md     #   全局索引页
-  │   ├─ preferences/  #   身份记忆（global.md + agents/）
-  │   ├─ sessions/     #   任务会话记录
-  │   ├─ incidents/    #   故障案例
-  │   ├─ runbooks/     #   可重复执行流程
-  │   ├─ decisions/    #   架构和策略决策
-  │   ├─ notes/        #   用户主动保存内容
-  │   ├─ inbox/        #   待整理原始记录
-  │   └─ archive/      #   归档数据
-  └─ workspace/        # AI 的工作目录
-      ├─ {agent}/      #   每个 Agent 独立的工作目录（如 coder/、ops/、explorer/）
-      └─ shared/       #   共享目录，最终产出物放这里，供用户和其他 Agent 访问
+  ├─ config.yaml         # 系统配置（模型注册表、Scheduler、降级链等）
+  ├─ fuse_list.yaml      # 熔断名单，AI 执行命令前检查，命中则拒绝并告警
+  ├─ secrets.enc         # 加密密钥文件，主密钥存于 macOS Keychain
+  ├─ heartbeat.json      # 进程心跳文件，Supervisor 据此判断主进程是否存活
+  ├─ channels/           # AI 自建或用户后续接入的 Channel 扩展（运行时目录）
+  │                      # 内置 Channel（飞书、Telegram、Web）在源码 packages/channel 中
+  ├─ tools/              # AI 构建的自定义工具
+  ├─ skills/             # AI 的技能定义，封装复杂业务流程
+  │   └─ browser/        #   浏览器自动化 Skill（SKILL.md + evals/）
+  ├─ logs/               # 日志与请求记录
+  │   ├─ operations.jsonl    #   全局工具调用记录（追加写入）
+  │   ├─ requests.jsonl      #   全局 LLM 请求记录（legacy fallback）
+  │   ├─ notifications.jsonl #   通知记录（追加写入）
+  │   ├─ metrics.db          #   SQLite，聚合查询用
+  │   ├─ sessions.db         #   SQLite，Session 持久化
+  │   ├─ supervisor.log      #   Supervisor 标准输出
+  │   ├─ supervisor.error.log#   Supervisor 错误输出
+  │   └─ sessions/           #   按 Session 分区的日志
+  │       └─ {sessionId}/
+  │           ├─ requests.jsonl  # 该 Session 的 LLM 请求
+  │           ├─ snapshots.jsonl # 该 Session 的上下文快照
+  │           └─ closure.jsonl   # 该 Session 的任务关闭事件
+  ├─ memory/             # 记忆库
+  │   ├─ memo.md         #   备忘录（AI 与人类共同编辑）
+  │   ├─ memory.md       #   全局索引页
+  │   ├─ vectors/        #   向量嵌入索引（语义检索用）
+  │   ├─ preferences/    #   身份记忆
+  │   │   ├─ global.md   #     全局偏好
+  │   │   └─ agents/     #     各 Agent 身份记忆
+  │   ├─ sessions/       #   任务会话记录
+  │   ├─ incidents/      #   故障案例
+  │   ├─ runbooks/       #   可重复执行流程
+  │   ├─ decisions/      #   架构和策略决策
+  │   ├─ notes/          #   用户主动保存内容
+  │   ├─ inbox/          #   待整理原始记录
+  │   └─ archive/        #   归档数据
+  └─ workspace/          # AI 的工作目录
+      ├─ {agent}/        #   每个 Agent 独立的工作目录
+      │   ├─ SOUL.md     #     Agent 人格定义
+      │   ├─ USER.md     #     用户画像
+      │   └─ TOOLS.md    #     工具环境说明
+      └─ shared/         #   共享目录，最终产出物放这里，供用户和其他 Agent 访问
 ```
 
 每个 Agent 只在自己的目录下工作，临时文件和草稿不影响其他 Agent。需要交付的产出物放到 `shared/`，`shared/` 遵循 Write/Edit 的文件锁。
@@ -1132,10 +1148,18 @@ recency_weight = 1 / (1 + days_since_last_access / 30)
 
 ```
 .zero/logs/
-  ├─ requests.jsonl      # 每次 LLM 请求记录
-  ├─ snapshots.jsonl     # 上下文快照（变化时写入）
-  ├─ operations.jsonl    # 工具调用记录
-  └─ metrics.db          # SQLite 聚合查询
+  ├─ operations.jsonl      # 全局工具调用记录（追加写入）
+  ├─ requests.jsonl        # 全局 LLM 请求记录（legacy fallback）
+  ├─ notifications.jsonl   # 通知记录（追加写入）
+  ├─ metrics.db            # SQLite 聚合查询
+  ├─ sessions.db           # SQLite Session 持久化
+  ├─ supervisor.log        # Supervisor 标准输出
+  ├─ supervisor.error.log  # Supervisor 错误输出
+  └─ sessions/             # 按 Session 分区的日志
+      └─ {sessionId}/
+          ├─ requests.jsonl  # 该 Session 的 LLM 请求
+          ├─ snapshots.jsonl # 该 Session 的上下文快照
+          └─ closure.jsonl   # 该 Session 的任务关闭事件
 ```
 
 ### 结构化日志
