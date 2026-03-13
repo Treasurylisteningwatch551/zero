@@ -1,17 +1,15 @@
-import { describe, test, expect, afterAll } from 'bun:test'
-import { SessionDB } from '@zero-os/observe'
-import { Session } from '../session'
-import { SessionManager } from '../manager'
-import { ModelRouter } from '@zero-os/model'
-import { ToolRegistry } from '../../tool/registry'
-import { loadConfig } from '../../config/loader'
+import { afterAll, describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
-import type { Session as SessionData, Message } from '@zero-os/shared'
+import { ModelRouter } from '@zero-os/model'
+import { SessionDB } from '@zero-os/observe'
+import type { Message, Session as SessionData } from '@zero-os/shared'
+import { loadConfig } from '../../config/loader'
+import { ToolRegistry } from '../../tool/registry'
+import { SessionManager } from '../manager'
+import { Session } from '../session'
 
 const config = loadConfig(join(process.cwd(), '.zero', 'config.yaml'))
-const secrets = new Map<string, string>([
-  ['openai_codex_api_key', 'sk-test-placeholder'],
-])
+const secrets = new Map<string, string>([['openai_codex_api_key', 'sk-test-placeholder']])
 
 describe('Session Persistence', () => {
   let sessionDb: SessionDB
@@ -118,8 +116,14 @@ describe('Session Persistence', () => {
     }
     sessionDb.saveSession(data1, '{"name":"zero-feishu","agentInstruction":"test"}')
     sessionDb.saveMessages('sess_mgr_1', [
-      { id: 'm1', sessionId: 'sess_mgr_1', role: 'user', messageType: 'message',
-        content: [{ type: 'text', text: 'Hi' }], createdAt: new Date().toISOString() },
+      {
+        id: 'm1',
+        sessionId: 'sess_mgr_1',
+        role: 'user',
+        messageType: 'message',
+        content: [{ type: 'text', text: 'Hi' }],
+        createdAt: new Date().toISOString(),
+      },
     ])
 
     const data2: SessionData = {
@@ -143,7 +147,11 @@ describe('Session Persistence', () => {
 
     expect(manager.get('sess_mgr_1')!.getMessages()).toHaveLength(1)
 
-    const { session, isNew } = manager.getOrCreateForChannel('feishu', 'chat_feishu_1', 'feishu:ops')
+    const { session, isNew } = manager.getOrCreateForChannel(
+      'feishu',
+      'chat_feishu_1',
+      'feishu:ops',
+    )
     expect(isNew).toBe(false)
     expect(session.data.id).toBe('sess_mgr_1')
   })
@@ -163,7 +171,7 @@ describe('Session Persistence', () => {
     sessionDb.saveSession(
       data,
       '{"name":"legacy-agent","systemPrompt":"legacy prompt"}',
-      '<role>legacy rendered prompt</role>'
+      '<role>legacy rendered prompt</role>',
     )
 
     const manager = new SessionManager(modelRouter, toolRegistry, { sessionDb }, sessionDb)

@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
-import { StatusBar } from '../layout/StatusBar'
+import { useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import { formatUptime } from '../../lib/format'
+import { StatusBar } from '../layout/StatusBar'
 
 interface StatusData {
   status: string

@@ -1,12 +1,11 @@
-import { describe, test, expect, afterAll } from 'bun:test'
-import { ReadTool } from '../read'
-import { WriteTool } from '../write'
-import { EditTool } from '../edit'
-import { BashTool } from '../bash'
-import { ToolRegistry } from '../registry'
-import { FuseError } from '../../config/fuse-list'
+import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { BashTool } from '../bash'
+import { EditTool } from '../edit'
+import { ReadTool } from '../read'
+import { ToolRegistry } from '../registry'
+import { WriteTool } from '../write'
 
 const testDir = join(import.meta.dir, '__fixtures__')
 const ctx = {
@@ -128,26 +127,20 @@ describe('BashTool', () => {
   })
 
   test('blocks fuse-listed commands', async () => {
-    const tool = new BashTool([
-      { pattern: 'rm -rf /', description: 'Recursive delete of root' },
-    ])
+    const tool = new BashTool([{ pattern: 'rm -rf /', description: 'Recursive delete of root' }])
     const result = await tool.run(ctx, { command: 'rm -rf /' })
     expect(result.success).toBe(false)
     expect(result.output).toContain('fuse list')
   })
 
   test('allows non-fuse-listed commands', async () => {
-    const tool = new BashTool([
-      { pattern: 'rm -rf /', description: 'Block root delete' },
-    ])
+    const tool = new BashTool([{ pattern: 'rm -rf /', description: 'Block root delete' }])
     const result = await tool.run(ctx, { command: 'echo safe' })
     expect(result.success).toBe(true)
   })
 
   test('does NOT block rm -rf /tmp when fuse blocks rm -rf /', async () => {
-    const tool = new BashTool([
-      { pattern: 'rm -rf /', description: 'Block root delete' },
-    ])
+    const tool = new BashTool([{ pattern: 'rm -rf /', description: 'Block root delete' }])
     const result = await tool.run(ctx, { command: 'ls /tmp' })
     expect(result.success).toBe(true)
   })

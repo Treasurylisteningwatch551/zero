@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { resolveChannelSessionCandidate, type ChannelSessionCandidate } from './session-detail-helpers'
+import {
+  type ChannelSessionCandidate,
+  resolveChannelSessionCandidate,
+} from './session-detail-helpers'
 
 const candidates: ChannelSessionCandidate[] = [
   {
@@ -31,7 +34,9 @@ describe('resolveChannelSessionCandidate', () => {
       { ...candidates[0], id: 'sess_tg_3', channelName: 'telegram:finance' },
     ]
 
-    expect(resolveChannelSessionCandidate(duplicated, 'room_2', 'telegram:finance')?.id).toBe('sess_tg_3')
+    expect(resolveChannelSessionCandidate(duplicated, 'room_2', 'telegram:finance')?.id).toBe(
+      'sess_tg_3',
+    )
   })
 
   test('falls back to first candidate when channel id is missing', () => {

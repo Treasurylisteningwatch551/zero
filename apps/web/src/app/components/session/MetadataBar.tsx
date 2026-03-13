@@ -1,7 +1,7 @@
-import { useState } from 'react'
 import { Archive, Clock, CurrencyDollar, Trash } from '@phosphor-icons/react'
-import { formatModelHistory, formatTimeRange, formatNumber, formatCost } from '../../lib/format'
-import { apiPost, apiDelete } from '../../lib/api'
+import { useState } from 'react'
+import { apiDelete, apiPost } from '../../lib/api'
+import { formatCost, formatModelHistory, formatNumber, formatTimeRange } from '../../lib/format'
 import { useUIStore } from '../../stores/ui'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 
@@ -71,9 +71,7 @@ export function MetadataBar({
           <p className="text-[12px] text-[var(--color-text-muted)] mt-0.5">
             <span className="capitalize">{source}</span>
             {' · '}
-            <Clock size={12} className="inline -mt-0.5" />
-            {' '}
-            {formatTimeRange(createdAt, updatedAt)}
+            <Clock size={12} className="inline -mt-0.5" /> {formatTimeRange(createdAt, updatedAt)}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -96,15 +94,16 @@ export function MetadataBar({
 
       {/* Stats row */}
       <div className="flex items-center gap-4 text-[11px] text-[var(--color-text-muted)] flex-wrap">
-        <span className="font-mono">
-          {formatModelHistory(modelHistory)}
-        </span>
+        <span className="font-mono">{formatModelHistory(modelHistory)}</span>
         <span className="text-[var(--color-text-disabled)]">·</span>
         <span>{requestCount} calls</span>
         <span className="text-[var(--color-text-disabled)]">·</span>
         <span>
           {formatNumber(totalTokens)} tokens
-          <span className="text-[var(--color-text-disabled)]"> ({formatNumber(inputTokens)} in / {formatNumber(outputTokens)} out)</span>
+          <span className="text-[var(--color-text-disabled)]">
+            {' '}
+            ({formatNumber(inputTokens)} in / {formatNumber(outputTokens)} out)
+          </span>
         </span>
         <span className="text-[var(--color-text-disabled)]">·</span>
         <span className="flex items-center gap-0.5">

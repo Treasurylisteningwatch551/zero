@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
 import { Warning } from '@phosphor-icons/react'
-import { apiFetch, apiPost } from '../../lib/api'
-import { formatTimeAgo } from '../../lib/format'
+import { useCallback, useEffect, useState } from 'react'
 import { useWebSocket } from '../../hooks/useWebSocket'
+import { apiFetch, apiPost } from '../../lib/api'
 import { requestNotificationPermission, sendBrowserNotification } from '../../lib/browser-notify'
+import { formatTimeAgo } from '../../lib/format'
 import { useUIStore } from '../../stores/ui'
 
 interface Notification {
@@ -58,10 +58,7 @@ export function AttentionCard() {
 
         // Browser notification for urgent types
         if (n.type && URGENT_TYPES.has(n.type)) {
-          sendBrowserNotification(
-            n.title ?? 'ZeRo OS Alert',
-            n.description
-          )
+          sendBrowserNotification(n.title ?? 'ZeRo OS Alert', n.description)
         }
       }
     }

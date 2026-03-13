@@ -1,7 +1,7 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { loadConfig, loadFuseList } from '../loader'
 
 describe('loadConfig', () => {
@@ -22,7 +22,9 @@ describe('loadConfig', () => {
 
   test('valid config.yaml parses to SystemConfig', () => {
     const configPath = join(tmpDir, 'valid.yaml')
-    writeFileSync(configPath, `
+    writeFileSync(
+      configPath,
+      `
 providers:
   openai:
     api_type: openai_chat_completions
@@ -43,7 +45,8 @@ providers:
 default_model: openai/gpt4
 fallback_chain:
   - openai/gpt4
-`)
+`,
+    )
 
     const config = loadConfig(configPath)
 
@@ -56,7 +59,9 @@ fallback_chain:
 
   test('snake_case fields map to camelCase', () => {
     const configPath = join(tmpDir, 'snake.yaml')
-    writeFileSync(configPath, `
+    writeFileSync(
+      configPath,
+      `
 providers:
   test:
     api_type: anthropic_messages
@@ -73,7 +78,8 @@ providers:
         capabilities: []
         tags: []
 default_model: test/claude
-`)
+`,
+    )
 
     const config = loadConfig(configPath)
     const provider = config.providers.test
@@ -91,13 +97,16 @@ default_model: test/claude
 
   test('missing optional fields get defaults', () => {
     const configPath = join(tmpDir, 'minimal.yaml')
-    writeFileSync(configPath, `
+    writeFileSync(
+      configPath,
+      `
 providers:
   p:
     api_type: openai_chat_completions
     models:
       m: {}
-`)
+`,
+    )
 
     const config = loadConfig(configPath)
 
@@ -115,7 +124,9 @@ providers:
 
   test('parses channel configs with snake_case refs', () => {
     const configPath = join(tmpDir, 'channels.yaml')
-    writeFileSync(configPath, `
+    writeFileSync(
+      configPath,
+      `
 providers: {}
 channels:
   - name: feishu:ops
@@ -128,7 +139,8 @@ channels:
   - name: telegram:alerts
     type: telegram
     bot_token_ref: telegram_alerts_bot_token
-`)
+`,
+    )
 
     const config = loadConfig(configPath)
 
@@ -154,14 +166,17 @@ channels:
 
   test('parses embedding config with snake_case keys', () => {
     const configPath = join(tmpDir, 'embedding.yaml')
-    writeFileSync(configPath, `
+    writeFileSync(
+      configPath,
+      `
 providers: {}
 embedding:
   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
   api_key_ref: dashscope_api_key
   model: text-embedding-v4
   dimensions: 1024
-`)
+`,
+    )
 
     const config = loadConfig(configPath)
 
@@ -195,13 +210,16 @@ describe('loadFuseList', () => {
 
   test('parses rules correctly', () => {
     const fusePath = join(tmpDir, 'rules.yaml')
-    writeFileSync(fusePath, `
+    writeFileSync(
+      fusePath,
+      `
 rules:
   - pattern: "rm -rf /"
     description: "Prevent destructive commands"
   - pattern: "DROP TABLE"
     description: "Block SQL drops"
-`)
+`,
+    )
 
     const rules = loadFuseList(fusePath)
     expect(rules).toHaveLength(2)

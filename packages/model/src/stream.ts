@@ -1,11 +1,9 @@
-import type { StreamEvent, ContentBlock, TokenUsage } from '@zero-os/shared'
+import type { ContentBlock, StreamEvent, TokenUsage } from '@zero-os/shared'
 
 /**
  * Collects streaming events into a complete response.
  */
-export async function collectStream(
-  stream: AsyncIterable<StreamEvent>
-): Promise<{
+export async function collectStream(stream: AsyncIterable<StreamEvent>): Promise<{
   content: ContentBlock[]
   usage?: TokenUsage
 }> {
@@ -72,7 +70,7 @@ export async function collectStream(
  */
 export async function consumeStream(
   stream: AsyncIterable<StreamEvent>,
-  onEvent: (event: StreamEvent) => void
+  onEvent: (event: StreamEvent) => void,
 ): Promise<void> {
   for await (const event of stream) {
     onEvent(event)

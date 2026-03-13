@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { OAuth2Client } from '../auth/oauth'
 import type { OAuthConfig, OAuthTokens } from '../auth/oauth'

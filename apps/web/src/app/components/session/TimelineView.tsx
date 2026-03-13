@@ -1,14 +1,13 @@
+import { ArrowsClockwise, Warning } from '@phosphor-icons/react'
 import { useMemo } from 'react'
-import { UserMessageBlock } from './UserMessageBlock'
 import { AgentMessageBlock } from './AgentMessageBlock'
 import { ToolCallBlock } from './ToolCallBlock'
-import { Warning, ArrowsClockwise } from '@phosphor-icons/react'
+import { UserMessageBlock } from './UserMessageBlock'
 import {
-  buildTimeline,
   type Message,
   type PersistedTaskClosureEvent,
-  type TimelineItem,
   type TraceSpan,
+  buildTimeline,
 } from './timeline'
 
 interface Props {
@@ -38,7 +37,14 @@ export function TimelineView({
       {items.map((item, i) => {
         switch (item.type) {
           case 'user-message':
-            return <UserMessageBlock key={i} text={item.text} images={item.images} createdAt={item.createdAt} />
+            return (
+              <UserMessageBlock
+                key={i}
+                text={item.text}
+                images={item.images}
+                createdAt={item.createdAt}
+              />
+            )
           case 'agent-text':
             return (
               <AgentMessageBlock

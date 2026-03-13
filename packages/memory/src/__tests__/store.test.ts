@@ -1,7 +1,7 @@
-import { describe, test, expect, afterAll } from 'bun:test'
-import { MemoryStore } from '../store'
-import { rmSync, mkdirSync } from 'node:fs'
+import { afterAll, describe, expect, test } from 'bun:test'
+import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { MemoryStore } from '../store'
 
 const testDir = join(import.meta.dir, '__fixtures__/memory')
 

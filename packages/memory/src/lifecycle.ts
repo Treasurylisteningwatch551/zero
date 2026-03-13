@@ -26,7 +26,7 @@ export class MemoryLifecycle {
     title: string,
     description: string,
     sessionId: string,
-    tags: string[]
+    tags: string[],
   ): Promise<Memory> {
     return this.store.create('incident', title, description, {
       sessionId,

@@ -1,6 +1,6 @@
-import * as lark from '@larksuiteoapi/node-sdk'
 import type { Readable } from 'node:stream'
-import type { Channel, IncomingMessage, ImageAttachment, MessageHandler } from '../base'
+import * as lark from '@larksuiteoapi/node-sdk'
+import type { Channel, ImageAttachment, IncomingMessage, MessageHandler } from '../base'
 import { renderMarkdownForFeishu } from '../richtext/feishu'
 
 export interface FeishuChannelConfig {
@@ -87,7 +87,10 @@ export class FeishuChannel implements Channel {
             }
           }
 
-          console.log('[FeishuChannel] im.message.receive_v1 from', data.sender?.sender_id?.open_id ?? 'unknown')
+          console.log(
+            '[FeishuChannel] im.message.receive_v1 from',
+            data.sender?.sender_id?.open_id ?? 'unknown',
+          )
           const incoming = await this.buildIncomingMessage(data)
           if (!incoming) return
 
@@ -96,7 +99,10 @@ export class FeishuChannel implements Channel {
             console.error('[FeishuChannel] Async handler error:', this.describeError(err))
           })
         } catch (err) {
-          console.error('[FeishuChannel] Error handling im.message.receive_v1:', this.describeError(err))
+          console.error(
+            '[FeishuChannel] Error handling im.message.receive_v1:',
+            this.describeError(err),
+          )
         }
       },
     })
@@ -164,7 +170,10 @@ export class FeishuChannel implements Channel {
         const parsed = JSON.parse(msg.content ?? '{}')
         content = parsed.text ?? ''
       } catch (parseErr) {
-        console.error('[FeishuChannel] Failed to parse message content:', this.describeError(parseErr))
+        console.error(
+          '[FeishuChannel] Failed to parse message content:',
+          this.describeError(parseErr),
+        )
         content = msg.content ?? ''
       }
     } else if (msg.message_type === 'post') {
@@ -176,7 +185,9 @@ export class FeishuChannel implements Channel {
         if (messageId) {
           const downloads = pendingImages
             .filter((image) => image.mediaType === '__pending__')
-            .map((image) => this.downloadMessageImage(messageId, image.data, 'Failed to download post image'))
+            .map((image) =>
+              this.downloadMessageImage(messageId, image.data, 'Failed to download post image'),
+            )
           const resolvedImages = await Promise.all(downloads)
           images.push(...resolvedImages.filter((image): image is ImageAttachment => image !== null))
         }
@@ -201,9 +212,14 @@ export class FeishuChannel implements Channel {
       try {
         const parsed = JSON.parse(msg.content ?? '{}')
         const imageKey = typeof parsed.image_key === 'string' ? parsed.image_key : ''
-        const image = imageKey && messageId
-          ? await this.downloadMessageImage(messageId, imageKey, 'Failed to download image message')
-          : null
+        const image =
+          imageKey && messageId
+            ? await this.downloadMessageImage(
+                messageId,
+                imageKey,
+                'Failed to download image message',
+              )
+            : null
 
         if (image) {
           images.push(image)
@@ -212,7 +228,10 @@ export class FeishuChannel implements Channel {
           content = '[图片下载失败]'
         }
       } catch (parseErr) {
-        console.error('[FeishuChannel] Failed to parse image message content:', this.describeError(parseErr))
+        console.error(
+          '[FeishuChannel] Failed to parse image message content:',
+          this.describeError(parseErr),
+        )
         content = '[图片下载失败]'
       }
     } else {
@@ -343,7 +362,7 @@ export class FeishuChannel implements Channel {
   private splitByLinePreserveLimit(
     content: string,
     maxBytes: number,
-    payloadBuilder: (chunk: string) => string
+    payloadBuilder: (chunk: string) => string,
   ): string[] {
     if (this.byteLength(payloadBuilder(content)) <= maxBytes) {
       return [content]
@@ -393,7 +412,7 @@ export class FeishuChannel implements Channel {
   private takeLargestPrefix(
     content: string,
     maxBytes: number,
-    payloadBuilder: (chunk: string) => string
+    payloadBuilder: (chunk: string) => string,
   ): string {
     let lo = 1
     let hi = content.length
@@ -420,7 +439,7 @@ export class FeishuChannel implements Channel {
   private async sendCreateWithFallback(
     sessionId: string,
     content: string,
-    options?: FeishuCardOptions
+    options?: FeishuCardOptions,
   ): Promise<void> {
     if (!this.client) return
 
@@ -437,7 +456,10 @@ export class FeishuChannel implements Channel {
         })
         return
       } catch (interactiveErr) {
-        console.warn('[FeishuChannel] interactive send failed, fallback to post:', this.describeError(interactiveErr))
+        console.warn(
+          '[FeishuChannel] interactive send failed, fallback to post:',
+          this.describeError(interactiveErr),
+        )
       }
     } else {
       console.warn('[FeishuChannel] interactive payload exceeds size limit, fallback to post')
@@ -456,7 +478,10 @@ export class FeishuChannel implements Channel {
         })
         return
       } catch (postErr) {
-        console.warn('[FeishuChannel] post send failed, fallback to text:', this.describeError(postErr))
+        console.warn(
+          '[FeishuChannel] post send failed, fallback to text:',
+          this.describeError(postErr),
+        )
       }
     } else {
       console.warn('[FeishuChannel] post payload exceeds size limit, fallback to text')
@@ -494,7 +519,10 @@ export class FeishuChannel implements Channel {
         })
         return
       } catch (interactiveErr) {
-        console.warn('[FeishuChannel] interactive reply failed, fallback to post:', this.describeError(interactiveErr))
+        console.warn(
+          '[FeishuChannel] interactive reply failed, fallback to post:',
+          this.describeError(interactiveErr),
+        )
       }
     } else {
       console.warn('[FeishuChannel] interactive reply payload exceeds size limit, fallback to post')
@@ -512,7 +540,10 @@ export class FeishuChannel implements Channel {
         })
         return
       } catch (postErr) {
-        console.warn('[FeishuChannel] post reply failed, fallback to text:', this.describeError(postErr))
+        console.warn(
+          '[FeishuChannel] post reply failed, fallback to text:',
+          this.describeError(postErr),
+        )
       }
     } else {
       console.warn('[FeishuChannel] post reply payload exceeds size limit, fallback to text')
@@ -616,8 +647,9 @@ export class FeishuChannel implements Channel {
   }
 
   private extractRequestId(headers: unknown): string | undefined {
-    return this.getHeaderValue(headers, 'x-request-id')
-      ?? this.getHeaderValue(headers, 'request-id')
+    return (
+      this.getHeaderValue(headers, 'x-request-id') ?? this.getHeaderValue(headers, 'request-id')
+    )
   }
 
   private extractResponseDetail(data: unknown): string | undefined {
@@ -626,19 +658,19 @@ export class FeishuChannel implements Channel {
     if (typeof data !== 'object') return undefined
 
     const record = data as Record<string, unknown>
-    const code = typeof record.code === 'number' || typeof record.code === 'string'
-      ? String(record.code)
-      : undefined
-    const message = typeof record.msg === 'string'
-      ? record.msg
-      : typeof record.message === 'string'
-        ? record.message
+    const code =
+      typeof record.code === 'number' || typeof record.code === 'string'
+        ? String(record.code)
         : undefined
+    const message =
+      typeof record.msg === 'string'
+        ? record.msg
+        : typeof record.message === 'string'
+          ? record.message
+          : undefined
 
     if (!code && !message) return undefined
-    return [code ? `code=${code}` : '', message ?? '']
-      .filter(Boolean)
-      .join(' ')
+    return [code ? `code=${code}` : '', message ?? ''].filter(Boolean).join(' ')
   }
 
   private describeLogValue(value: unknown): string {
@@ -650,48 +682,56 @@ export class FeishuChannel implements Channel {
     }
 
     if (typeof value === 'string') return value
-    if (typeof value === 'number' || typeof value === 'boolean' || value == null) return String(value)
+    if (typeof value === 'number' || typeof value === 'boolean' || value == null)
+      return String(value)
 
     const errorSummary = this.describeError(value)
     if (errorSummary !== '[unknown error]') return errorSummary
 
-    const objectName = value && typeof value === 'object' && 'constructor' in value
-      ? (value as { constructor?: { name?: string } }).constructor?.name
-      : undefined
+    const objectName =
+      value && typeof value === 'object' && 'constructor' in value
+        ? (value as { constructor?: { name?: string } }).constructor?.name
+        : undefined
     return objectName ? `[${objectName}]` : '[object]'
   }
 
   private describeError(error: unknown): string {
     if (typeof error === 'string') return error
-    if (typeof error === 'number' || typeof error === 'boolean' || error == null) return String(error)
+    if (typeof error === 'number' || typeof error === 'boolean' || error == null)
+      return String(error)
 
     const record = error as Record<string, unknown>
-    const response = typeof record.response === 'object' && record.response !== null
-      ? record.response as Record<string, unknown>
-      : undefined
-    const config = typeof record.config === 'object' && record.config !== null
-      ? record.config as Record<string, unknown>
-      : undefined
+    const response =
+      typeof record.response === 'object' && record.response !== null
+        ? (record.response as Record<string, unknown>)
+        : undefined
+    const config =
+      typeof record.config === 'object' && record.config !== null
+        ? (record.config as Record<string, unknown>)
+        : undefined
 
-    const message = typeof record.message === 'string'
-      ? record.message
-      : error instanceof Error
-        ? error.message
-        : undefined
-    const code = typeof record.code === 'string' ? record.code : undefined
-    const status = typeof response?.status === 'number'
-      ? response.status
-      : typeof record.status === 'number'
-        ? record.status
-        : typeof record.statusCode === 'number'
-          ? record.statusCode
+    const message =
+      typeof record.message === 'string'
+        ? record.message
+        : error instanceof Error
+          ? error.message
           : undefined
+    const code = typeof record.code === 'string' ? record.code : undefined
+    const status =
+      typeof response?.status === 'number'
+        ? response.status
+        : typeof record.status === 'number'
+          ? record.status
+          : typeof record.statusCode === 'number'
+            ? record.statusCode
+            : undefined
     const method = typeof config?.method === 'string' ? config.method.toUpperCase() : undefined
-    const url = typeof config?.url === 'string'
-      ? config.url
-      : typeof record.url === 'string'
-        ? record.url
-        : undefined
+    const url =
+      typeof config?.url === 'string'
+        ? config.url
+        : typeof record.url === 'string'
+          ? record.url
+          : undefined
     const requestId = this.extractRequestId(response?.headers)
     const detail = this.extractResponseDetail(response?.data)
 
@@ -752,7 +792,10 @@ export class FeishuChannel implements Channel {
     }
 
     if (!doc?.content || !Array.isArray(doc.content)) {
-      console.warn('[FeishuChannel] Unrecognized post structure:', JSON.stringify(parsed).slice(0, 200))
+      console.warn(
+        '[FeishuChannel] Unrecognized post structure:',
+        JSON.stringify(parsed).slice(0, 200),
+      )
       // Last resort: recursively extract all text values from the JSON
       return this.extractTextFromJson(parsed)
     }
@@ -774,7 +817,10 @@ export class FeishuChannel implements Channel {
     if (result.trim()) return result
 
     // Parsing succeeded structurally but no text extracted — extract from raw JSON
-    console.warn('[FeishuChannel] Post parsed but empty, extracting raw text:', JSON.stringify(parsed).slice(0, 200))
+    console.warn(
+      '[FeishuChannel] Post parsed but empty, extracting raw text:',
+      JSON.stringify(parsed).slice(0, 200),
+    )
     return this.extractTextFromJson(parsed)
   }
 
@@ -794,7 +840,7 @@ export class FeishuChannel implements Channel {
         return t
       }
       case 'a':
-        return el.href ? `[${el.text ?? ''}](${el.href})` : el.text ?? ''
+        return el.href ? `[${el.text ?? ''}](${el.href})` : (el.text ?? '')
       case 'img':
         // Image download is async — handled separately by caller if client is available
         if (el.image_key) {

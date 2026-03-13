@@ -1,11 +1,19 @@
-import { MagnifyingGlass, PencilSimple, Check, X } from '@phosphor-icons/react'
-import { useState, useEffect, useRef } from 'react'
-import { typeColors, typeBgColors } from '../lib/colors'
-import { Skeleton, SkeletonText } from '../components/shared/Skeleton'
+import { Check, MagnifyingGlass, PencilSimple, X } from '@phosphor-icons/react'
+import { useEffect, useRef, useState } from 'react'
+import { Skeleton } from '../components/shared/Skeleton'
 import { apiFetch, apiPut } from '../lib/api'
+import { typeBgColors, typeColors } from '../lib/colors'
 import { formatTimeAgo } from '../lib/format'
 
-const memoryTypes = ['session', 'incident', 'runbook', 'decision', 'note', 'inbox', 'preference'] as const
+const memoryTypes = [
+  'session',
+  'incident',
+  'runbook',
+  'decision',
+  'note',
+  'inbox',
+  'preference',
+] as const
 const STATUS_OPTIONS = ['all', 'draft', 'verified', 'archived', 'conflict'] as const
 const SORT_OPTIONS = [
   { key: 'newest', label: 'Newest' },
@@ -13,7 +21,7 @@ const SORT_OPTIONS = [
   { key: 'type', label: 'Type' },
 ] as const
 
-type SortKey = typeof SORT_OPTIONS[number]['key']
+type SortKey = (typeof SORT_OPTIONS)[number]['key']
 
 interface MemoryItem {
   id: string
@@ -32,7 +40,10 @@ function ConfidenceDots({ value }: { value: number }) {
   return (
     <div className="flex gap-0.5">
       {Array.from({ length: 5 }).map((_, i) => (
-        <span key={i} className={`w-1.5 h-1.5 rounded-full ${i < filled ? 'bg-cyan-400' : 'bg-white/10'}`} />
+        <span
+          key={i}
+          className={`w-1.5 h-1.5 rounded-full ${i < filled ? 'bg-cyan-400' : 'bg-white/10'}`}
+        />
       ))}
     </div>
   )
@@ -44,13 +55,16 @@ function MemoryOverview({ memories }: { memories: MemoryItem[] }) {
     typeCounts[m.type] = (typeCounts[m.type] ?? 0) + 1
   }
 
-  const mostRecent = memories.length > 0
-    ? memories.reduce((a, b) => (new Date(b.updatedAt) > new Date(a.updatedAt) ? b : a))
-    : null
+  const mostRecent =
+    memories.length > 0
+      ? memories.reduce((a, b) => (new Date(b.updatedAt) > new Date(a.updatedAt) ? b : a))
+      : null
 
   return (
     <div className="space-y-4">
-      <h3 className="text-[14px] font-semibold text-[var(--color-text-secondary)]">Memory Overview</h3>
+      <h3 className="text-[14px] font-semibold text-[var(--color-text-secondary)]">
+        Memory Overview
+      </h3>
 
       <div className="flex items-center gap-3">
         <div className="text-[28px] font-bold tracking-tight">{memories.length}</div>
@@ -58,11 +72,15 @@ function MemoryOverview({ memories }: { memories: MemoryItem[] }) {
       </div>
 
       <div className="space-y-2">
-        <p className="text-[11px] text-[var(--color-text-disabled)] tracking-wide font-semibold">BY TYPE</p>
+        <p className="text-[11px] text-[var(--color-text-disabled)] tracking-wide font-semibold">
+          BY TYPE
+        </p>
         {Object.entries(typeCounts).map(([type, count]) => (
           <div key={type} className="flex items-center justify-between py-1">
             <div className="flex items-center gap-2">
-              <span className={`text-[11px] px-1.5 py-0.5 rounded ${typeBgColors[type] ?? ''} ${typeColors[type] ?? 'text-slate-400'}`}>
+              <span
+                className={`text-[11px] px-1.5 py-0.5 rounded ${typeBgColors[type] ?? ''} ${typeColors[type] ?? 'text-slate-400'}`}
+              >
                 {type}
               </span>
             </div>
@@ -73,9 +91,13 @@ function MemoryOverview({ memories }: { memories: MemoryItem[] }) {
 
       {mostRecent && (
         <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
-          <p className="text-[11px] text-[var(--color-text-disabled)] tracking-wide font-semibold mb-2">MOST RECENT</p>
+          <p className="text-[11px] text-[var(--color-text-disabled)] tracking-wide font-semibold mb-2">
+            MOST RECENT
+          </p>
           <p className="text-[12px] text-[var(--color-text-primary)]">{mostRecent.title}</p>
-          <p className="text-[11px] text-[var(--color-text-muted)]">{formatTimeAgo(mostRecent.updatedAt)}</p>
+          <p className="text-[11px] text-[var(--color-text-muted)]">
+            {formatTimeAgo(mostRecent.updatedAt)}
+          </p>
         </div>
       )}
     </div>
@@ -138,7 +160,9 @@ export function MemoryPage() {
     try {
       await apiPut(`/api/memory/${selected.id}`, { content: editContent })
       setSelected({ ...selected, content: editContent })
-      setMemories((prev) => prev.map((m) => m.id === selected.id ? { ...m, content: editContent } : m))
+      setMemories((prev) =>
+        prev.map((m) => (m.id === selected.id ? { ...m, content: editContent } : m)),
+      )
       setEditing(false)
     } catch {
       // keep editing on failure
@@ -170,7 +194,10 @@ export function MemoryPage() {
         <div className="space-y-3">
           {/* Search */}
           <div className="relative">
-            <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-disabled)]" />
+            <MagnifyingGlass
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-disabled)]"
+            />
             <input
               type="text"
               placeholder="Search memories..."
@@ -183,9 +210,14 @@ export function MemoryPage() {
           {/* Type filters */}
           <div className="flex flex-wrap gap-1.5">
             <button
-              onClick={() => { setSelectedType('all'); setSearch('') }}
+              onClick={() => {
+                setSelectedType('all')
+                setSearch('')
+              }}
               className={`px-2.5 py-1 rounded-md text-[11px] tracking-wide transition-colors ${
-                selectedType === 'all' ? 'bg-[var(--color-accent-glow)] text-[var(--color-accent)]' : 'text-[var(--color-text-muted)]'
+                selectedType === 'all'
+                  ? 'bg-[var(--color-accent-glow)] text-[var(--color-accent)]'
+                  : 'text-[var(--color-text-muted)]'
               }`}
             >
               All
@@ -193,7 +225,10 @@ export function MemoryPage() {
             {memoryTypes.map((type) => (
               <button
                 key={type}
-                onClick={() => { setSelectedType(type); setSearch('') }}
+                onClick={() => {
+                  setSelectedType(type)
+                  setSearch('')
+                }}
                 className={`px-2.5 py-1 rounded-md text-[11px] tracking-wide transition-colors ${
                   selectedType === type
                     ? `${typeBgColors[type] ?? ''} ${typeColors[type] ?? ''}`
@@ -213,7 +248,9 @@ export function MemoryPage() {
               className="input-field text-[12px] flex-1"
             >
               {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>{s === 'all' ? 'All statuses' : s}</option>
+                <option key={s} value={s}>
+                  {s === 'all' ? 'All statuses' : s}
+                </option>
               ))}
             </select>
             <select
@@ -222,7 +259,9 @@ export function MemoryPage() {
               className="input-field text-[12px] flex-1"
             >
               {SORT_OPTIONS.map((s) => (
-                <option key={s.key} value={s.key}>{s.label}</option>
+                <option key={s.key} value={s.key}>
+                  {s.label}
+                </option>
               ))}
             </select>
           </div>
@@ -249,7 +288,10 @@ export function MemoryPage() {
               {filteredMemories.map((mem) => (
                 <button
                   key={mem.id}
-                  onClick={() => { setSelected(mem); setEditing(false) }}
+                  onClick={() => {
+                    setSelected(mem)
+                    setEditing(false)
+                  }}
                   className={`w-full text-left card p-3 transition-colors ${
                     selected?.id === mem.id
                       ? 'border-[var(--color-accent)] bg-[var(--color-accent-glow)]'
@@ -257,7 +299,9 @@ export function MemoryPage() {
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${typeBgColors[mem.type] ?? ''} ${typeColors[mem.type] ?? 'text-slate-400'}`}>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded ${typeBgColors[mem.type] ?? ''} ${typeColors[mem.type] ?? 'text-slate-400'}`}
+                    >
                       {mem.type}
                     </span>
                     <ConfidenceDots value={mem.confidence} />
@@ -280,7 +324,9 @@ export function MemoryPage() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <span className={`text-[11px] px-2 py-0.5 rounded ${typeBgColors[selected.type] ?? ''} ${typeColors[selected.type] ?? ''}`}>
+                  <span
+                    className={`text-[11px] px-2 py-0.5 rounded ${typeBgColors[selected.type] ?? ''} ${typeColors[selected.type] ?? ''}`}
+                  >
                     {selected.type}
                   </span>
                   <span className="text-[11px] text-[var(--color-text-disabled)]">
@@ -322,7 +368,10 @@ export function MemoryPage() {
               {selected.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-3">
                   {selected.tags.map((tag) => (
-                    <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.05] text-[var(--color-text-muted)]">
+                    <span
+                      key={tag}
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.05] text-[var(--color-text-muted)]"
+                    >
                       {tag}
                     </span>
                   ))}

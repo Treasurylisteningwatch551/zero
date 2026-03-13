@@ -1,10 +1,10 @@
-import { X, PaperPlaneRight, ClipboardText } from '@phosphor-icons/react'
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { ClipboardText, PaperPlaneRight, X } from '@phosphor-icons/react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useUIStore } from '../../stores/ui'
-import { apiPost, apiFetch } from '../../lib/api'
 import { useWebSocket } from '../../hooks/useWebSocket'
+import { apiFetch, apiPost } from '../../lib/api'
+import { useUIStore } from '../../stores/ui'
 
 interface ChatMessage {
   role: 'user' | 'assistant' | 'notification'
@@ -63,28 +63,36 @@ export function ChatDrawer() {
   const onEvent = useCallback((topic: string, data: unknown) => {
     if (topic === 'notification') {
       const payload = data as Record<string, unknown>
-      const n = payload.notification as { title?: string; description?: string; severity?: string } | undefined
+      const n = payload.notification as
+        | { title?: string; description?: string; severity?: string }
+        | undefined
       if (n) {
-        setMessages((prev) => [...prev, {
-          role: 'notification' as const,
-          content: n.description ?? '',
-          title: n.title,
-          severity: n.severity,
-        }])
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'notification' as const,
+            content: n.description ?? '',
+            title: n.title,
+            severity: n.severity,
+          },
+        ])
       }
     }
   }, [])
 
-  const onStream = useCallback((_sid: string, delta: string) => {
-    if (!streaming) return
-    setMessages((prev) => {
-      const last = prev[prev.length - 1]
-      if (last && last.role === 'assistant') {
-        return [...prev.slice(0, -1), { ...last, content: last.content + delta }]
-      }
-      return [...prev, { role: 'assistant', content: delta }]
-    })
-  }, [streaming])
+  const onStream = useCallback(
+    (_sid: string, delta: string) => {
+      if (!streaming) return
+      setMessages((prev) => {
+        const last = prev[prev.length - 1]
+        if (last && last.role === 'assistant') {
+          return [...prev.slice(0, -1), { ...last, content: last.content + delta }]
+        }
+        return [...prev, { role: 'assistant', content: delta }]
+      })
+    },
+    [streaming],
+  )
 
   const { send: wsSend } = useWebSocket({
     url: `ws://${window.location.host}/ws`,
@@ -106,12 +114,21 @@ export function ChatDrawer() {
     if (modelMatch) {
       const newModel = modelMatch[1].trim()
       try {
-        const result = await apiPost<{ currentModel: string }>('/api/chat/model', { model: newModel, sessionId })
+        const result = await apiPost<{ currentModel: string }>('/api/chat/model', {
+          model: newModel,
+          sessionId,
+        })
         setModelName(result.currentModel)
-        setMessages((prev) => [...prev, { role: 'assistant', content: `Model switched to ${result.currentModel}` }])
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `Model switched to ${result.currentModel}` },
+        ])
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : 'Unknown error'
-        setMessages((prev) => [...prev, { role: 'assistant', content: `Failed to switch model: ${errMsg}` }])
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `Failed to switch model: ${errMsg}` },
+        ])
       }
       return true
     }
@@ -171,7 +188,9 @@ export function ChatDrawer() {
   return (
     <div
       className={`${drawerClasses} bg-[var(--color-main-bg)] border-l border-[var(--color-border)] flex flex-col`}
-      style={!isMobile ? { animation: 'slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards' } : undefined}
+      style={
+        !isMobile ? { animation: 'slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards' } : undefined
+      }
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)]">
@@ -210,9 +229,7 @@ export function ChatDrawer() {
                     {msg.title ?? 'Notification'}
                   </span>
                 </div>
-                <p className="text-[12px] text-[var(--color-text-secondary)]">
-                  {msg.content}
-                </p>
+                <p className="text-[12px] text-[var(--color-text-secondary)]">{msg.content}</p>
               </div>
             )
           }

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 test.describe('Responsive Design', () => {
   test('mobile viewport shows TabBar at bottom', async ({ page }) => {

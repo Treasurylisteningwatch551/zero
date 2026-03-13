@@ -1,7 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { createServer, type Server } from 'node:http'
+import { type Server, createServer } from 'node:http'
 import { URL } from 'node:url'
-import { decodeChatGptAccountId, serializeChatGptOAuthSession, type ChatGptOAuthSession } from '@zero-os/model'
+import {
+  type ChatGptOAuthSession,
+  decodeChatGptAccountId,
+  serializeChatGptOAuthSession,
+} from '@zero-os/model'
 import type { Vault } from '@zero-os/secrets'
 import { getChatgptOAuthTokenRef } from './chatgpt-provider'
 
@@ -157,7 +161,11 @@ export class ChatGptOAuthBroker {
     throw new Error('Timed out waiting for ChatGPT OAuth callback.')
   }
 
-  private async startServer(attemptId: string, state: string, codeVerifier: string): Promise<Server> {
+  private async startServer(
+    attemptId: string,
+    state: string,
+    codeVerifier: string,
+  ): Promise<Server> {
     return await new Promise<Server>((resolve, reject) => {
       const server = createServer((req, res) => {
         const requestUrl = new URL(req.url ?? '/', 'http://localhost:1455')
@@ -207,7 +215,9 @@ export class ChatGptOAuthBroker {
 
         res.statusCode = 200
         res.setHeader('Content-Type', 'text/html; charset=utf-8')
-        res.end('<html><body><h2>ZeRo OS</h2><p>ChatGPT authorization received. You can return to ZeRo OS.</p></body></html>')
+        res.end(
+          '<html><body><h2>ZeRo OS</h2><p>ChatGPT authorization received. You can return to ZeRo OS.</p></body></html>',
+        )
 
         void this.exchangeAndStore(code, {
           id: attemptId,
@@ -245,7 +255,7 @@ export class ChatGptOAuthBroker {
         throw new Error(`Token exchange failed: ${response.status} ${await response.text()}`)
       }
 
-      const data = await response.json() as {
+      const data = (await response.json()) as {
         access_token?: string
         refresh_token?: string
         expires_in?: number

@@ -1,8 +1,8 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
+import type { CompletionRequest, Message } from '@zero-os/shared'
+import { generateId, now } from '@zero-os/shared'
 import { OpenAIChatAdapter } from '../adapters/openai-chat'
 import { collectStream } from '../stream'
-import type { Message, CompletionRequest } from '@zero-os/shared'
-import { generateId, now } from '@zero-os/shared'
 
 const API_KEY = 'sk-c6c02cbd0c25473f97f9be0da6070f6d'
 const BASE_URL = 'https://www.right.codes/codex'
@@ -215,7 +215,12 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
         role: 'assistant',
         messageType: 'message',
         content: [
-          { type: 'tool_use', id: toolCallId, name: 'bash', input: { command: 'find . -name AGENTS.md' } },
+          {
+            type: 'tool_use',
+            id: toolCallId,
+            name: 'bash',
+            input: { command: 'find . -name AGENTS.md' },
+          },
         ],
         createdAt: now(),
       },
@@ -225,7 +230,12 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
         role: 'user',
         messageType: 'message',
         content: [
-          { type: 'tool_result', toolUseId: toolCallId, content: '', outputSummary: 'Executed: find . -name AGENTS.md' },
+          {
+            type: 'tool_result',
+            toolUseId: toolCallId,
+            content: '',
+            outputSummary: 'Executed: find . -name AGENTS.md',
+          },
         ],
         createdAt: now(),
       },
@@ -257,9 +267,7 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
         sessionId: 'test',
         role: 'user',
         messageType: 'message',
-        content: [
-          { type: 'tool_result', toolUseId: toolCallId, content: '' },
-        ],
+        content: [{ type: 'tool_result', toolUseId: toolCallId, content: '' }],
         createdAt: now(),
       },
     ]
@@ -280,9 +288,7 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
         sessionId: 'test',
         role: 'assistant',
         messageType: 'message',
-        content: [
-          { type: 'tool_use', id: toolCallId, name: 'bash', input: { command: 'echo' } },
-        ],
+        content: [{ type: 'tool_use', id: toolCallId, name: 'bash', input: { command: 'echo' } }],
         createdAt: now(),
       },
       {
@@ -291,7 +297,12 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
         role: 'user',
         messageType: 'message',
         content: [
-          { type: 'tool_result', toolUseId: toolCallId, content: '   \n  ', outputSummary: 'Ran echo' },
+          {
+            type: 'tool_result',
+            toolUseId: toolCallId,
+            content: '   \n  ',
+            outputSummary: 'Ran echo',
+          },
         ],
         createdAt: now(),
       },
@@ -316,9 +327,7 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
         sessionId: 'test',
         role: 'assistant',
         messageType: 'message',
-        content: [
-          { type: 'tool_use', id: pairedId, name: 'read', input: { path: '/tmp/a.txt' } },
-        ],
+        content: [{ type: 'tool_use', id: pairedId, name: 'read', input: { path: '/tmp/a.txt' } }],
         createdAt: now(),
       },
       {
@@ -326,9 +335,7 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
         sessionId: 'test',
         role: 'user',
         messageType: 'message',
-        content: [
-          { type: 'tool_result', toolUseId: pairedId, content: 'ok' },
-        ],
+        content: [{ type: 'tool_result', toolUseId: pairedId, content: 'ok' }],
         createdAt: now(),
       },
       // Dangling tool_use — no matching tool_result
@@ -348,9 +355,7 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
         sessionId: 'test',
         role: 'user',
         messageType: 'message',
-        content: [
-          { type: 'tool_result', toolUseId: orphanToolResultId, content: 'orphan-result' },
-        ],
+        content: [{ type: 'tool_result', toolUseId: orphanToolResultId, content: 'orphan-result' }],
         createdAt: now(),
       },
       makeMessage('user', 'Continue'),
@@ -390,9 +395,7 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
         sessionId: 'test',
         role: 'user',
         messageType: 'message',
-        content: [
-          { type: 'tool_result', toolUseId: toolCallId, content: 'file contents here' },
-        ],
+        content: [{ type: 'tool_result', toolUseId: toolCallId, content: 'file contents here' }],
         createdAt: now(),
       },
     ]

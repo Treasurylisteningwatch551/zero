@@ -25,7 +25,7 @@ export class TaskOrchestrator {
    */
   async execute(
     nodes: TaskNode[],
-    executor: (node: TaskNode, upstreamResults: Map<string, TaskResult>) => Promise<TaskResult>
+    executor: (node: TaskNode, upstreamResults: Map<string, TaskResult>) => Promise<TaskResult>,
   ): Promise<Map<string, TaskResult>> {
     const results = new Map<string, TaskResult>()
     const pending = new Set(nodes.map((n) => n.id))
@@ -37,7 +37,7 @@ export class TaskOrchestrator {
         (n) =>
           pending.has(n.id) &&
           n.dependsOn.every((dep) => results.has(dep)) &&
-          !n.dependsOn.some((dep) => failed.has(dep))
+          !n.dependsOn.some((dep) => failed.has(dep)),
       )
 
       // Check for deadlock
@@ -58,7 +58,7 @@ export class TaskOrchestrator {
 
         if (pending.size > 0) {
           throw new Error(
-            `Deadlock detected: ${pending.size} tasks waiting with unresolvable dependencies`
+            `Deadlock detected: ${pending.size} tasks waiting with unresolvable dependencies`,
           )
         }
         break
@@ -71,7 +71,7 @@ export class TaskOrchestrator {
           const result = await Promise.race([
             executor(node, results),
             new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('Task timeout')), node.timeout)
+              setTimeout(() => reject(new Error('Task timeout')), node.timeout),
             ),
           ])
           results.set(node.id, result)

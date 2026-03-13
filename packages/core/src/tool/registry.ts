@@ -1,5 +1,5 @@
-import type { BaseTool } from './base'
 import type { ToolDefinition } from '@zero-os/shared'
+import type { BaseTool } from './base'
 
 /**
  * Tool registry — manages available tools for agents.

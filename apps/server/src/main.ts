@@ -1,13 +1,22 @@
-import { existsSync, mkdirSync, appendFileSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { Channel } from '@zero-os/channel'
+import { FeishuChannel, TelegramChannel, WebChannel } from '@zero-os/channel'
 import { CONTEXT_PARAMS, loadConfig, loadFuseList } from '@zero-os/core'
-import { ModelRouter, LiteLLMPricing } from '@zero-os/model'
-import { ToolRegistry, ReadTool, WriteTool, EditTool, BashTool, FetchTool, TaskTool, MemoryTool, MemorySearchTool, MemoryGetTool, ScheduleTool } from '@zero-os/core'
+import {
+  BashTool,
+  EditTool,
+  FetchTool,
+  MemoryGetTool,
+  MemorySearchTool,
+  MemoryTool,
+  ReadTool,
+  ScheduleTool,
+  TaskTool,
+  ToolRegistry,
+  WriteTool,
+} from '@zero-os/core'
 import { SessionManager } from '@zero-os/core'
-import { Vault, generateMasterKey, setMasterKey, getMasterKey } from '@zero-os/secrets'
-import { OutputSecretFilter } from '@zero-os/secrets'
-import { JsonlLogger, MetricsDB, Tracer, SessionDB } from '@zero-os/observe'
-import { rebuildWebBundle } from './web-build'
 import {
   EmbeddingClient,
   IndexedMemoryStore,
@@ -17,15 +26,23 @@ import {
   VectorIndex,
 } from '@zero-os/memory'
 import type { MemoryRepository } from '@zero-os/memory'
+import { LiteLLMPricing, ModelRouter } from '@zero-os/model'
+import { JsonlLogger, MetricsDB, SessionDB, Tracer } from '@zero-os/observe'
+import { CronScheduler } from '@zero-os/scheduler'
+import { Vault, generateMasterKey, getMasterKey, setMasterKey } from '@zero-os/secrets'
+import { OutputSecretFilter } from '@zero-os/secrets'
+import type {
+  ChannelInstanceConfig,
+  Notification,
+  ScheduleConfig,
+  SessionSource,
+} from '@zero-os/shared'
 import { RepairEngine } from '@zero-os/supervisor'
 import { HeartbeatWriter } from '@zero-os/supervisor'
-import { CronScheduler } from '@zero-os/scheduler'
 import { globalBus } from './bus'
-import { createTelegramStreamFlusher, reconcileTelegramFinalText } from './telegram-streaming'
 import { canRunTelegramRestart, syncTelegramCommandMenu } from './telegram-menu'
-import type { Channel } from '@zero-os/channel'
-import { WebChannel, FeishuChannel, TelegramChannel } from '@zero-os/channel'
-import type { ChannelInstanceConfig, Notification, SessionSource, ScheduleConfig } from '@zero-os/shared'
+import { createTelegramStreamFlusher, reconcileTelegramFinalText } from './telegram-streaming'
+import { rebuildWebBundle } from './web-build'
 
 export interface StartOptions {
   dataDir?: string
@@ -179,7 +196,11 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
           dimensions: embeddingConfig.dimensions,
         })
         vectorIndex = new VectorIndex(join(memoryDir, 'vectors'))
-        const indexedMemoryStore = new IndexedMemoryStore(baseMemoryStore, embeddingClient, vectorIndex)
+        const indexedMemoryStore = new IndexedMemoryStore(
+          baseMemoryStore,
+          embeddingClient,
+          vectorIndex,
+        )
         memoryStore = indexedMemoryStore
         const reindexed = await indexedMemoryStore.reindexAll()
         console.log(`[ZeRo OS] Memory vector index ready (${reindexed} items)`)
@@ -187,30 +208,30 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
         embeddingClient = undefined
         vectorIndex = undefined
         memoryStore = baseMemoryStore
-        console.warn('[ZeRo OS] Memory vector index unavailable, falling back to keyword retrieval', {
-          message: error instanceof Error ? error.message : String(error),
-        })
+        console.warn(
+          '[ZeRo OS] Memory vector index unavailable, falling back to keyword retrieval',
+          {
+            message: error instanceof Error ? error.message : String(error),
+          },
+        )
       }
     } else {
-      console.warn(`[ZeRo OS] Embedding secret "${embeddingConfig.apiKeyRef}" not found, memory search will use keyword fallback`)
+      console.warn(
+        `[ZeRo OS] Embedding secret "${embeddingConfig.apiKeyRef}" not found, memory search will use keyword fallback`,
+      )
     }
   }
 
-  const memoryRetriever = new MemoryRetriever(
-    memoryStore,
-    embeddingClient,
-    vectorIndex,
-    {
-      vectorWeight: CONTEXT_PARAMS.retrieval.vectorWeight,
-      keywordWeight: CONTEXT_PARAMS.retrieval.keywordWeight,
-      recencyWeight: CONTEXT_PARAMS.retrieval.recencyWeight,
-      recencyHalfLifeDays: CONTEXT_PARAMS.retrieval.recencyHalfLifeDays,
-    },
-  )
+  const memoryRetriever = new MemoryRetriever(memoryStore, embeddingClient, vectorIndex, {
+    vectorWeight: CONTEXT_PARAMS.retrieval.vectorWeight,
+    keywordWeight: CONTEXT_PARAMS.retrieval.keywordWeight,
+    recencyWeight: CONTEXT_PARAMS.retrieval.recencyWeight,
+    recencyHalfLifeDays: CONTEXT_PARAMS.retrieval.recencyHalfLifeDays,
+  })
 
   // 9.5 Identity reader — hot-reloads identity on each turn per agent name
   const identityReader = (agentName: string) => {
-    const globalPref = memoryStore.list('preference').find(m => m.id === 'pref_global')
+    const globalPref = memoryStore.list('preference').find((m) => m.id === 'pref_global')
     return {
       global: globalPref?.content ?? '',
       agent: memoryStore.getAgentPreference(agentName),
@@ -231,20 +252,25 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     delete: (n: string) => sessionDb.deleteSchedule(n),
   }
 
-  const sessionManager = new SessionManager(modelRouter, toolRegistry, {
-    logger,
-    metrics,
-    tracer,
-    secretFilter,
-    secretResolver,
-    memoryRetriever,
-    memoryStore,
-    identityReader,
-    bus: globalBus,
+  const sessionManager = new SessionManager(
+    modelRouter,
+    toolRegistry,
+    {
+      logger,
+      metrics,
+      tracer,
+      secretFilter,
+      secretResolver,
+      memoryRetriever,
+      memoryStore,
+      identityReader,
+      bus: globalBus,
+      sessionDb,
+      schedulerHandle,
+      scheduleStore,
+    },
     sessionDb,
-    schedulerHandle,
-    scheduleStore,
-  }, sessionDb)
+  )
 
   // 10.5. Restore active sessions from DB
   const restoredCount = sessionManager.restoreFromDB()
@@ -291,7 +317,10 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
       const text = collectAssistantReply(replies)
       if (channel?.isConnected() && text) {
         await channel.send(binding.channelId, text).catch((err) => {
-          console.error(`[Scheduler] delivery to ${binding.channelName}:${binding.channelId} failed:`, err)
+          console.error(
+            `[Scheduler] delivery to ${binding.channelName}:${binding.channelId} failed:`,
+            err,
+          )
           addNotification({
             type: 'system',
             severity: 'warn',
@@ -334,7 +363,9 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
   scheduler.start()
   const totalSchedules = config.schedules.length + runtimeSchedules.length
-  console.log(`[ZeRo OS] Scheduler started (${totalSchedules} schedules: ${config.schedules.length} config + ${runtimeSchedules.length} runtime)`)
+  console.log(
+    `[ZeRo OS] Scheduler started (${totalSchedules} schedules: ${config.schedules.length} config + ${runtimeSchedules.length} runtime)`,
+  )
 
   // 14. Notification store
   const notifications: Notification[] = []
@@ -404,12 +435,14 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     if (!err || typeof err !== 'object') return String(err)
 
     const record = err as Record<string, unknown>
-    const response = typeof record.response === 'object' && record.response !== null
-      ? record.response as Record<string, unknown>
-      : undefined
-    const config = typeof record.config === 'object' && record.config !== null
-      ? record.config as Record<string, unknown>
-      : undefined
+    const response =
+      typeof record.response === 'object' && record.response !== null
+        ? (record.response as Record<string, unknown>)
+        : undefined
+    const config =
+      typeof record.config === 'object' && record.config !== null
+        ? (record.config as Record<string, unknown>)
+        : undefined
 
     const parts = [
       typeof response?.status === 'number' ? `status=${response.status}` : '',
@@ -437,7 +470,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
   function buildNewSessionReply(
     currentModel: string,
-    modelResult?: { success: boolean; message: string }
+    modelResult?: { success: boolean; message: string },
   ): string {
     if (!modelResult) {
       return 'New conversation started.'
@@ -473,7 +506,9 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     heartbeat.stop()
     console.log('[ZeRo OS] Heartbeat stopped')
     for (const [, ch] of channels) {
-      try { await ch.stop() } catch {}
+      try {
+        await ch.stop()
+      } catch {}
     }
     console.log('[ZeRo OS] Channels closed')
     sessionManager.flushAll()
@@ -551,14 +586,17 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
             const newCommand = parseNewSessionCommand(msg.content)
             if (newCommand) {
-              const { session } = sessionManager.startNewForChannel('feishu', chatId, { channelName })
+              const { session } = sessionManager.startNewForChannel('feishu', chatId, {
+                channelName,
+              })
               activeSessionId = session.data.id
               const modelResult = newCommand.modelArg
                 ? await session.switchModel(newCommand.modelArg)
                 : undefined
               session.initAgent({
                 name: agentName,
-                agentInstruction: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+                agentInstruction:
+                  'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
               })
 
               const replyText = buildNewSessionReply(session.data.currentModel, modelResult)
@@ -570,18 +608,21 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
               return
             }
 
-            const { session, isNew } = sessionManager.getOrCreateForChannel('feishu', chatId, channelName)
+            const { session, isNew } = sessionManager.getOrCreateForChannel(
+              'feishu',
+              chatId,
+              channelName,
+            )
             activeSessionId = session.data.id
             if (isNew) {
               session.initAgent({
                 name: agentName,
-                agentInstruction: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+                agentInstruction:
+                  'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
               })
             }
 
-            typingReactionId = messageId
-              ? await feishuChannel.react(messageId, 'Typing')
-              : null
+            typingReactionId = messageId ? await feishuChannel.react(messageId, 'Typing') : null
 
             let firstReply = true
             let lastSentMsgId: string | null = null
@@ -598,11 +639,23 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
                 if (firstReply && messageId) {
                   firstReply = false
-                  feishuChannel.reply(messageId, text).catch((err) =>
-                    console.error(`[ZeRo OS] ${channelName} progressive send error:`, describeError(err)))
+                  feishuChannel
+                    .reply(messageId, text)
+                    .catch((err) =>
+                      console.error(
+                        `[ZeRo OS] ${channelName} progressive send error:`,
+                        describeError(err),
+                      ),
+                    )
                 } else {
-                  feishuChannel.send(chatId, text).catch((err) =>
-                    console.error(`[ZeRo OS] ${channelName} progressive send error:`, describeError(err)))
+                  feishuChannel
+                    .send(chatId, text)
+                    .catch((err) =>
+                      console.error(
+                        `[ZeRo OS] ${channelName} progressive send error:`,
+                        describeError(err),
+                      ),
+                    )
                 }
               },
             })
@@ -617,7 +670,8 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
             }
 
             if (messageId) {
-              if (typingReactionId) feishuChannel.removeReaction(messageId, typingReactionId).catch(() => {})
+              if (typingReactionId)
+                feishuChannel.removeReaction(messageId, typingReactionId).catch(() => {})
               feishuChannel.react(messageId, 'DONE').catch(() => {})
             }
           } catch (err) {
@@ -625,14 +679,20 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
             const errorMessage = err instanceof Error ? err.message : String(err)
             let sessionWasArchived = false
 
-            if (activeSessionId && errorMessage.includes('No tool output found for function call')) {
+            if (
+              activeSessionId &&
+              errorMessage.includes('No tool output found for function call')
+            ) {
               const poisonedSession = sessionManager.get(activeSessionId)
               if (poisonedSession) {
                 poisonedSession.setStatus('archived')
               }
               sessionManager.remove(activeSessionId)
               sessionWasArchived = true
-              console.warn(`[ZeRo OS] Archived poisoned ${channelName} session after tool output mismatch:`, activeSessionId)
+              console.warn(
+                `[ZeRo OS] Archived poisoned ${channelName} session after tool output mismatch:`,
+                activeSessionId,
+              )
             }
 
             const userReply = sessionWasArchived
@@ -641,7 +701,8 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
             try {
               if (messageId) {
-                if (typingReactionId) feishuChannel.removeReaction(messageId, typingReactionId).catch(() => {})
+                if (typingReactionId)
+                  feishuChannel.removeReaction(messageId, typingReactionId).catch(() => {})
                 await feishuChannel.reply(messageId, userReply)
               } else {
                 await feishuChannel.send(chatId, userReply)
@@ -709,14 +770,17 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
           const newCommand = parseNewSessionCommand(msg.content)
           if (newCommand) {
-            const { session } = sessionManager.startNewForChannel('telegram', chatId, { channelName })
+            const { session } = sessionManager.startNewForChannel('telegram', chatId, {
+              channelName,
+            })
             activeSessionId = session.data.id
             const modelResult = newCommand.modelArg
               ? await session.switchModel(newCommand.modelArg)
               : undefined
             session.initAgent({
               name: agentName,
-              agentInstruction: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+              agentInstruction:
+                'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
             })
             const replyText = buildNewSessionReply(session.data.currentModel, modelResult)
             if (messageId) {
@@ -732,12 +796,17 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
             telegramChannel.react(chatId, messageId, '👀').catch(() => {})
           }
 
-          const { session, isNew } = sessionManager.getOrCreateForChannel('telegram', chatId, channelName)
+          const { session, isNew } = sessionManager.getOrCreateForChannel(
+            'telegram',
+            chatId,
+            channelName,
+          )
           activeSessionId = session.data.id
           if (isNew) {
             session.initAgent({
               name: agentName,
-              agentInstruction: 'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+              agentInstruction:
+                'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
             })
           }
 
@@ -770,8 +839,11 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
               lastTurnId = meta.turnId
               streamText += delta
               telegramChannel.sendTyping(chatId).catch(() => {})
-              streamFlusher.flush(false).catch((err) =>
-                console.error(`[ZeRo OS] ${channelName} streaming flush error:`, err))
+              streamFlusher
+                .flush(false)
+                .catch((err) =>
+                  console.error(`[ZeRo OS] ${channelName} streaming flush error:`, err),
+                )
             },
             onProgress: (newMsg) => {
               const text = extractAssistantText(newMsg)
@@ -818,7 +890,10 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
             }
             sessionManager.remove(activeSessionId)
             sessionWasArchived = true
-            console.warn(`[ZeRo OS] Archived poisoned ${channelName} session after tool output mismatch:`, activeSessionId)
+            console.warn(
+              `[ZeRo OS] Archived poisoned ${channelName} session after tool output mismatch:`,
+              activeSessionId,
+            )
           }
 
           const userReply = sessionWasArchived
@@ -904,46 +979,49 @@ function buildExternalChannelDefinitions(
         return definitions
       }
 
-        if (channel.type === 'feishu') {
-          const appId = vault.get(channel.appIdRef)
-          const appSecret = vault.get(channel.appSecretRef)
+      if (channel.type === 'feishu') {
+        const appId = vault.get(channel.appIdRef)
+        const appSecret = vault.get(channel.appSecretRef)
 
-          definitions.push({
-            name: channel.name,
-            type: 'feishu' as const,
-            receiveNotifications: channel.receiveNotifications ?? false,
-            secretRefs: [
-              channel.appIdRef,
-              channel.appSecretRef,
-              ...(channel.encryptKeyRef ? [channel.encryptKeyRef] : []),
-              ...(channel.verificationTokenRef ? [channel.verificationTokenRef] : []),
-            ],
-            credentials: appId && appSecret
+        definitions.push({
+          name: channel.name,
+          type: 'feishu' as const,
+          receiveNotifications: channel.receiveNotifications ?? false,
+          secretRefs: [
+            channel.appIdRef,
+            channel.appSecretRef,
+            ...(channel.encryptKeyRef ? [channel.encryptKeyRef] : []),
+            ...(channel.verificationTokenRef ? [channel.verificationTokenRef] : []),
+          ],
+          credentials:
+            appId && appSecret
               ? {
                   appId,
                   appSecret,
-                  encryptKey: channel.encryptKeyRef ? vault.get(channel.encryptKeyRef) ?? undefined : undefined,
-                  verificationToken: channel.verificationTokenRef ? vault.get(channel.verificationTokenRef) ?? undefined : undefined,
+                  encryptKey: channel.encryptKeyRef
+                    ? (vault.get(channel.encryptKeyRef) ?? undefined)
+                    : undefined,
+                  verificationToken: channel.verificationTokenRef
+                    ? (vault.get(channel.verificationTokenRef) ?? undefined)
+                    : undefined,
                 }
               : undefined,
-          })
-          return definitions
-        }
-
-        if (channel.type !== 'telegram') return definitions
-
-        const botToken = vault.get(channel.botTokenRef)
-        definitions.push({
-          name: channel.name,
-          type: 'telegram' as const,
-          receiveNotifications: channel.receiveNotifications ?? false,
-          secretRefs: [channel.botTokenRef],
-          credentials: botToken
-            ? { botToken }
-            : undefined,
         })
         return definitions
-      }, [])
+      }
+
+      if (channel.type !== 'telegram') return definitions
+
+      const botToken = vault.get(channel.botTokenRef)
+      definitions.push({
+        name: channel.name,
+        type: 'telegram' as const,
+        receiveNotifications: channel.receiveNotifications ?? false,
+        secretRefs: [channel.botTokenRef],
+        credentials: botToken ? { botToken } : undefined,
+      })
+      return definitions
+    }, [])
   }
 
   const feishuAppId = vault.get('feishu_app_id')
@@ -955,24 +1033,28 @@ function buildExternalChannelDefinitions(
       name: 'feishu',
       type: 'feishu',
       receiveNotifications: false,
-      secretRefs: ['feishu_app_id', 'feishu_app_secret', 'feishu_encrypt_key', 'feishu_verification_token'],
-      credentials: feishuAppId && feishuAppSecret
-        ? {
-            appId: feishuAppId,
-            appSecret: feishuAppSecret,
-            encryptKey: vault.get('feishu_encrypt_key') ?? undefined,
-            verificationToken: vault.get('feishu_verification_token') ?? undefined,
-          }
-        : undefined,
+      secretRefs: [
+        'feishu_app_id',
+        'feishu_app_secret',
+        'feishu_encrypt_key',
+        'feishu_verification_token',
+      ],
+      credentials:
+        feishuAppId && feishuAppSecret
+          ? {
+              appId: feishuAppId,
+              appSecret: feishuAppSecret,
+              encryptKey: vault.get('feishu_encrypt_key') ?? undefined,
+              verificationToken: vault.get('feishu_verification_token') ?? undefined,
+            }
+          : undefined,
     },
     {
       name: 'telegram',
       type: 'telegram',
       receiveNotifications: false,
       secretRefs: ['telegram_bot_token'],
-      credentials: telegramToken
-        ? { botToken: telegramToken }
-        : undefined,
+      credentials: telegramToken ? { botToken: telegramToken } : undefined,
     },
   ]
 }

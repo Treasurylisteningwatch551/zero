@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { MemorySearchTool } from '../memory-search'
+import { MemoryRetriever, MemoryStore } from '@zero-os/memory'
 import { MemoryGetTool } from '../memory-get'
-import { MemoryStore, MemoryRetriever } from '@zero-os/memory'
+import { MemorySearchTool } from '../memory-search'
 
 const testDir = join(import.meta.dir, '__fixtures__', 'memory-recall-test')
 
@@ -33,11 +33,16 @@ beforeAll(async () => {
     confidence: 0.92,
     tags: ['deploy', 'release'],
   })
-  const preference = await store.create('preference', 'Language Preference', 'User prefers TypeScript over JavaScript', {
-    status: 'verified',
-    confidence: 0.95,
-    tags: ['preference', 'typescript'],
-  })
+  const preference = await store.create(
+    'preference',
+    'Language Preference',
+    'User prefers TypeScript over JavaScript',
+    {
+      status: 'verified',
+      confidence: 0.95,
+      tags: ['preference', 'typescript'],
+    },
+  )
   preferenceId = preference.id
 
   writeFileSync(join(testDir, 'notes', 'manual.md'), 'line1\nline2\nline3\nline4\n', 'utf-8')

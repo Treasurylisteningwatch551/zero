@@ -1,6 +1,6 @@
-import { describe, test, expect, afterAll } from 'bun:test'
+import { afterAll, describe, expect, test } from 'bun:test'
+import type { Message, Session as SessionData } from '@zero-os/shared'
 import { SessionDB } from '../session-db'
-import type { Session as SessionData, Message } from '@zero-os/shared'
 
 function makeSessionData(overrides: Partial<SessionData> = {}): SessionData {
   return {
@@ -99,9 +99,7 @@ describe('SessionDB', () => {
         sessionId: 'sess_tool',
         role: 'assistant',
         messageType: 'message',
-        content: [
-          { type: 'tool_result', toolUseId: 'call_1', content: 'file contents here' },
-        ],
+        content: [{ type: 'tool_result', toolUseId: 'call_1', content: 'file contents here' }],
         createdAt: new Date().toISOString(),
       },
     ]
@@ -109,7 +107,12 @@ describe('SessionDB', () => {
 
     const loaded = db.loadSessionMessages('sess_tool')
     expect(loaded).toHaveLength(2)
-    expect(loaded[0].content[1]).toEqual({ type: 'tool_use', id: 'call_1', name: 'read', input: { path: '/tmp/test' } })
+    expect(loaded[0].content[1]).toEqual({
+      type: 'tool_use',
+      id: 'call_1',
+      name: 'read',
+      input: { path: '/tmp/test' },
+    })
   })
 
   test('loadSessionMessages returns empty for non-existent session', () => {
@@ -156,15 +159,26 @@ describe('SessionDB', () => {
   })
 
   test('getChannelMappings returns active sessions with channelId', () => {
-    db.saveSession(makeSessionData({
-      id: 'sess_ch1',
-      source: 'feishu',
-      channelName: 'feishu:ops',
-      channelId: 'chat_001',
-      status: 'active',
-    }))
-    db.saveSession(makeSessionData({ id: 'sess_ch2', source: 'telegram', channelId: 'tg_001', status: 'idle' }))
-    db.saveSession(makeSessionData({ id: 'sess_ch3', source: 'feishu', channelId: 'chat_002', status: 'completed' }))
+    db.saveSession(
+      makeSessionData({
+        id: 'sess_ch1',
+        source: 'feishu',
+        channelName: 'feishu:ops',
+        channelId: 'chat_001',
+        status: 'active',
+      }),
+    )
+    db.saveSession(
+      makeSessionData({ id: 'sess_ch2', source: 'telegram', channelId: 'tg_001', status: 'idle' }),
+    )
+    db.saveSession(
+      makeSessionData({
+        id: 'sess_ch3',
+        source: 'feishu',
+        channelId: 'chat_002',
+        status: 'completed',
+      }),
+    )
 
     const mappings = db.getChannelMappings()
     const ids = mappings.map((m) => m.id)

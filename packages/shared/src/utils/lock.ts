@@ -1,6 +1,6 @@
-import lockfile from 'proper-lockfile'
-import { existsSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import lockfile from 'proper-lockfile'
 
 /**
  * Acquire a file lock. Returns a release function.

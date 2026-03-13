@@ -1,6 +1,6 @@
-import { describe, test, expect } from 'bun:test'
-import { checkFuseList } from '../fuse-list'
+import { describe, expect, test } from 'bun:test'
 import type { FuseRule } from '@zero-os/shared'
+import { checkFuseList } from '../fuse-list'
 
 const rule = (pattern: string): FuseRule => ({ pattern, description: `Block ${pattern}` })
 

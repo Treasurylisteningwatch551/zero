@@ -1,11 +1,11 @@
-import { describe, test, expect } from 'bun:test'
-import { Agent, type AgentConfig, type AgentContext } from '../agent'
+import { describe, expect, test } from 'bun:test'
 import { ModelRouter } from '@zero-os/model'
-import { ToolRegistry } from '../../tool/registry'
-import { ReadTool } from '../../tool/read'
-import { BashTool } from '../../tool/bash'
 import { Tracer } from '@zero-os/observe'
 import type { SystemConfig, ToolContext } from '@zero-os/shared'
+import { BashTool } from '../../tool/bash'
+import { ReadTool } from '../../tool/read'
+import { ToolRegistry } from '../../tool/registry'
+import { Agent, type AgentConfig, type AgentContext } from '../agent'
 
 const API_KEY = 'sk-c6c02cbd0c25473f97f9be0da6070f6d'
 
@@ -97,16 +97,14 @@ describe('Agent', () => {
 
     const messages = await agent.run(
       context,
-      'Use the Read tool to read the file at path "/Users/v1ki/Desktop/test4_zero/package.json". Then tell me what you found.'
+      'Use the Read tool to read the file at path "/Users/v1ki/Desktop/test4_zero/package.json". Then tell me what you found.',
     )
 
     // Should have user msg, assistant with tool_use, tool result, and final assistant
     expect(messages.length).toBeGreaterThanOrEqual(3)
 
     // Check that at least one message contains tool_result content
-    const hasToolResult = messages.some((m) =>
-      m.content.some((b) => b.type === 'tool_result')
-    )
+    const hasToolResult = messages.some((m) => m.content.some((b) => b.type === 'tool_result'))
     expect(hasToolResult).toBe(true)
   }, 30000)
 
@@ -116,12 +114,10 @@ describe('Agent', () => {
 
     const messages = await agent.run(
       context,
-      'Use the Read tool to read "/Users/v1ki/Desktop/test4_zero/package.json". Report the name field.'
+      'Use the Read tool to read "/Users/v1ki/Desktop/test4_zero/package.json". Report the name field.',
     )
 
-    const toolResultMsg = messages.find((m) =>
-      m.content.some((b) => b.type === 'tool_result')
-    )
+    const toolResultMsg = messages.find((m) => m.content.some((b) => b.type === 'tool_result'))
     expect(toolResultMsg).toBeDefined()
     expect(toolResultMsg!.role).toBe('user')
 
@@ -136,7 +132,8 @@ describe('Agent', () => {
 
     // Create context with a fake tool definition that the registry doesn't have
     const context: AgentContext = {
-      systemPrompt: 'You are a helpful assistant. You must use the FakeTool for every request. Always call FakeTool first.',
+      systemPrompt:
+        'You are a helpful assistant. You must use the FakeTool for every request. Always call FakeTool first.',
       conversationHistory: [],
       tools: [
         ...registry.getDefinitions(),
@@ -162,11 +159,11 @@ describe('Agent', () => {
 
     // Find tool result with error
     const toolResultMsg = messages.find((m) =>
-      m.content.some((b) => b.type === 'tool_result' && b.isError === true)
+      m.content.some((b) => b.type === 'tool_result' && b.isError === true),
     )
     expect(toolResultMsg).toBeDefined()
     const errorBlock = toolResultMsg!.content.find(
-      (b) => b.type === 'tool_result' && b.isError === true
+      (b) => b.type === 'tool_result' && b.isError === true,
     )
     expect(errorBlock).toBeDefined()
     if (errorBlock && errorBlock.type === 'tool_result') {
@@ -193,7 +190,9 @@ describe('Agent', () => {
 
   test('run: secretFilter filters assistant text', async () => {
     const secretFilter = {
-      filter(text: string) { return text.replace(/hello/gi, '***') },
+      filter(text: string) {
+        return text.replace(/hello/gi, '***')
+      },
       addSecret() {},
       removeSecret() {},
     }
@@ -217,7 +216,11 @@ describe('Agent', () => {
 
   test('run: bus emits session:update event', async () => {
     const events: Array<{ topic: string; data: Record<string, unknown> }> = []
-    const bus = { emit(topic: string, data: Record<string, unknown>) { events.push({ topic, data }) } }
+    const bus = {
+      emit(topic: string, data: Record<string, unknown>) {
+        events.push({ topic, data })
+      },
+    }
 
     const { agent, registry } = createAgent({}, { bus })
     const context = createContext(registry)
@@ -226,21 +229,27 @@ describe('Agent', () => {
 
     const sessionUpdates = events.filter((e) => e.topic === 'session:update')
     expect(sessionUpdates.length).toBeGreaterThanOrEqual(1)
-    const assistantResponse = sessionUpdates.find((event) => event.data.event === 'assistant_response')
+    const assistantResponse = sessionUpdates.find(
+      (event) => event.data.event === 'assistant_response',
+    )
     expect(assistantResponse).toBeDefined()
     expect(assistantResponse!.data.sessionId).toBe('test-session')
   }, 30000)
 
   test('run: bus emits tool:call event', async () => {
     const events: Array<{ topic: string; data: Record<string, unknown> }> = []
-    const bus = { emit(topic: string, data: Record<string, unknown>) { events.push({ topic, data }) } }
+    const bus = {
+      emit(topic: string, data: Record<string, unknown>) {
+        events.push({ topic, data })
+      },
+    }
 
     const { agent, registry } = createAgent({}, { bus })
     const context = createContext(registry)
 
     await agent.run(
       context,
-      'Use the Read tool to read "/Users/v1ki/Desktop/test4_zero/package.json". Then summarize.'
+      'Use the Read tool to read "/Users/v1ki/Desktop/test4_zero/package.json". Then summarize.',
     )
 
     const toolCalls = events.filter((e) => e.topic === 'tool:call')

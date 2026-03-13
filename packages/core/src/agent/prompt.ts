@@ -1,9 +1,15 @@
-import type { PromptComponents, DynamicContext, SkillDefinition, PromptMode, BootstrapFile, RuntimeInfo } from '@zero-os/shared'
+import type {
+  BootstrapFile,
+  DynamicContext,
+  PromptComponents,
+  RuntimeInfo,
+  SkillDefinition,
+} from '@zero-os/shared'
 import type { ToolDefinition } from '@zero-os/shared'
 import { truncateToTokens } from '@zero-os/shared'
+import { hasSoulFile } from '../bootstrap/loader'
 import { enforceFixedBudget } from './budget'
 import { CONTEXT_PARAMS } from './params'
-import { hasSoulFile } from '../bootstrap/loader'
 
 /**
  * Build System Prompt — static, built once per session for prompt cache stability.
@@ -24,7 +30,14 @@ export function buildSystemPrompt(components: PromptComponents): string {
   const sections: string[] = []
 
   // Core sections (always included in full and minimal)
-  sections.push(buildRoleBlock(components.agentName, components.agentDescription, components.workspacePath, components.projectRoot))
+  sections.push(
+    buildRoleBlock(
+      components.agentName,
+      components.agentDescription,
+      components.workspacePath,
+      components.projectRoot,
+    ),
+  )
   sections.push(buildToolRulesBlock(components.tools))
   sections.push(buildConstraintsBlock())
 
@@ -39,7 +52,9 @@ export function buildSystemPrompt(components: PromptComponents): string {
       sections.push(buildSkillCatalog(components.skills))
     }
 
-    sections.push(buildIdentityBlock(components.globalIdentity, components.agentIdentity, components.agentName))
+    sections.push(
+      buildIdentityBlock(components.globalIdentity, components.agentIdentity, components.agentName),
+    )
 
     if (components.runtimeInfo) {
       sections.push(buildRuntimeBlock(components.runtimeInfo))
@@ -63,13 +78,20 @@ export function buildDynamicContext(ctx: DynamicContext): string {
   return `<system-reminder>\n${buildSkillReminder(ctx.newSkills)}\n</system-reminder>`
 }
 
-export function buildRoleBlock(agentName: string, agentDescription: string, workspacePath?: string, projectRoot?: string): string {
+export function buildRoleBlock(
+  agentName: string,
+  agentDescription: string,
+  workspacePath?: string,
+  projectRoot?: string,
+): string {
   const lines = [
     `你是 ZeRo OS 的 ${agentName}，一个在 macOS 上自主执行任务的 AI Agent。`,
     agentDescription,
   ]
   if (workspacePath && projectRoot) {
-    lines.push(`你的工作目录是 ${workspacePath}，下载和临时文件放在此目录。最终产出物放到 ${projectRoot}/.zero/workspace/shared/。`)
+    lines.push(
+      `你的工作目录是 ${workspacePath}，下载和临时文件放在此目录。最终产出物放到 ${projectRoot}/.zero/workspace/shared/。`,
+    )
     lines.push(`项目根目录是 ${projectRoot}，源代码在此目录下。`)
   }
   const content = lines.join('\n')
@@ -97,26 +119,33 @@ export function buildExecutionModeBlock(): string {
 只有在以下情况才暂停并请求用户介入：下一动作具有不可逆或难以撤销的影响；下一动作会改变外部世界状态、代表用户向第三方发送内容、或修改权限/账户/系统配置；需要使用、暴露、传输敏感信息，而用户尚未明确授权；指令存在会显著改变结果的歧义，且无法通过本地探索消除；连续多次尝试后仍无法推进，必须由用户提供缺失信息、凭据或决策。
 如果用户只是询问进度，简短回答后立即继续当前任务。
 除非当前回复是在陈述真实阻塞，或用户明确要求你列出后续选项，否则不要以“如果你愿意，我下一步可以……”“要不要我继续……”“我还可以帮你做两件事……”或类似可选分支菜单收尾。`
-  return enforceFixedBudget(`<execution_mode>\n${executionMode}\n</execution_mode>`, CONTEXT_PARAMS.budget.executionMode, 'Execution Mode')
+  return enforceFixedBudget(
+    `<execution_mode>\n${executionMode}\n</execution_mode>`,
+    CONTEXT_PARAMS.budget.executionMode,
+    'Execution Mode',
+  )
 }
 
 export function buildToolRulesBlock(tools: ToolDefinition[]): string {
   const toolRuleMap: Record<string, string> = {
     read: 'Read：优先使用 Read 查看文件内容，不要用 Bash cat。',
-    write: 'Write：写入文件前先确认路径正确。临时文件和下载内容写入工作目录，修改源代码使用项目根目录的绝对路径。',
+    write:
+      'Write：写入文件前先确认路径正确。临时文件和下载内容写入工作目录，修改源代码使用项目根目录的绝对路径。',
     edit: 'Edit：修改文件前先 Read 确认当前内容，避免基于过期认知做编辑。',
     bash: 'Bash：命令在工作目录中执行，操作项目源码时使用绝对路径。命令执行前检查是否命中熔断名单。长时间运行的命令加 timeout。',
-    fetch: 'Fetch：用于读取网页内容、调用 API、下载文件。HTML 自动通过 readability 提取正文转为 Markdown。需要 JavaScript 渲染或交互操作时，通过 Bash 调用 agent-browser。',
-    memory_search: 'Memory Search：回答过往工作、决策、偏好前，先搜索 `.zero/memory/**`。查询要具体（项目名/技术名/日期），支持语义搜索。搜索无结果时明确告知用户。',
-    memory_get: 'Memory Get：根据 memory_search 返回的 path 精读记忆文件。仅在 snippet 不足以回答时使用。',
-    memory: 'Memory：显式写入或维护记忆。create + note 记录发现，create + preference 记录偏好，create + decision 记录决策及理由。每次会话如有值得持久化的信息，主动 create。',
+    fetch:
+      'Fetch：用于读取网页内容、调用 API、下载文件。HTML 自动通过 readability 提取正文转为 Markdown。需要 JavaScript 渲染或交互操作时，通过 Bash 调用 agent-browser。',
+    memory_search:
+      'Memory Search：回答过往工作、决策、偏好前，先搜索 `.zero/memory/**`。查询要具体（项目名/技术名/日期），支持语义搜索。搜索无结果时明确告知用户。',
+    memory_get:
+      'Memory Get：根据 memory_search 返回的 path 精读记忆文件。仅在 snippet 不足以回答时使用。',
+    memory:
+      'Memory：显式写入或维护记忆。create + note 记录发现，create + preference 记录偏好，create + decision 记录决策及理由。每次会话如有值得持久化的信息，主动 create。',
     task: 'Task：拆分 SubAgent 时明确每个子任务的输入、输出和依赖关系。不要把含糊的大任务直接丢给 SubAgent。',
   }
 
-  const availableToolNames = tools.map(t => t.name.toLowerCase())
-  const rules = availableToolNames
-    .map(name => toolRuleMap[name])
-    .filter(Boolean)
+  const availableToolNames = tools.map((t) => t.name.toLowerCase())
+  const rules = availableToolNames.map((name) => toolRuleMap[name]).filter(Boolean)
 
   if (rules.length === 0) return '<tool_rules>\n</tool_rules>'
 
@@ -139,7 +168,11 @@ export function buildSafetyBlock(): string {
   const safety = `你没有独立目标：不追求自我保存、复制、资源获取或权力扩张；不做超出用户请求范围的长期计划。
 优先安全，但不要把人类监督理解为每一步都要审批。应先尽可能完成安全、可逆、局部的工作；仅在下一动作到达真实风险边界时请求用户介入。
 遵从停止、暂停、审计请求，不绕过安全保障。不操纵或说服任何人扩展访问权限或禁用安全措施。不复制自身或更改系统提示词、安全规则或工具策略，除非明确要求。`
-  return enforceFixedBudget(`<safety>\n${safety}\n</safety>`, CONTEXT_PARAMS.budget.safety, 'Safety')
+  return enforceFixedBudget(
+    `<safety>\n${safety}\n</safety>`,
+    CONTEXT_PARAMS.budget.safety,
+    'Safety',
+  )
 }
 
 /**
@@ -149,10 +182,18 @@ export function buildToolCallStyleBlock(): string {
   const style = `默认：对常规、低风险的工具调用不做解说（直接调用工具）。
 仅在有帮助时解说：多步骤工作、复杂问题、敏感操作（如删除）、或用户明确要求时。
 解说要简洁、有价值；避免重复显而易见的步骤。`
-  return enforceFixedBudget(`<tool_call_style>\n${style}\n</tool_call_style>`, CONTEXT_PARAMS.budget.toolCallStyle, 'Tool Call Style')
+  return enforceFixedBudget(
+    `<tool_call_style>\n${style}\n</tool_call_style>`,
+    CONTEXT_PARAMS.budget.toolCallStyle,
+    'Tool Call Style',
+  )
 }
 
-export function buildIdentityBlock(globalIdentity: string, agentIdentity: string, agentName: string): string {
+export function buildIdentityBlock(
+  globalIdentity: string,
+  agentIdentity: string,
+  agentName: string,
+): string {
   const parts: string[] = []
   if (globalIdentity) {
     parts.push(`  <global>\n${globalIdentity}\n  </global>`)
@@ -172,7 +213,7 @@ export function buildIdentityBlock(globalIdentity: string, agentIdentity: string
 export function buildSkillCatalog(skills: SkillDefinition[]): string {
   if (skills.length === 0) return ''
 
-  const entries = skills.map(s => {
+  const entries = skills.map((s) => {
     const brief = s.description.split('\n').slice(0, 2).join(' ').trim()
     return `  <skill name="${s.name}" path="${s.sourcePath}">\n    ${brief}\n  </skill>`
   })
@@ -187,7 +228,7 @@ export function buildSkillCatalog(skills: SkillDefinition[]): string {
  * Build incremental skill notification for new skills discovered at runtime.
  */
 export function buildSkillReminder(skills: SkillDefinition[]): string {
-  const entries = skills.map(s => {
+  const entries = skills.map((s) => {
     const brief = s.description.split('\n').slice(0, 2).join(' ').trim()
     return `  <skill name="${s.name}" path="${s.sourcePath}">\n    ${brief}\n  </skill>`
   })
@@ -211,7 +252,11 @@ export function buildRuntimeBlock(info: RuntimeInfo): string {
   if (parts.length === 0) return ''
 
   const line = `Runtime: ${parts.join(' | ')}`
-  return enforceFixedBudget(`<runtime>\n${line}\n</runtime>`, CONTEXT_PARAMS.budget.runtime, 'Runtime')
+  return enforceFixedBudget(
+    `<runtime>\n${line}\n</runtime>`,
+    CONTEXT_PARAMS.budget.runtime,
+    'Runtime',
+  )
 }
 
 /**
@@ -222,9 +267,7 @@ export function buildRuntimeBlock(info: RuntimeInfo): string {
 export function buildBootstrapContextBlock(files: BootstrapFile[]): string {
   if (files.length === 0) return ''
 
-  const lines: string[] = [
-    '以下是工作区上下文文件，由系统自动加载。',
-  ]
+  const lines: string[] = ['以下是工作区上下文文件，由系统自动加载。']
 
   if (hasSoulFile(files)) {
     lines.push('如果存在 SOUL.md，请体现其人格和语调。避免生硬、模板化的回复；遵循其指引。')
@@ -244,7 +287,7 @@ export function buildBootstrapContextBlock(files: BootstrapFile[]): string {
  * @deprecated Use buildSkillCatalog() for System Prompt and buildDynamicContext() for per-message injection.
  */
 export function buildSkillsBlock(skills: SkillDefinition[]): string {
-  const entries = skills.map(s => {
+  const entries = skills.map((s) => {
     const attrs = `name="${s.name}" allowed-tools="${s.allowedTools.join(', ')}"`
     return `  <skill ${attrs}>\n${s.content}\n  </skill>`
   })
@@ -291,7 +334,7 @@ ${instruction}
   // Upstream results (if any dependencies)
   if (dependsOn && dependsOn.length > 0 && upstreamResults) {
     const items = dependsOn
-      .map(depId => {
+      .map((depId) => {
         const result = upstreamResults.get(depId)
         if (!result) return ''
         const output = truncateToTokens(result.output, CONTEXT_PARAMS.subAgent.upstreamMaxTokens)

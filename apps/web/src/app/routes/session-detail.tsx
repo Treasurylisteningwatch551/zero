@@ -1,6 +1,6 @@
 import { useParams } from '@tanstack/react-router'
-import { useUIStore } from '../stores/ui'
 import { SessionDetailScreen } from '../components/session/SessionDetailScreen'
+import { useUIStore } from '../stores/ui'
 
 export function SessionDetailPage() {
   const { selectedSessionId } = useUIStore()

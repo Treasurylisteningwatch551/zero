@@ -1,11 +1,11 @@
-import { describe, test, expect } from 'bun:test'
-import { Session } from '../session'
-import { SessionManager } from '../manager'
+import { describe, expect, test } from 'bun:test'
 import { ModelRouter } from '@zero-os/model'
-import { ToolRegistry } from '../../tool/registry'
-import { ReadTool } from '../../tool/read'
-import { BashTool } from '../../tool/bash'
 import type { SystemConfig } from '@zero-os/shared'
+import { BashTool } from '../../tool/bash'
+import { ReadTool } from '../../tool/read'
+import { ToolRegistry } from '../../tool/registry'
+import { SessionManager } from '../manager'
+import { Session } from '../session'
 
 const API_KEY = 'sk-c6c02cbd0c25473f97f9be0da6070f6d'
 
@@ -76,7 +76,10 @@ describe('Session', () => {
     const reply = messages[messages.length - 1]
     expect(reply.role).toBe('assistant')
     expect(reply.messageType).toBe('notification')
-    expect(reply.content[0]).toEqual({ type: 'text', text: 'Current model: openai-codex/gpt-5.3-codex-medium' })
+    expect(reply.content[0]).toEqual({
+      type: 'text',
+      text: 'Current model: openai-codex/gpt-5.3-codex-medium',
+    })
   })
 
   test('/model list shows available models', async () => {
@@ -90,8 +93,12 @@ describe('Session', () => {
     expect(reply.role).toBe('assistant')
     expect(reply.messageType).toBe('notification')
     expect((reply.content[0] as { type: string; text: string }).text).toContain('Available models:')
-    expect((reply.content[0] as { type: string; text: string }).text).toContain('- openai-codex/gpt-5.3-codex-medium')
-    expect((reply.content[0] as { type: string; text: string }).text).toContain('- openai-codex/gpt-5.4-medium')
+    expect((reply.content[0] as { type: string; text: string }).text).toContain(
+      '- openai-codex/gpt-5.3-codex-medium',
+    )
+    expect((reply.content[0] as { type: string; text: string }).text).toContain(
+      '- openai-codex/gpt-5.4-medium',
+    )
   })
 
   test('switchModel updates the session model label', async () => {

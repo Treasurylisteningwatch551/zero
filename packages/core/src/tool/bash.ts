@@ -1,6 +1,6 @@
+import type { FuseRule, ToolContext, ToolResult } from '@zero-os/shared'
+import { FuseListChecker } from '../config/fuse-list'
 import { BaseTool } from './base'
-import { FuseListChecker, FuseError } from '../config/fuse-list'
-import type { ToolContext, ToolResult, FuseRule } from '@zero-os/shared'
 
 interface BashInput {
   command: string

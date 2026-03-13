@@ -43,9 +43,22 @@ export interface TraceSpan {
 }
 
 export type TimelineItem =
-  | { type: 'user-message'; text: string; images?: Array<{ mediaType: string; data: string }>; createdAt: string }
+  | {
+      type: 'user-message'
+      text: string
+      images?: Array<{ mediaType: string; data: string }>
+      createdAt: string
+    }
   | { type: 'agent-text'; messageId: string; text: string; model?: string; createdAt: string }
-  | { type: 'tool-call'; id: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean; createdAt: string }
+  | {
+      type: 'tool-call'
+      id: string
+      name: string
+      input: Record<string, unknown>
+      result?: string
+      isError?: boolean
+      createdAt: string
+    }
   | { type: 'system-event'; variant: 'warning' | 'info'; text: string; createdAt: string }
 
 export function buildTimeline(
@@ -76,7 +89,8 @@ export function buildTimeline(
         .map((b) => b.text as string)
         .join('\n')
       if (text) {
-        const isWarning = text.toLowerCase().includes('timeout') ||
+        const isWarning =
+          text.toLowerCase().includes('timeout') ||
           text.toLowerCase().includes('error') ||
           text.toLowerCase().includes('degrad')
         items.push({
@@ -113,7 +127,13 @@ export function buildTimeline(
     if (msg.role === 'assistant') {
       for (const block of msg.content) {
         if (block.type === 'text') {
-          items.push({ type: 'agent-text', messageId: msg.id, text: block.text as string, model: msg.model, createdAt: msg.createdAt })
+          items.push({
+            type: 'agent-text',
+            messageId: msg.id,
+            text: block.text as string,
+            model: msg.model,
+            createdAt: msg.createdAt,
+          })
         } else if (block.type === 'tool_use') {
           const result = toolResults.get(block.id as string)
           items.push({
@@ -151,8 +171,10 @@ function buildTaskClosureEvents(
     })
     .filter((item): item is TimelineItem => item !== null)
 
-  const persistedItems = filterDuplicateTaskClosureEvents(flattenedTraces, persistedTaskClosureEvents)
-    .map(mapPersistedTaskClosureEvent)
+  const persistedItems = filterDuplicateTaskClosureEvents(
+    flattenedTraces,
+    persistedTaskClosureEvents,
+  ).map(mapPersistedTaskClosureEvent)
   return [...traceItems, ...persistedItems]
 }
 
@@ -161,9 +183,7 @@ export function filterDuplicateTaskClosureEvents(
   persistedTaskClosureEvents: PersistedTaskClosureEvent[],
 ): PersistedTaskClosureEvent[] {
   const traceKeys = new Set(
-    traces
-      .map(getTaskClosureTraceKey)
-      .filter((key): key is string => key !== null),
+    traces.map(getTaskClosureTraceKey).filter((key): key is string => key !== null),
   )
 
   return persistedTaskClosureEvents.filter((event) => {
@@ -171,7 +191,6 @@ export function filterDuplicateTaskClosureEvents(
     return eventKey === null || !traceKeys.has(eventKey)
   })
 }
-
 
 function mapPersistedTaskClosureEvent(event: PersistedTaskClosureEvent): TimelineItem {
   const createdAt = event.assistantMessageCreatedAt ?? event.ts
@@ -198,9 +217,8 @@ function mapPersistedTaskClosureEvent(event: PersistedTaskClosureEvent): Timelin
   const text = event.reason
     ? `Task closure ${action}: ${event.reason}${event.assistantMessageId ? ` · ${event.assistantMessageId.slice(0, 8)}` : ''}`
     : `Task closure ${action}${event.assistantMessageId ? ` · ${event.assistantMessageId.slice(0, 8)}` : ''}`
-  const variant = action === 'block' || action === 'error' || action === 'invalid'
-    ? 'warning'
-    : 'info'
+  const variant =
+    action === 'block' || action === 'error' || action === 'invalid' ? 'warning' : 'info'
 
   return {
     type: 'system-event',
@@ -216,9 +234,10 @@ function mapTaskClosureDecision(span: TraceSpan): TimelineItem | null {
   const action = typeof metadata.action === 'string' ? metadata.action : undefined
   const reason = typeof metadata.reason === 'string' ? metadata.reason : undefined
   const skipReason = typeof metadata.skipReason === 'string' ? metadata.skipReason : undefined
-  const assistantMessageCreatedAt = typeof metadata.assistantMessageCreatedAt === 'string'
-    ? metadata.assistantMessageCreatedAt
-    : undefined
+  const assistantMessageCreatedAt =
+    typeof metadata.assistantMessageCreatedAt === 'string'
+      ? metadata.assistantMessageCreatedAt
+      : undefined
   const createdAt = assistantMessageCreatedAt ?? span.endTime ?? span.startTime
 
   if (!called) {
@@ -231,12 +250,9 @@ function mapTaskClosureDecision(span: TraceSpan): TimelineItem | null {
   }
 
   const label = action ?? 'unknown'
-  const text = reason
-    ? `Task closure ${label}: ${reason}`
-    : `Task closure ${label}`
-  const variant = action === 'block' || action === 'error' || action === 'invalid'
-    ? 'warning'
-    : 'info'
+  const text = reason ? `Task closure ${label}: ${reason}` : `Task closure ${label}`
+  const variant =
+    action === 'block' || action === 'error' || action === 'invalid' ? 'warning' : 'info'
 
   return {
     type: 'system-event',
@@ -249,9 +265,10 @@ function mapTaskClosureDecision(span: TraceSpan): TimelineItem | null {
 function mapTaskClosureTrimFailed(span: TraceSpan): TimelineItem {
   const metadata = span.metadata ?? {}
   const reason = typeof metadata.reason === 'string' ? metadata.reason : 'trim failed'
-  const assistantMessageCreatedAt = typeof metadata.assistantMessageCreatedAt === 'string'
-    ? metadata.assistantMessageCreatedAt
-    : undefined
+  const assistantMessageCreatedAt =
+    typeof metadata.assistantMessageCreatedAt === 'string'
+      ? metadata.assistantMessageCreatedAt
+      : undefined
   return {
     type: 'system-event',
     variant: 'warning',
@@ -266,7 +283,8 @@ export function flattenTraceSpans(traces: TraceSpan[]): TraceSpan[] {
 
 function getTaskClosureTraceKey(span: TraceSpan): string | null {
   const metadata = span.metadata ?? {}
-  const assistantMessageId = typeof metadata.assistantMessageId === 'string' ? metadata.assistantMessageId : ''
+  const assistantMessageId =
+    typeof metadata.assistantMessageId === 'string' ? metadata.assistantMessageId : ''
 
   if (span.name === 'task_closure_decision') {
     if (metadata.called === false) {

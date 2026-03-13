@@ -1,12 +1,12 @@
 import { MagnifyingGlass } from '@phosphor-icons/react'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from '@tanstack/react-router'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { PulseDot } from '../components/shared/PulseDot'
 import { Skeleton } from '../components/shared/Skeleton'
-import { useNavigate } from '@tanstack/react-router'
-import { apiFetch } from '../lib/api'
 import { useWebSocket } from '../hooks/useWebSocket'
-import { formatTimeAgo, formatModelHistory, formatNumber, formatCost } from '../lib/format'
+import { apiFetch } from '../lib/api'
 import { statusColors } from '../lib/colors'
+import { formatCost, formatModelHistory, formatNumber, formatTimeAgo } from '../lib/format'
 import { useUIStore } from '../stores/ui'
 
 interface ModelHistoryEntry {
@@ -104,32 +104,34 @@ export function SessionsPage() {
     })
   }
 
-  const filteredSessions = sourceFilter === 'all'
-    ? sessions
-    : sessions.filter((s) => s.source === sourceFilter)
+  const filteredSessions =
+    sourceFilter === 'all' ? sessions : sessions.filter((s) => s.source === sourceFilter)
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    const tag = (e.target as HTMLElement).tagName
-    if (tag === 'INPUT' || tag === 'TEXTAREA') return
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
 
-    if (e.key === 'j') {
-      setFocusIndex((prev) => Math.min(prev + 1, filteredSessions.length - 1))
-    } else if (e.key === 'k') {
-      setFocusIndex((prev) => Math.max(prev - 1, 0))
-    } else if (e.key === 'Enter' && focusIndex >= 0 && focusIndex < filteredSessions.length) {
-      openSession(filteredSessions[focusIndex].id)
-    } else if (e.key === 'Escape') {
-      setFocusIndex(-1)
-    } else if (e.key === 'g' && lastKeyRef.current === 'g') {
-      setFocusIndex(0)
-      listRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
-    } else if (e.key === 'G') {
-      setFocusIndex(filteredSessions.length - 1)
-      listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
-    }
+      if (e.key === 'j') {
+        setFocusIndex((prev) => Math.min(prev + 1, filteredSessions.length - 1))
+      } else if (e.key === 'k') {
+        setFocusIndex((prev) => Math.max(prev - 1, 0))
+      } else if (e.key === 'Enter' && focusIndex >= 0 && focusIndex < filteredSessions.length) {
+        openSession(filteredSessions[focusIndex].id)
+      } else if (e.key === 'Escape') {
+        setFocusIndex(-1)
+      } else if (e.key === 'g' && lastKeyRef.current === 'g') {
+        setFocusIndex(0)
+        listRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+      } else if (e.key === 'G') {
+        setFocusIndex(filteredSessions.length - 1)
+        listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' })
+      }
 
-    lastKeyRef.current = e.key
-  }, [filteredSessions, focusIndex])
+      lastKeyRef.current = e.key
+    },
+    [filteredSessions, focusIndex],
+  )
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown)
@@ -186,7 +188,9 @@ export function SessionsPage() {
         </div>
 
         <div className="flex gap-1.5 mt-3 pt-3 border-t border-[var(--color-border)]">
-          <span className="text-[11px] text-[var(--color-text-disabled)] mr-1 self-center">Source:</span>
+          <span className="text-[11px] text-[var(--color-text-disabled)] mr-1 self-center">
+            Source:
+          </span>
           {SOURCE_FILTERS.map((sf) => (
             <button
               key={sf}
@@ -238,14 +242,20 @@ export function SessionsPage() {
                 key={s.id}
                 onClick={() => openSession(s.id)}
                 className={`card p-4 cursor-pointer hover:bg-white/[0.02] transition-colors ${
-                  idx === focusIndex ? 'border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]/30' : ''
+                  idx === focusIndex
+                    ? 'border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]/30'
+                    : ''
                 }`}
               >
                 <div className="flex items-center gap-3">
                   <PulseDot status={mapStatusToDot(s.status)} />
-                  <span className="text-[13px] font-mono text-[var(--color-text-primary)]">{s.id}</span>
+                  <span className="text-[13px] font-mono text-[var(--color-text-primary)]">
+                    {s.id}
+                  </span>
                   {s.summary && (
-                    <span className="text-[13px] text-[var(--color-text-secondary)] truncate">{s.summary}</span>
+                    <span className="text-[13px] text-[var(--color-text-secondary)] truncate">
+                      {s.summary}
+                    </span>
                   )}
                   <span className="flex-1" />
                   {showChannelButton && (
@@ -269,13 +279,17 @@ export function SessionsPage() {
                   <span>·</span>
                   {s.channelName && s.channelName !== s.source && (
                     <>
-                      <span className="font-mono text-[var(--color-text-muted)]">{s.channelName}</span>
+                      <span className="font-mono text-[var(--color-text-muted)]">
+                        {s.channelName}
+                      </span>
                       <span>·</span>
                     </>
                   )}
                   {s.channelId && (
                     <>
-                      <span className="font-mono text-[var(--color-text-disabled)]">{s.channelId}</span>
+                      <span className="font-mono text-[var(--color-text-disabled)]">
+                        {s.channelId}
+                      </span>
                       <span>·</span>
                     </>
                   )}
@@ -290,11 +304,11 @@ export function SessionsPage() {
                 </div>
 
                 <div className="ml-7 mt-0.5 text-[11px] text-[var(--color-text-disabled)]">
-                  {s.userMessageCount} user · {s.assistantMessageCount} assistant · {s.toolCallCount} tool calls
+                  {s.userMessageCount} user · {s.assistantMessageCount} assistant ·{' '}
+                  {s.toolCallCount} tool calls
                   {' · '}
                   {formatNumber(s.totalTokens)} tokens
-                  {' · '}
-                  ${formatCost(s.totalCost)}
+                  {' · '}${formatCost(s.totalCost)}
                 </div>
               </div>
             )

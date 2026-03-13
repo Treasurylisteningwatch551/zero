@@ -22,7 +22,7 @@ export const CONTEXT_PARAMS = {
     /** Trigger compression when conversation tokens reach this ratio of budget */
     threshold: 0.85,
     /** After compression, retained section gets this ratio of conversation budget */
-    retainRatio: 0.70,
+    retainRatio: 0.7,
     /** Minimum recent turns to retain after compression */
     minRetainTurns: 4,
     /** Maximum tokens for the compression summary */

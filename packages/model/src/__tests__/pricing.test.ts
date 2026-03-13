@@ -1,13 +1,13 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { convertPricing, findEntry, LiteLLMPricing } from '../pricing'
+import { afterEach, describe, expect, test } from 'bun:test'
 import type { ModelPricing } from '@zero-os/shared'
 import type { ModelConfig } from '@zero-os/shared'
+import { LiteLLMPricing, convertPricing, findEntry } from '../pricing'
 
 describe('convertPricing', () => {
   test('converts per-token to per-million-token', () => {
     const result = convertPricing({
-      input_cost_per_token: 0.000015,    // $15/M
-      output_cost_per_token: 0.000075,   // $75/M
+      input_cost_per_token: 0.000015, // $15/M
+      output_cost_per_token: 0.000075, // $75/M
     })
     expect(result).toEqual({ input: 15, output: 75 })
   })
@@ -46,7 +46,10 @@ describe('convertPricing', () => {
 describe('findEntry', () => {
   const data = {
     'gpt-4o': { input_cost_per_token: 0.0000025, output_cost_per_token: 0.00001 },
-    'anthropic/claude-opus-4-6': { input_cost_per_token: 0.000015, output_cost_per_token: 0.000075 },
+    'anthropic/claude-opus-4-6': {
+      input_cost_per_token: 0.000015,
+      output_cost_per_token: 0.000075,
+    },
     'claude-sonnet-4-6': { input_cost_per_token: 0.000003, output_cost_per_token: 0.000015 },
     'openai/o1': { input_cost_per_token: 0.000015, output_cost_per_token: 0.00006 },
   }

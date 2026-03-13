@@ -1,7 +1,7 @@
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import matter from 'gray-matter'
 import type { SkillDefinition } from '@zero-os/shared'
+import matter from 'gray-matter'
 
 /**
  * Load all skills from `.zero/skills/` directory.

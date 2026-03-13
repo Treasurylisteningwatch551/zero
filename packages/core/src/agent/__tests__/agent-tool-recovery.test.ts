@@ -1,9 +1,15 @@
-import { describe, test, expect } from 'bun:test'
-import type { CompletionRequest, CompletionResponse, StreamEvent, ToolResult, ToolContext } from '@zero-os/shared'
-import { Agent, type AgentContext } from '../agent'
+import { describe, expect, test } from 'bun:test'
 import type { ProviderAdapter } from '@zero-os/model'
-import { ToolRegistry } from '../../tool/registry'
+import type {
+  CompletionRequest,
+  CompletionResponse,
+  StreamEvent,
+  ToolContext,
+  ToolResult,
+} from '@zero-os/shared'
 import { BaseTool } from '../../tool/base'
+import { ToolRegistry } from '../../tool/registry'
+import { Agent, type AgentContext } from '../agent'
 
 class ThrowingTool extends BaseTool {
   name = 'explode'
@@ -66,13 +72,13 @@ class EmptyResponseRecoveryAdapter implements ProviderAdapter {
 
   async complete(req: CompletionRequest): Promise<CompletionResponse> {
     this.completeCalls++
-    const lastUserText = [...req.messages]
-      .reverse()
-      .find((message) => message.role === 'user')
-      ?.content
-      .filter((block) => block.type === 'text')
-      .map((block) => (block as { type: 'text'; text: string }).text)
-      .join('') ?? ''
+    const lastUserText =
+      [...req.messages]
+        .reverse()
+        .find((message) => message.role === 'user')
+        ?.content.filter((block) => block.type === 'text')
+        .map((block) => (block as { type: 'text'; text: string }).text)
+        .join('') ?? ''
 
     if (lastUserText.includes('Your previous reply was empty.')) {
       return {
@@ -121,10 +127,15 @@ describe('Agent tool recovery', () => {
       },
     }
 
-    const agent = new Agent({
-      name: 'test-agent',
-      agentInstruction: 'Test prompt',
-    }, adapter, registry, toolContext)
+    const agent = new Agent(
+      {
+        name: 'test-agent',
+        agentInstruction: 'Test prompt',
+      },
+      adapter,
+      registry,
+      toolContext,
+    )
 
     const context: AgentContext = {
       systemPrompt: 'Test prompt',
@@ -162,10 +173,15 @@ describe('Agent tool recovery', () => {
       },
     }
 
-    const agent = new Agent({
-      name: 'test-agent',
-      agentInstruction: 'Test prompt',
-    }, adapter, registry, toolContext)
+    const agent = new Agent(
+      {
+        name: 'test-agent',
+        agentInstruction: 'Test prompt',
+      },
+      adapter,
+      registry,
+      toolContext,
+    )
 
     const context: AgentContext = {
       systemPrompt: 'Test prompt',
@@ -177,7 +193,9 @@ describe('Agent tool recovery', () => {
     const assistantMessages = messages.filter((m) => m.role === 'assistant')
 
     expect(assistantMessages).toHaveLength(1)
-    expect(assistantMessages[0].content).toEqual([{ type: 'text', text: 'recovered after empty response' }])
+    expect(assistantMessages[0].content).toEqual([
+      { type: 'text', text: 'recovered after empty response' },
+    ])
     expect(messages.some((m) => m.role === 'assistant' && m.content.length === 0)).toBe(false)
     expect(adapter.completeCalls).toBeGreaterThanOrEqual(2)
   })

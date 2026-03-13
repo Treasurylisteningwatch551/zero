@@ -1,10 +1,23 @@
-import { describe, test, expect } from 'bun:test'
-import { formatQueuedMessages, injectQueuedMessages, isTaskComplete, CONTINUATION_PROMPT, type QueuedMessage } from '../queue'
-import type { Message, ContentBlock } from '@zero-os/shared'
+import { describe, expect, test } from 'bun:test'
+import type { ContentBlock, Message } from '@zero-os/shared'
 import { generateId, now } from '@zero-os/shared'
+import {
+  CONTINUATION_PROMPT,
+  type QueuedMessage,
+  formatQueuedMessages,
+  injectQueuedMessages,
+  isTaskComplete,
+} from '../queue'
 
 function makeUserMessage(content: ContentBlock[]): Message {
-  return { id: generateId(), sessionId: 'test', role: 'user', messageType: 'message', content, createdAt: now() }
+  return {
+    id: generateId(),
+    sessionId: 'test',
+    role: 'user',
+    messageType: 'message',
+    content,
+    createdAt: now(),
+  }
 }
 
 describe('formatQueuedMessages', () => {

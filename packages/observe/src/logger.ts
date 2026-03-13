@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, existsSync, readFileSync, readdirSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { now } from '@zero-os/shared'
 import type { StopReason } from '@zero-os/shared'
@@ -187,10 +187,11 @@ export class JsonlLogger {
 
     return this.readEntries<ClosureLogEntry>('operations.jsonl')
       .filter((entry) => {
-        return entry.sessionId === sessionId && (
-          entry.event === 'task_closure_decision' ||
-          entry.event === 'task_closure_skipped' ||
-          entry.event === 'task_closure_trim_failed'
+        return (
+          entry.sessionId === sessionId &&
+          (entry.event === 'task_closure_decision' ||
+            entry.event === 'task_closure_skipped' ||
+            entry.event === 'task_closure_trim_failed')
         )
       })
       .sort((left, right) => left.ts.localeCompare(right.ts))
@@ -224,7 +225,10 @@ export class JsonlLogger {
     if (existsSync(sessionsDir)) {
       for (const dirent of readdirSync(sessionsDir, { withFileTypes: true })) {
         if (!dirent.isDirectory()) continue
-        for (const entry of this.readSessionEntries<RequestLogEntry>(dirent.name, 'requests.jsonl')) {
+        for (const entry of this.readSessionEntries<RequestLogEntry>(
+          dirent.name,
+          'requests.jsonl',
+        )) {
           deduped.set(entry.id, entry)
         }
       }
@@ -247,7 +251,10 @@ export class JsonlLogger {
     if (existsSync(sessionsDir)) {
       for (const dirent of readdirSync(sessionsDir, { withFileTypes: true })) {
         if (!dirent.isDirectory()) continue
-        for (const entry of this.readSessionEntries<SnapshotEntry>(dirent.name, 'snapshots.jsonl')) {
+        for (const entry of this.readSessionEntries<SnapshotEntry>(
+          dirent.name,
+          'snapshots.jsonl',
+        )) {
           deduped.set(entry.id, entry)
         }
       }

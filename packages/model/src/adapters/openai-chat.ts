@@ -1,12 +1,12 @@
-import OpenAI from 'openai'
 import type {
   CompletionRequest,
   CompletionResponse,
-  StreamEvent,
   ContentBlock,
+  StreamEvent,
   TokenUsage,
 } from '@zero-os/shared'
-import type { ProviderAdapter, AdapterConfig } from './base'
+import OpenAI from 'openai'
+import type { AdapterConfig, ProviderAdapter } from './base'
 
 /**
  * OpenAI Chat Completions API adapter.
@@ -20,9 +20,7 @@ export class OpenAIChatAdapter implements ProviderAdapter {
   constructor(config: AdapterConfig) {
     this.client = new OpenAI({
       apiKey: config.apiKey ?? 'dummy',
-      baseURL: config.baseUrl.endsWith('/v1')
-        ? config.baseUrl
-        : `${config.baseUrl}/v1`,
+      baseURL: config.baseUrl.endsWith('/v1') ? config.baseUrl : `${config.baseUrl}/v1`,
     })
     this.modelId = config.modelConfig.modelId
   }
@@ -113,9 +111,10 @@ export class OpenAIChatAdapter implements ProviderAdapter {
           yield { type: 'tool_use_end', data: { id: currentToolCall.id } }
         }
         // Correct finish_reason if tool calls were seen but API said 'stop'
-        const finishReason = hadToolCalls && chunk.choices[0].finish_reason === 'stop'
-          ? 'tool_calls'
-          : chunk.choices[0].finish_reason
+        const finishReason =
+          hadToolCalls && chunk.choices[0].finish_reason === 'stop'
+            ? 'tool_calls'
+            : chunk.choices[0].finish_reason
         yield {
           type: 'done',
           data: {
@@ -160,11 +159,16 @@ export class OpenAIChatAdapter implements ProviderAdapter {
         if (textParts || imageParts.length > 0) {
           if (imageParts.length > 0) {
             // Multimodal: text + images
-            const parts: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = []
+            const parts: Array<
+              { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+            > = []
             if (textParts) parts.push({ type: 'text', text: textParts })
             for (const img of imageParts) {
               const { mediaType, data } = img as { mediaType: string; data: string }
-              parts.push({ type: 'image_url', image_url: { url: `data:${mediaType};base64,${data}` } })
+              parts.push({
+                type: 'image_url',
+                image_url: { url: `data:${mediaType};base64,${data}` },
+              })
             }
             messages.push({ role: 'user', content: parts as any })
           } else {
@@ -201,7 +205,12 @@ export class OpenAIChatAdapter implements ProviderAdapter {
       // Handle tool results
       const toolResults = msg.content.filter((b) => b.type === 'tool_result')
       for (const tr of toolResults) {
-        const result = tr as { toolUseId: string; content: string; isError?: boolean; outputSummary?: string }
+        const result = tr as {
+          toolUseId: string
+          content: string
+          isError?: boolean
+          outputSummary?: string
+        }
         if (!pairedCallIds.has(result.toolUseId)) continue
         messages.push({
           role: 'tool',
@@ -304,7 +313,8 @@ export class OpenAIChatAdapter implements ProviderAdapter {
       output: usage?.completion_tokens ?? 0,
       cacheWrite: details?.cache_creation_input_tokens,
       cacheRead: details?.cached_tokens,
-      reasoning: (raw?.completion_tokens_details as Record<string, number> | undefined)?.reasoning_tokens,
+      reasoning: (raw?.completion_tokens_details as Record<string, number> | undefined)
+        ?.reasoning_tokens,
     }
   }
 }

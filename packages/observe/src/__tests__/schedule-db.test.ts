@@ -1,6 +1,6 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { SessionDB } from '../session-db'
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { ScheduleConfig } from '@zero-os/shared'
+import { SessionDB } from '../session-db'
 
 describe('SessionDB — schedule persistence', () => {
   let db: SessionDB
@@ -68,7 +68,12 @@ describe('SessionDB — schedule persistence', () => {
   })
 
   test('deleteSchedule removes and returns true', () => {
-    db.saveSchedule({ name: 'to-delete', cron: '0 0 * * *', instruction: 'bye', createdBy: 'runtime' })
+    db.saveSchedule({
+      name: 'to-delete',
+      cron: '0 0 * * *',
+      instruction: 'bye',
+      createdBy: 'runtime',
+    })
     expect(db.loadRuntimeSchedules()).toHaveLength(1)
 
     const deleted = db.deleteSchedule('to-delete')
@@ -81,8 +86,18 @@ describe('SessionDB — schedule persistence', () => {
   })
 
   test('loadRuntimeSchedules only returns runtime, not config', () => {
-    db.saveSchedule({ name: 'from-config', cron: '0 0 * * *', instruction: 'config', createdBy: 'config' })
-    db.saveSchedule({ name: 'from-runtime', cron: '0 1 * * *', instruction: 'runtime', createdBy: 'runtime' })
+    db.saveSchedule({
+      name: 'from-config',
+      cron: '0 0 * * *',
+      instruction: 'config',
+      createdBy: 'config',
+    })
+    db.saveSchedule({
+      name: 'from-runtime',
+      cron: '0 1 * * *',
+      instruction: 'runtime',
+      createdBy: 'runtime',
+    })
 
     const loaded = db.loadRuntimeSchedules()
     expect(loaded).toHaveLength(1)

@@ -1,6 +1,6 @@
-import { describe, test, expect } from 'bun:test'
-import { ModelRouter } from '../router'
+import { describe, expect, test } from 'bun:test'
 import type { SystemConfig } from '@zero-os/shared'
+import { ModelRouter } from '../router'
 
 const API_KEY = 'sk-c6c02cbd0c25473f97f9be0da6070f6d'
 
@@ -89,7 +89,6 @@ describe('ModelRouter (Real API)', () => {
     expect(models[0].modelName).toBe('gpt-5.3-codex-medium')
   })
 
-
   test('unknown model list does not duplicate provider prefix', () => {
     const config = {
       providers: {
@@ -122,5 +121,4 @@ describe('ModelRouter (Real API)', () => {
     expect(result.message).toContain('  - chatgpt/gpt-5.4-medium')
     expect(result.message).not.toContain('chatgpt/chatgpt/gpt-5.4-medium')
   })
-
 })

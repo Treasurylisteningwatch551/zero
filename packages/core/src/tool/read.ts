@@ -1,6 +1,6 @@
-import { readFileSync, existsSync } from 'node:fs'
-import { BaseTool } from './base'
+import { existsSync, readFileSync } from 'node:fs'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
+import { BaseTool } from './base'
 
 interface ReadInput {
   path: string

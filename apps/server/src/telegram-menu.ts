@@ -5,7 +5,10 @@ import type {
 } from '@zero-os/channel'
 
 interface TelegramMenuSyncChannel {
-  setMyCommands(commands: TelegramBotCommand[], options: TelegramSetMyCommandsOptions): Promise<void>
+  setMyCommands(
+    commands: TelegramBotCommand[],
+    options: TelegramSetMyCommandsOptions,
+  ): Promise<void>
   setChatMenuButton(options: { menuButton: TelegramMenuButtonConfig }): Promise<void>
 }
 

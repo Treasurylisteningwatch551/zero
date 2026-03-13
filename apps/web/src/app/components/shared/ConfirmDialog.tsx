@@ -50,13 +50,9 @@ export function ConfirmDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3 mb-4">
-          {danger && (
-            <Warning size={22} weight="fill" className="text-red-400 shrink-0 mt-0.5" />
-          )}
+          {danger && <Warning size={22} weight="fill" className="text-red-400 shrink-0 mt-0.5" />}
           <div>
-            <h3 className="text-[15px] font-semibold text-[var(--color-text-primary)]">
-              {title}
-            </h3>
+            <h3 className="text-[15px] font-semibold text-[var(--color-text-primary)]">{title}</h3>
             {description && (
               <p className="text-[13px] text-[var(--color-text-muted)] mt-1.5 leading-relaxed">
                 {description}

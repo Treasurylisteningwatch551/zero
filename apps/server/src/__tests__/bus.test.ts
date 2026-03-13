@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { EventBus } from '../bus'
 
 describe('EventBus', () => {
@@ -34,7 +34,9 @@ describe('EventBus', () => {
   test('off removes listener', () => {
     const bus = new EventBus()
     let count = 0
-    const handler = () => { count++ }
+    const handler = () => {
+      count++
+    }
 
     bus.on('heartbeat', handler)
     bus.emit('heartbeat', {})
@@ -49,7 +51,9 @@ describe('EventBus', () => {
     const bus = new EventBus()
     let count = 0
 
-    bus.once('notification', () => { count++ })
+    bus.once('notification', () => {
+      count++
+    })
     bus.emit('notification', {})
     bus.emit('notification', {})
 

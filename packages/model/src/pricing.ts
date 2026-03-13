@@ -19,7 +19,15 @@ interface LiteLLMEntry {
 }
 
 /** Known provider prefixes used by LiteLLM */
-const LITELLM_PREFIXES = ['anthropic/', 'openai/', 'google/', 'azure/', 'cohere/', 'mistral/', 'deepseek/'] as const
+const LITELLM_PREFIXES = [
+  'anthropic/',
+  'openai/',
+  'google/',
+  'azure/',
+  'cohere/',
+  'mistral/',
+  'deepseek/',
+] as const
 
 /**
  * Convert LiteLLM per-token pricing to our per-million-token ModelPricing.
@@ -148,7 +156,11 @@ export class LiteLLMPricing {
     }, REFRESH_INTERVAL_MS)
 
     // Don't block process exit
-    if (this.refreshTimer && typeof this.refreshTimer === 'object' && 'unref' in this.refreshTimer) {
+    if (
+      this.refreshTimer &&
+      typeof this.refreshTimer === 'object' &&
+      'unref' in this.refreshTimer
+    ) {
       this.refreshTimer.unref()
     }
   }
@@ -174,7 +186,7 @@ export class LiteLLMPricing {
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       })
       if (!response.ok) return
-      const json = await response.json() as Record<string, LiteLLMEntry>
+      const json = (await response.json()) as Record<string, LiteLLMEntry>
       this.data = json
 
       // Write cache

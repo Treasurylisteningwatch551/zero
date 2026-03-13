@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
-import { formatTimeAgo } from '../../lib/format'
-import { apiFetch } from '../../lib/api'
+import { useCallback, useEffect, useState } from 'react'
 import { useWebSocket } from '../../hooks/useWebSocket'
+import { apiFetch } from '../../lib/api'
+import { formatTimeAgo } from '../../lib/format'
 
 interface LogEntry {
   ts: string

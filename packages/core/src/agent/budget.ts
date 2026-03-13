@@ -3,7 +3,10 @@ import { CONTEXT_PARAMS } from './params'
 
 const FIXED_LIMITS = CONTEXT_PARAMS.budget
 
-export function allocateBudget(maxContext: number, maxOutput: number): import('@zero-os/shared').ContextBudget {
+export function allocateBudget(
+  maxContext: number,
+  maxOutput: number,
+): import('@zero-os/shared').ContextBudget {
   const reserved = maxOutput
   const fixedTotal = Object.values(FIXED_LIMITS).reduce((a, b) => a + b, 0)
   const conversation = maxContext - reserved - fixedTotal

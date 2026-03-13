@@ -1,7 +1,7 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { loadBootstrapFiles, hasSoulFile } from '../loader'
+import { hasSoulFile, loadBootstrapFiles } from '../loader'
 import { BOOTSTRAP_FILE_NAMES, DEFAULT_TEMPLATES } from '../templates'
 
 const TEST_DIR = join(import.meta.dir, '__test_workspace__')
@@ -36,13 +36,13 @@ describe('loadBootstrapFiles', () => {
     writeFileSync(join(WORKSPACE_DIR, 'SOUL.md'), customContent)
 
     const files = loadBootstrapFiles(WORKSPACE_DIR)
-    const soul = files.find(f => f.name === 'SOUL.md')!
+    const soul = files.find((f) => f.name === 'SOUL.md')!
 
     expect(soul.content).toBe(customContent)
     expect(soul.path).toBe(join(WORKSPACE_DIR, 'SOUL.md'))
 
     // Other files should still get defaults
-    const user = files.find(f => f.name === 'USER.md')!
+    const user = files.find((f) => f.name === 'USER.md')!
     expect(user.content).toContain('User Profile')
   })
 
@@ -51,7 +51,7 @@ describe('loadBootstrapFiles', () => {
     writeFileSync(join(WORKSPACE_DIR, 'TOOLS.md'), largeContent)
 
     const files = loadBootstrapFiles(WORKSPACE_DIR)
-    const tools = files.find(f => f.name === 'TOOLS.md')!
+    const tools = files.find((f) => f.name === 'TOOLS.md')!
 
     expect(tools.content.length).toBeLessThan(largeContent.length)
     expect(tools.content).toContain('truncated')
@@ -66,7 +66,7 @@ describe('loadBootstrapFiles', () => {
     const files = loadBootstrapFiles(WORKSPACE_DIR, 'minimal')
 
     expect(files.length).toBe(1)
-    expect(files.map(f => f.name)).toEqual(['TOOLS.md'])
+    expect(files.map((f) => f.name)).toEqual(['TOOLS.md'])
   })
 
   test('returns all files for full mode', () => {

@@ -1,7 +1,7 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
+import type { IncomingMessage } from '../base'
 import { WebChannel } from '../web/channel'
 import { WebMessageHandler } from '../web/handler'
-import type { IncomingMessage } from '../base'
 
 describe('WebChannel', () => {
   test('name is web', () => {
@@ -35,13 +35,18 @@ describe('WebChannel', () => {
   test('setMessageHandler delegates to internal handler', async () => {
     const channel = new WebChannel()
     let received: IncomingMessage | null = null
-    channel.setMessageHandler(async (msg) => { received = msg })
+    channel.setMessageHandler(async (msg) => {
+      received = msg
+    })
 
     const handler = channel.getHandler()
-    await handler.handleMessage('c1', JSON.stringify({
-      type: 'message',
-      content: 'delegated',
-    }))
+    await handler.handleMessage(
+      'c1',
+      JSON.stringify({
+        type: 'message',
+        content: 'delegated',
+      }),
+    )
 
     expect(received).not.toBeNull()
     expect(received!.content).toBe('delegated')

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { FlipNumber } from '../shared/FlipNumber'
+import { useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
+import { FlipNumber } from '../shared/FlipNumber'
 
 interface CostData {
   today: { cost: number; tokens: number }
@@ -19,7 +19,11 @@ export function CostOverview() {
 
   useEffect(() => {
     Promise.all([
-      apiFetch<{ today: { cost: number; tokens: number }; week: { cost: number; tokens: number }; month: { cost: number; tokens: number } }>('/api/metrics/summary'),
+      apiFetch<{
+        today: { cost: number; tokens: number }
+        week: { cost: number; tokens: number }
+        month: { cost: number; tokens: number }
+      }>('/api/metrics/summary'),
       apiFetch<{ byModel: { model: string; totalCost: number }[] }>('/api/metrics/cost'),
     ])
       .then(([summary, cost]) => {
@@ -48,21 +52,32 @@ export function CostOverview() {
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div>
           <p className="text-[11px] text-[var(--color-text-muted)] tracking-wide mb-1">Today</p>
-          <FlipNumber value={`$${data.today.cost.toFixed(2)}`} className="text-[28px] text-[var(--color-text-primary)]" />
+          <FlipNumber
+            value={`$${data.today.cost.toFixed(2)}`}
+            className="text-[28px] text-[var(--color-text-primary)]"
+          />
           <p className="text-[11px] font-mono text-[var(--color-text-disabled)]">
             {formatTokens(data.today.tokens)} tokens
           </p>
         </div>
         <div>
           <p className="text-[11px] text-[var(--color-text-muted)] tracking-wide mb-1">This Week</p>
-          <FlipNumber value={`$${data.week.cost.toFixed(2)}`} className="text-[28px] text-[var(--color-text-primary)]" />
+          <FlipNumber
+            value={`$${data.week.cost.toFixed(2)}`}
+            className="text-[28px] text-[var(--color-text-primary)]"
+          />
           <p className="text-[11px] font-mono text-[var(--color-text-disabled)]">
             {formatTokens(data.week.tokens)} tokens
           </p>
         </div>
         <div>
-          <p className="text-[11px] text-[var(--color-text-muted)] tracking-wide mb-1">This Month</p>
-          <FlipNumber value={`$${data.month.cost.toFixed(2)}`} className="text-[28px] text-[var(--color-text-primary)]" />
+          <p className="text-[11px] text-[var(--color-text-muted)] tracking-wide mb-1">
+            This Month
+          </p>
+          <FlipNumber
+            value={`$${data.month.cost.toFixed(2)}`}
+            className="text-[28px] text-[var(--color-text-primary)]"
+          />
           <p className="text-[11px] font-mono text-[var(--color-text-disabled)]">
             {formatTokens(data.month.tokens)} tokens
           </p>

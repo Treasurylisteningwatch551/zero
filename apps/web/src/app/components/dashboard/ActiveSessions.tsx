@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
-import { PulseDot } from '../shared/PulseDot'
+import { useCallback, useEffect, useState } from 'react'
+import { useWebSocket } from '../../hooks/useWebSocket'
 import { apiFetch } from '../../lib/api'
 import { formatTimeAgo } from '../../lib/format'
-import { useWebSocket } from '../../hooks/useWebSocket'
+import { PulseDot } from '../shared/PulseDot'
 
 interface Session {
   id: string
@@ -101,7 +101,8 @@ export function ActiveSessions() {
                 )}
                 <div className="ml-5 mt-0.5 flex items-center gap-2">
                   <span className="text-[11px] text-[var(--color-text-disabled)]">
-                    {s.userMessageCount} user · {s.assistantMessageCount} assistant · {s.toolCallCount} tool call{s.toolCallCount !== 1 ? 's' : ''}
+                    {s.userMessageCount} user · {s.assistantMessageCount} assistant ·{' '}
+                    {s.toolCallCount} tool call{s.toolCallCount !== 1 ? 's' : ''}
                   </span>
                   {activeTool && (
                     <span className="text-[11px] text-[var(--color-accent)] animate-pulse">

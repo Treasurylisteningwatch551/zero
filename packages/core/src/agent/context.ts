@@ -1,5 +1,5 @@
-import type { Message, ContentBlock, ToolResultBlock } from '@zero-os/shared'
-import { estimateTokens, estimateMessageTokens } from '@zero-os/shared'
+import type { Message, ToolResultBlock } from '@zero-os/shared'
+import { estimateMessageTokens } from '@zero-os/shared'
 import { CONTEXT_PARAMS } from './params'
 
 /**
@@ -20,7 +20,7 @@ export function prepareConversationHistory(messages: Message[]): Message[] {
   const turnBoundaries: number[] = []
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
-    if (msg.role === 'user' && msg.content.some(b => b.type === 'text')) {
+    if (msg.role === 'user' && msg.content.some((b) => b.type === 'text')) {
       turnBoundaries.push(i)
     }
   }
@@ -46,14 +46,14 @@ export function prepareConversationHistory(messages: Message[]): Message[] {
   return messages.map((msg, idx) => {
     // Only process user messages with tool_result blocks
     if (msg.role !== 'user') return msg
-    const hasToolResult = msg.content.some(b => b.type === 'tool_result')
+    const hasToolResult = msg.content.some((b) => b.type === 'tool_result')
     if (!hasToolResult) return msg
 
     const age = turnAgeMap.get(idx) ?? turnBoundaries.length
     if (age <= CONTEXT_PARAMS.history.fullRetainTurns) return msg // Recent: keep full
 
     // Process content blocks
-    const newContent = msg.content.map(block => {
+    const newContent = msg.content.map((block) => {
       if (block.type !== 'tool_result') return block
 
       if (age <= CONTEXT_PARAMS.history.summaryRetainTurns) {
@@ -69,10 +69,9 @@ export function prepareConversationHistory(messages: Message[]): Message[] {
 }
 
 function summarizeToolResult(block: ToolResultBlock): ToolResultBlock {
-  const summary = block.outputSummary ?? block.content.slice(0, CONTEXT_PARAMS.history.summaryMaxChars)
-  const truncated = summary.length < block.content.length
-    ? `${summary}...`
-    : summary
+  const summary =
+    block.outputSummary ?? block.content.slice(0, CONTEXT_PARAMS.history.summaryMaxChars)
+  const truncated = summary.length < block.content.length ? `${summary}...` : summary
   return { ...block, content: truncated }
 }
 

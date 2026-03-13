@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 test.describe('WebSocket and Real-time UI', () => {
   test('dashboard shows activity feed section', async ({ page }) => {

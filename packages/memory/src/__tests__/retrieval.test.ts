@@ -1,10 +1,10 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { EmbeddingProvider } from '../embedding'
 import { MemoryRetriever, extractKeywords } from '../retrieval'
 import { MemoryStore } from '../store'
-import type { EmbeddingProvider } from '../embedding'
 import type { VectorIndexLike } from '../vector-index'
 
 describe('MemoryRetriever', () => {
@@ -21,11 +21,16 @@ describe('MemoryRetriever', () => {
       status: 'verified',
       confidence: 0.9,
     })
-    await store.create('incident', 'Database timeout error', 'Connection pool exhausted during peak load', {
-      tags: ['incident', 'database', 'timeout'],
-      status: 'verified',
-      confidence: 0.85,
-    })
+    await store.create(
+      'incident',
+      'Database timeout error',
+      'Connection pool exhausted during peak load',
+      {
+        tags: ['incident', 'database', 'timeout'],
+        status: 'verified',
+        confidence: 0.85,
+      },
+    )
     await store.create('note', 'Setup guide for Redis', 'Install and configure Redis for caching', {
       tags: ['redis', 'setup', 'cache'],
       status: 'verified',
@@ -130,7 +135,9 @@ describe('MemoryRetriever', () => {
       async upsert() {},
       async query() {
         const deploy = store.list('session').find((memory) => memory.title === 'Deploy API gateway')
-        const database = store.list('incident').find((memory) => memory.title === 'Database timeout error')
+        const database = store
+          .list('incident')
+          .find((memory) => memory.title === 'Database timeout error')
         return [
           { memoryId: deploy!.id, score: 0.95 },
           { memoryId: database!.id, score: 0.2 },

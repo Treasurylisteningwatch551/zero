@@ -23,7 +23,9 @@ export function UserMessageBlock({ text, images }: Props) {
         <User size={16} weight="bold" className="text-cyan-400 mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1 space-y-2">
           {showText && (
-            <p className="text-[13px] text-[var(--color-text-primary)] whitespace-pre-wrap">{displayText}</p>
+            <p className="text-[13px] text-[var(--color-text-primary)] whitespace-pre-wrap">
+              {displayText}
+            </p>
           )}
           {images?.map((image, index) => (
             <img

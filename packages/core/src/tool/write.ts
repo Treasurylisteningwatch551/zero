@@ -1,8 +1,8 @@
-import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { withLock } from '@zero-os/shared'
-import { BaseTool } from './base'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
+import { BaseTool } from './base'
 
 interface WriteInput {
   path: string

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 test.describe('Error Boundary', () => {
   test('error boundary shows error message and retry button on API failure', async ({ page }) => {

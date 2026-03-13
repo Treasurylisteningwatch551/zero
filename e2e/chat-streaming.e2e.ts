@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 test.describe('Chat Streaming Interactions', () => {
   test('send message and receive AI response', async ({ page }) => {

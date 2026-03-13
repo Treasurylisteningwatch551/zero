@@ -114,9 +114,7 @@ export class ModelRouter {
     }
 
     if (fuzzy.length > 1) {
-      const candidates = fuzzy
-        .map((m) => `  - ${this.getModelLabel(m)}`)
-        .join('\n')
+      const candidates = fuzzy.map((m) => `  - ${this.getModelLabel(m)}`).join('\n')
       return {
         success: false,
         message: `Multiple matches found:\n${candidates}\nPlease be more specific.`,

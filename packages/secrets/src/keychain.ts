@@ -7,7 +7,7 @@ const ACCOUNT = 'master-key'
 export async function getMasterKey(): Promise<Buffer> {
   const proc = Bun.spawn(
     ['security', 'find-generic-password', '-s', SERVICE, '-a', ACCOUNT, '-w'],
-    { stdout: 'pipe', stderr: 'pipe' }
+    { stdout: 'pipe', stderr: 'pipe' },
   )
   const exitCode = await proc.exited
   if (exitCode !== 0) {
@@ -24,16 +24,16 @@ export async function getMasterKey(): Promise<Buffer> {
 export async function setMasterKey(key: Buffer): Promise<void> {
   const encoded = key.toString('base64')
   // First try to delete existing entry (ignore errors)
-  const del = Bun.spawn(
-    ['security', 'delete-generic-password', '-s', SERVICE, '-a', ACCOUNT],
-    { stdout: 'pipe', stderr: 'pipe' }
-  )
+  const del = Bun.spawn(['security', 'delete-generic-password', '-s', SERVICE, '-a', ACCOUNT], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
   await del.exited
 
   // Then add the new key
   const proc = Bun.spawn(
     ['security', 'add-generic-password', '-s', SERVICE, '-a', ACCOUNT, '-w', encoded],
-    { stdout: 'pipe', stderr: 'pipe' }
+    { stdout: 'pipe', stderr: 'pipe' },
   )
   const exitCode = await proc.exited
   if (exitCode !== 0) {
@@ -46,10 +46,10 @@ export async function setMasterKey(key: Buffer): Promise<void> {
  * Delete the master key from macOS Keychain.
  */
 export async function deleteMasterKey(): Promise<void> {
-  const proc = Bun.spawn(
-    ['security', 'delete-generic-password', '-s', SERVICE, '-a', ACCOUNT],
-    { stdout: 'pipe', stderr: 'pipe' }
-  )
+  const proc = Bun.spawn(['security', 'delete-generic-password', '-s', SERVICE, '-a', ACCOUNT], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
   await proc.exited
 }
 

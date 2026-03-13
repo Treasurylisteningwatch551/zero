@@ -1,4 +1,4 @@
-import { CheckCircle, Warning, XCircle, Info, X } from '@phosphor-icons/react'
+import { CheckCircle, Info, Warning, X, XCircle } from '@phosphor-icons/react'
 import { useUIStore } from '../../stores/ui'
 import type { ToastType } from '../../stores/ui'
 

@@ -6,7 +6,7 @@ import type { SecretFilter } from '@zero-os/shared'
  */
 export function createFilteredWriter(
   filter: SecretFilter,
-  writer: (text: string) => void
+  writer: (text: string) => void,
 ): (text: string) => void {
   return (text: string) => {
     writer(filter.filter(text))
@@ -18,7 +18,7 @@ export function createFilteredWriter(
  */
 export function filterLogEntry<T extends Record<string, unknown>>(
   filter: SecretFilter,
-  entry: T
+  entry: T,
 ): T {
   const filtered = { ...entry }
   for (const [key, value] of Object.entries(filtered)) {

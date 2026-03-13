@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { EmbeddingProvider } from '../embedding'
 import { IndexedMemoryStore } from '../indexed-store'
 import { MemoryStore } from '../store'
@@ -82,7 +82,9 @@ describe('IndexedMemoryStore', () => {
     })
 
     failNextUpsert = true
-    await expect(store.update('note', memory.id, { content: 'After update' })).rejects.toThrow('upsert failed')
+    await expect(store.update('note', memory.id, { content: 'After update' })).rejects.toThrow(
+      'upsert failed',
+    )
     expect(baseStore.get('note', memory.id)?.content).toBe('Before update')
   })
 

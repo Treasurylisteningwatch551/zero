@@ -1,4 +1,4 @@
-import type { SecretFilter, ScheduleConfig } from './config'
+import type { ScheduleConfig, SecretFilter } from './config'
 import type { Memory, MemorySearchOptions, MemoryType, ScoredMemoryMatch } from './memory'
 
 /**
@@ -38,13 +38,25 @@ export interface ToolContext {
     retrieveScored?(query: string, options?: MemorySearchOptions): Promise<ScoredMemoryMatch[]>
   }
   memoryStore?: {
-    create(type: MemoryType, title: string, content: string, options?: Record<string, unknown>): Promise<Memory>
-    update(type: MemoryType, id: string, updates: Record<string, unknown>): Promise<Memory | undefined>
+    create(
+      type: MemoryType,
+      title: string,
+      content: string,
+      options?: Record<string, unknown>,
+    ): Promise<Memory>
+    update(
+      type: MemoryType,
+      id: string,
+      updates: Record<string, unknown>,
+    ): Promise<Memory | undefined>
     delete(type: MemoryType, id: string): Promise<boolean>
     list(type: MemoryType): Memory[]
     get(type: MemoryType, id: string): Memory | undefined
     getRelativePath?(type: MemoryType, id: string): string | undefined
-    readByPath?(path: string, options?: { from?: number; lines?: number }): { path: string; text: string } | undefined
+    readByPath?(
+      path: string,
+      options?: { from?: number; lines?: number },
+    ): { path: string; text: string } | undefined
   }
   channelBinding?: {
     source: string

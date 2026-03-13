@@ -1,10 +1,16 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { EditorView, keymap, lineNumbers, drawSelection, highlightActiveLine } from '@codemirror/view'
-import { EditorState } from '@codemirror/state'
 import { markdown } from '@codemirror/lang-markdown'
+import { EditorState } from '@codemirror/state'
+import {
+  EditorView,
+  drawSelection,
+  highlightActiveLine,
+  keymap,
+  lineNumbers,
+} from '@codemirror/view'
+import { Eye, PencilSimple, SplitHorizontal } from '@phosphor-icons/react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { PencilSimple, Eye, SplitHorizontal } from '@phosphor-icons/react'
 import { Skeleton, SkeletonText } from '../components/shared/Skeleton'
 import { apiFetch, apiPut } from '../lib/api'
 
@@ -82,11 +88,14 @@ export function MemoPage() {
   }, [])
 
   // Debounced auto-save (5 seconds)
-  const debouncedSave = useCallback((text: string) => {
-    setSaveStatus('unsaved')
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => saveMemo(text), 5000)
-  }, [saveMemo])
+  const debouncedSave = useCallback(
+    (text: string) => {
+      setSaveStatus('unsaved')
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(() => saveMemo(text), 5000)
+    },
+    [saveMemo],
+  )
 
   useEffect(() => {
     apiFetch<{ content: string }>('/api/memo')
@@ -111,13 +120,15 @@ export function MemoPage() {
       }
     })
 
-    const cmdSave = keymap.of([{
-      key: 'Mod-s',
-      run: (view) => {
-        saveMemo(view.state.doc.toString())
-        return true
+    const cmdSave = keymap.of([
+      {
+        key: 'Mod-s',
+        run: (view) => {
+          saveMemo(view.state.doc.toString())
+          return true
+        },
       },
-    }])
+    ])
 
     const state = EditorState.create({
       doc: content,
@@ -220,7 +231,8 @@ export function MemoPage() {
             {/* Preview panel */}
             {showPreview && (
               <div className="min-h-[400px] p-5 overflow-auto">
-                <div className="prose prose-invert prose-sm max-w-none
+                <div
+                  className="prose prose-invert prose-sm max-w-none
                   [&_h1]:text-[var(--color-text-primary)] [&_h1]:text-[18px] [&_h1]:font-bold [&_h1]:border-b [&_h1]:border-[var(--color-border)] [&_h1]:pb-2 [&_h1]:mb-3
                   [&_h2]:text-[var(--color-text-primary)] [&_h2]:text-[15px] [&_h2]:font-semibold [&_h2]:mt-5 [&_h2]:mb-2
                   [&_h3]:text-[var(--color-text-secondary)] [&_h3]:text-[14px] [&_h3]:font-semibold [&_h3]:mt-4 [&_h3]:mb-1.5
@@ -238,7 +250,8 @@ export function MemoPage() {
                   [&_td]:py-1.5 [&_td]:px-2 [&_td]:border-b [&_td]:border-[var(--color-border)] [&_td]:text-[var(--color-text-secondary)]
                   [&_hr]:border-[var(--color-border)] [&_hr]:my-4
                   [&_strong]:text-[var(--color-text-primary)] [&_strong]:font-semibold
-                ">
+                "
+                >
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
                     {content || '*No content yet...*'}
                   </ReactMarkdown>
@@ -253,18 +266,22 @@ export function MemoPage() {
           <div className="flex items-center justify-between px-4 py-2 border-t border-[var(--color-border)] text-[11px] text-[var(--color-text-disabled)]">
             <span>{wordCount} words</span>
             <div className="flex items-center gap-3">
-              <span className={
-                saveStatus === 'saved'
-                  ? 'text-emerald-400'
+              <span
+                className={
+                  saveStatus === 'saved'
+                    ? 'text-emerald-400'
+                    : saveStatus === 'saving'
+                      ? 'text-amber-400'
+                      : 'text-[var(--color-text-muted)]'
+                }
+              >
+                {saveStatus === 'saved'
+                  ? 'Saved'
                   : saveStatus === 'saving'
-                  ? 'text-amber-400'
-                  : 'text-[var(--color-text-muted)]'
-              }>
-                {saveStatus === 'saved' ? 'Saved' : saveStatus === 'saving' ? 'Saving...' : 'Unsaved'}
+                    ? 'Saving...'
+                    : 'Unsaved'}
               </span>
-              {lastSaved && (
-                <span>{formatLastSaved()}</span>
-              )}
+              {lastSaved && <span>{formatLastSaved()}</span>}
             </div>
           </div>
         )}

@@ -1,10 +1,10 @@
-import { describe, test, expect } from 'bun:test'
-import { SessionManager } from '../manager'
+import { describe, expect, test } from 'bun:test'
 import { ModelRouter } from '@zero-os/model'
-import { ToolRegistry } from '../../tool/registry'
-import { ReadTool } from '../../tool/read'
-import { BashTool } from '../../tool/bash'
 import type { SystemConfig } from '@zero-os/shared'
+import { BashTool } from '../../tool/bash'
+import { ReadTool } from '../../tool/read'
+import { ToolRegistry } from '../../tool/registry'
+import { SessionManager } from '../manager'
 
 const API_KEY = 'sk-c6c02cbd0c25473f97f9be0da6070f6d'
 
@@ -227,8 +227,12 @@ describe('SessionManager', () => {
 
     expect(ops.session.data.currentModel).toBe('openai-codex/gpt-5.4-medium')
     expect(hr.session.data.currentModel).toBe('openai-codex/gpt-5.3-codex-medium')
-    expect(manager.getPreferredModel('feishu', 'room-1', 'feishu:ops')).toBe('openai-codex/gpt-5.4-medium')
-    expect(manager.getPreferredModel('feishu', 'room-2', 'feishu:hr')).toBe('openai-codex/gpt-5.3-codex-medium')
+    expect(manager.getPreferredModel('feishu', 'room-1', 'feishu:ops')).toBe(
+      'openai-codex/gpt-5.4-medium',
+    )
+    expect(manager.getPreferredModel('feishu', 'room-2', 'feishu:hr')).toBe(
+      'openai-codex/gpt-5.3-codex-medium',
+    )
   })
 
   test('startNewForChannel inherits the scope model preference', async () => {

@@ -1,7 +1,7 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
-import { mkdtempSync, cpSync, rmSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { startZeroOS } from '../main'
 import type { ZeroOS } from '../main'
 

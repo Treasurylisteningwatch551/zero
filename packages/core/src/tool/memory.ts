@@ -1,5 +1,5 @@
-import { BaseTool } from './base'
 import type { MemoryType, ToolContext, ToolResult } from '@zero-os/shared'
+import { BaseTool } from './base'
 
 type MemoryAction = 'create' | 'update' | 'delete' | 'list'
 
@@ -18,7 +18,8 @@ interface MemoryInput {
  */
 export class MemoryTool extends BaseTool {
   name = 'memory'
-  description = '显式创建、更新、删除或列出记忆。用于“记住/更新/删除”这类写入维护操作，不用于 recall。用户偏好用 preference 类型，架构决策用 decision 类型。'
+  description =
+    '显式创建、更新、删除或列出记忆。用于“记住/更新/删除”这类写入维护操作，不用于 recall。用户偏好用 preference 类型，架构决策用 decision 类型。'
   parameters = {
     type: 'object',
     properties: {
@@ -130,7 +131,7 @@ export class MemoryTool extends BaseTool {
         }
         const memories = ctx.memoryStore.list(type)
         const summary = memories
-          .map(m => `- [${m.id}] ${m.title} (${m.status}, tags: ${m.tags.join(', ')})`)
+          .map((m) => `- [${m.id}] ${m.title} (${m.status}, tags: ${m.tags.join(', ')})`)
           .join('\n')
         return {
           success: true,

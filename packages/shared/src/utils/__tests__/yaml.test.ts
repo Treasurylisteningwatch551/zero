@@ -1,7 +1,7 @@
-import { describe, test, expect, afterAll } from 'bun:test'
-import { readYaml, writeYaml, readYamlOrDefault } from '../yaml'
+import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { readYaml, readYamlOrDefault, writeYaml } from '../yaml'
 
 const testDir = join(import.meta.dir, '__fixtures__')
 

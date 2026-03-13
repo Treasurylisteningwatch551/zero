@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { Skeleton } from '../components/shared/Skeleton'
+import { useEffect, useState } from 'react'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
+import { Skeleton } from '../components/shared/Skeleton'
 import { apiFetch } from '../lib/api'
 import { useUIStore } from '../stores/ui'
 
@@ -25,9 +25,9 @@ function getToolType(name: string): ToolType {
 
 const TYPE_STYLES: Record<ToolType, { bg: string; text: string }> = {
   'built-in': { bg: 'bg-cyan-400/10', text: 'text-cyan-400' },
-  'tool': { bg: 'bg-emerald-400/10', text: 'text-emerald-400' },
-  'skill': { bg: 'bg-amber-400/10', text: 'text-amber-400' },
-  'mcp': { bg: 'bg-violet-400/10', text: 'text-violet-400' },
+  tool: { bg: 'bg-emerald-400/10', text: 'text-emerald-400' },
+  skill: { bg: 'bg-amber-400/10', text: 'text-amber-400' },
+  mcp: { bg: 'bg-violet-400/10', text: 'text-violet-400' },
 }
 
 const FILTERS: { key: Filter; label: string }[] = [
@@ -91,9 +91,7 @@ export function ToolsPage() {
     setConfirmDisable(null)
   }
 
-  const filtered = filter === 'all'
-    ? tools
-    : tools.filter((t) => getToolType(t.name) === filter)
+  const filtered = filter === 'all' ? tools : tools.filter((t) => getToolType(t.name) === filter)
 
   const enabledTools = filtered.filter((t) => !disabledTools.has(t.name))
   const disabledList = filtered.filter((t) => disabledTools.has(t.name))
@@ -129,9 +127,7 @@ export function ToolsPage() {
             />
           </button>
         </div>
-        <p className="text-[13px] text-[var(--color-text-secondary)] mb-3">
-          {tool.description}
-        </p>
+        <p className="text-[13px] text-[var(--color-text-secondary)] mb-3">{tool.description}</p>
         {tool.parameters && Object.keys(tool.parameters).length > 0 && (
           <div>
             <button
@@ -225,7 +221,9 @@ export function ToolsPage() {
         description="禁用后该工具将不可被 Agent 使用，可随时重新启用。"
         confirmText="禁用"
         danger
-        onConfirm={() => { if (confirmDisable) doToggle(confirmDisable) }}
+        onConfirm={() => {
+          if (confirmDisable) doToggle(confirmDisable)
+        }}
         onCancel={() => setConfirmDisable(null)}
       />
     </div>

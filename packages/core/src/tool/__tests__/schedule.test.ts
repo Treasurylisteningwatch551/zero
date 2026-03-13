@@ -1,6 +1,6 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
+import type { ScheduleConfig, ToolContext } from '@zero-os/shared'
 import { ScheduleTool } from '../schedule'
-import type { ToolContext, ScheduleConfig } from '@zero-os/shared'
 
 function createMockContext(overrides: Partial<ToolContext> = {}): ToolContext {
   const schedules = new Map<string, ScheduleConfig>()
@@ -22,7 +22,11 @@ function createMockContext(overrides: Partial<ToolContext> = {}): ToolContext {
     schedulerHandle: {
       addAndStart(config: ScheduleConfig) {
         schedules.set(config.name, config)
-        statuses.push({ name: config.name, nextRun: new Date(Date.now() + 3600000), running: false })
+        statuses.push({
+          name: config.name,
+          nextRun: new Date(Date.now() + 3600000),
+          running: false,
+        })
       },
       remove(name: string) {
         const had = schedules.has(name)
@@ -58,7 +62,9 @@ describe('ScheduleTool', () => {
 
     expect(definition.description).toContain('first obtain the current local time')
     expect(definition.description).toContain('verify that the returned cron')
-    expect(String(parameters.properties?.cron?.description)).toContain('first check the current local time')
+    expect(String(parameters.properties?.cron?.description)).toContain(
+      'first check the current local time',
+    )
   })
 
   test('create: adds schedule with channel binding', async () => {
@@ -162,7 +168,12 @@ describe('ScheduleTool', () => {
 
   test('cancel: removes existing schedule', async () => {
     const ctx = createMockContext()
-    await tool.run(ctx, { action: 'create', name: 'to-cancel', cron: '0 0 * * *', instruction: 'x' })
+    await tool.run(ctx, {
+      action: 'create',
+      name: 'to-cancel',
+      cron: '0 0 * * *',
+      instruction: 'x',
+    })
 
     const result = await tool.run(ctx, { action: 'cancel', name: 'to-cancel' })
 

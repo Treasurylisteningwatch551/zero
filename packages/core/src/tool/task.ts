@@ -1,13 +1,12 @@
-import { BaseTool } from './base'
-import { ToolRegistry } from './registry'
-import { TaskOrchestrator, type TaskNode, type TaskResult } from '../task/orchestrator'
-import { Agent, type AgentConfig, type AgentContext } from '../agent/agent'
-import { buildSubAgentPrompt } from '../agent/prompt'
+import { existsSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import type { ModelRouter } from '@zero-os/model'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
-import { generateId, now } from '@zero-os/shared'
-import { join } from 'node:path'
-import { mkdirSync, existsSync } from 'node:fs'
+import { Agent, type AgentConfig, type AgentContext } from '../agent/agent'
+import { buildSubAgentPrompt } from '../agent/prompt'
+import { type TaskNode, TaskOrchestrator, type TaskResult } from '../task/orchestrator'
+import { BaseTool } from './base'
+import { ToolRegistry } from './registry'
 
 interface SubAgentSpec {
   id: string
@@ -71,7 +70,10 @@ export class TaskTool extends BaseTool {
               description: 'Preset SubAgent type',
             },
             name: { type: 'string', description: 'Custom agent name (required if no preset)' },
-            agentInstruction: { type: 'string', description: 'Custom agent role instruction (required if no preset)' },
+            agentInstruction: {
+              type: 'string',
+              description: 'Custom agent role instruction (required if no preset)',
+            },
             dependsOn: {
               type: 'array',
               items: { type: 'string' },
@@ -133,7 +135,7 @@ export class TaskTool extends BaseTool {
     // Execute task graph
     const executor = async (
       node: TaskNode,
-      upstreamResults: Map<string, TaskResult>
+      upstreamResults: Map<string, TaskResult>,
     ): Promise<TaskResult> => {
       const startTime = Date.now()
 
@@ -169,7 +171,9 @@ export class TaskTool extends BaseTool {
       }
       const toolContext: ToolContext = {
         sessionId: `${ctx.sessionId}_sub_${node.id}`,
-        currentModel: resolvedModel ? this.modelRouter.getModelLabel(resolvedModel) : ctx.currentModel,
+        currentModel: resolvedModel
+          ? this.modelRouter.getModelLabel(resolvedModel)
+          : ctx.currentModel,
         workDir: subWorkDir,
         projectRoot: ctx.projectRoot,
         logger: ctx.logger,

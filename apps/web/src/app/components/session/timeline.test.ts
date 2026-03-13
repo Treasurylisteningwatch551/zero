@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { buildTimeline, type Message, type PersistedTaskClosureEvent, type TraceSpan } from './timeline'
+import {
+  type Message,
+  type PersistedTaskClosureEvent,
+  type TraceSpan,
+  buildTimeline,
+} from './timeline'
 
 describe('buildTimeline', () => {
   test('adds task closure decision span as a system event', () => {
@@ -58,19 +63,22 @@ describe('buildTimeline', () => {
   })
 
   test('adds trim failed span as warning event', () => {
-    const items = buildTimeline([], [
-      {
-        id: 'span_trim',
-        sessionId: 'sess_1',
-        name: 'task_closure_trim_failed',
-        startTime: '2026-03-08T00:00:01.000Z',
-        endTime: '2026-03-08T00:00:01.100Z',
-        durationMs: 100,
-        status: 'error',
-        metadata: { reason: 'trim_from_not_found' },
-        children: [],
-      },
-    ])
+    const items = buildTimeline(
+      [],
+      [
+        {
+          id: 'span_trim',
+          sessionId: 'sess_1',
+          name: 'task_closure_trim_failed',
+          startTime: '2026-03-08T00:00:01.000Z',
+          endTime: '2026-03-08T00:00:01.100Z',
+          durationMs: 100,
+          status: 'error',
+          metadata: { reason: 'trim_from_not_found' },
+          children: [],
+        },
+      ],
+    )
 
     expect(items).toHaveLength(1)
     expect(items[0].type).toBe('system-event')
@@ -80,7 +88,6 @@ describe('buildTimeline', () => {
     }
   })
 })
-
 
 test('adds persisted task closure event when traces are unavailable', () => {
   const persisted: PersistedTaskClosureEvent[] = [

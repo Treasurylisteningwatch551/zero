@@ -1,10 +1,10 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
-import { mkdtempSync, cpSync, rmSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { createRoutes } from '../routes'
+import { join } from 'node:path'
 import { startZeroOS } from '../../../../server/src/main'
 import type { ZeroOS } from '../../../../server/src/main'
+import { createRoutes } from '../routes'
 
 let app: ReturnType<typeof createRoutes>
 let zero: ZeroOS
@@ -36,7 +36,9 @@ describe('API Routes Extended', () => {
       body: JSON.stringify({ message: 'Say "hello" and nothing else.' }),
     })
     if (res1.status === 500) {
-      console.warn('[test] POST /api/chat returned 500 — upstream API unavailable, skipping assertions')
+      console.warn(
+        '[test] POST /api/chat returned 500 — upstream API unavailable, skipping assertions',
+      )
       return
     }
     expect(res1.status).toBe(200)
@@ -49,7 +51,9 @@ describe('API Routes Extended', () => {
       body: JSON.stringify({ message: 'Say "world" and nothing else.', sessionId }),
     })
     if (res2.status === 500) {
-      console.warn('[test] POST /api/chat returned 500 — upstream API unavailable, skipping assertions')
+      console.warn(
+        '[test] POST /api/chat returned 500 — upstream API unavailable, skipping assertions',
+      )
       return
     }
     expect(res2.status).toBe(200)
@@ -185,7 +189,9 @@ describe('API Routes Extended', () => {
     const res = await app.request(`/api/sessions/${session.data.id}/task-closure-events`)
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.events.some((entry: { event: string }) => entry.event === 'task_closure_trim_failed')).toBe(true)
+    expect(
+      data.events.some((entry: { event: string }) => entry.event === 'task_closure_trim_failed'),
+    ).toBe(true)
   })
 
   test('GET /api/sessions/:id/requests returns session-scoped LLM requests', async () => {
@@ -231,7 +237,9 @@ describe('API Routes Extended', () => {
     const res = await app.request(`/api/sessions/${session.data.id}/requests`)
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.requests.some((entry: { id: string }) => entry.id === 'req_legacy_route_001')).toBe(true)
+    expect(data.requests.some((entry: { id: string }) => entry.id === 'req_legacy_route_001')).toBe(
+      true,
+    )
   })
 
   test('GET /api/logs?type=requests reads merged request ledgers', async () => {
@@ -252,17 +260,27 @@ describe('API Routes Extended', () => {
     const res = await app.request('/api/logs?type=requests&limit=20')
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.entries.some((entry: { id: string }) => entry.id === 'req_logs_route_001')).toBe(true)
+    expect(data.entries.some((entry: { id: string }) => entry.id === 'req_logs_route_001')).toBe(
+      true,
+    )
   })
 
   test('GET /api/sessions/channel/:channel/active returns active candidates only', async () => {
-    const feishu = zero.sessionManager.getOrCreateForChannel('feishu', 'shared-room', 'feishu:ops').session
+    const feishu = zero.sessionManager.getOrCreateForChannel(
+      'feishu',
+      'shared-room',
+      'feishu:ops',
+    ).session
     feishu.data.updatedAt = '2026-03-08T00:00:02.000Z'
 
     const telegram = zero.sessionManager.getOrCreateForChannel('telegram', 'shared-room').session
     telegram.data.updatedAt = '2026-03-08T00:00:03.000Z'
 
-    const feishuHr = zero.sessionManager.getOrCreateForChannel('feishu', 'shared-room', 'feishu:hr').session
+    const feishuHr = zero.sessionManager.getOrCreateForChannel(
+      'feishu',
+      'shared-room',
+      'feishu:hr',
+    ).session
     feishuHr.data.updatedAt = '2026-03-08T00:00:01.000Z'
 
     const web = zero.sessionManager.getOrCreateForChannel('web', 'shared-room').session
@@ -273,12 +291,17 @@ describe('API Routes Extended', () => {
     expect(res.status).toBe(200)
     const data = await res.json()
 
-    expect(data.sessions.map((session: { source: string; channelName?: string }) => `${session.source}:${session.channelName ?? 'none'}`)).toEqual([
-      'telegram:none',
-      'feishu:feishu:ops',
-      'feishu:feishu:hr',
-    ])
-    expect(data.sessions.every((session: { status: string }) => ['active', 'idle'].includes(session.status))).toBe(true)
+    expect(
+      data.sessions.map(
+        (session: { source: string; channelName?: string }) =>
+          `${session.source}:${session.channelName ?? 'none'}`,
+      ),
+    ).toEqual(['telegram:none', 'feishu:feishu:ops', 'feishu:feishu:hr'])
+    expect(
+      data.sessions.every((session: { status: string }) =>
+        ['active', 'idle'].includes(session.status),
+      ),
+    ).toBe(true)
   })
 
   test('GET /api/sessions/channel/:channel/active returns empty array for missing channel', async () => {
@@ -299,7 +322,10 @@ describe('API Routes Extended', () => {
     const otherSource = zero.sessionManager.getOrCreateForChannel('telegram', 'chat_tg_1').session
     otherSource.data.updatedAt = '2026-03-09T00:00:04.000Z'
 
-    const completed = zero.sessionManager.getOrCreateForChannel('scheduler', 'sched_room_done').session
+    const completed = zero.sessionManager.getOrCreateForChannel(
+      'scheduler',
+      'sched_room_done',
+    ).session
     completed.setStatus('completed')
     completed.data.updatedAt = '2026-03-09T00:00:05.000Z'
 
@@ -311,12 +337,22 @@ describe('API Routes Extended', () => {
       'sched_room_2',
       'sched_room_1',
     ])
-    expect(data.sessions.every((session: { source: string }) => session.source === 'scheduler')).toBe(true)
-    expect(data.sessions.every((session: { status: string }) => ['active', 'idle'].includes(session.status))).toBe(true)
+    expect(
+      data.sessions.every((session: { source: string }) => session.source === 'scheduler'),
+    ).toBe(true)
+    expect(
+      data.sessions.every((session: { status: string }) =>
+        ['active', 'idle'].includes(session.status),
+      ),
+    ).toBe(true)
   })
 
   test('GET /api/sessions includes channelName when present', async () => {
-    const session = zero.sessionManager.getOrCreateForChannel('feishu', 'room-with-name', 'feishu:ops').session
+    const session = zero.sessionManager.getOrCreateForChannel(
+      'feishu',
+      'room-with-name',
+      'feishu:ops',
+    ).session
     const res = await app.request(`/api/sessions?q=${session.data.id}`)
 
     expect(res.status).toBe(200)

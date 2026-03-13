@@ -1,5 +1,5 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
-import { setMasterKey, getMasterKey, deleteMasterKey, generateMasterKey } from '../keychain'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { deleteMasterKey, generateMasterKey, getMasterKey, setMasterKey } from '../keychain'
 
 describe('macOS Keychain integration', () => {
   const testKey = generateMasterKey()

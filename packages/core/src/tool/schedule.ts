@@ -1,6 +1,6 @@
+import type { ScheduleConfig, ToolContext, ToolResult } from '@zero-os/shared'
+import { generateId } from '@zero-os/shared'
 import { BaseTool } from './base'
-import type { ToolContext, ToolResult, ScheduleConfig } from '@zero-os/shared'
-import { generateId, now } from '@zero-os/shared'
 
 interface ScheduleInput {
   action: 'create' | 'list' | 'cancel'
@@ -45,7 +45,8 @@ export class ScheduleTool extends BaseTool {
       },
       oneShot: {
         type: 'boolean',
-        description: 'If true, the schedule fires once and is automatically removed. Default: false.',
+        description:
+          'If true, the schedule fires once and is automatically removed. Default: false.',
       },
     },
     required: ['action'],
@@ -80,16 +81,24 @@ export class ScheduleTool extends BaseTool {
 
   private handleCreate(
     ctx: ToolContext,
-    opts: { name?: string; cron?: string; instruction?: string; oneShot?: boolean }
+    opts: { name?: string; cron?: string; instruction?: string; oneShot?: boolean },
   ): ToolResult {
     const { cron, instruction, oneShot } = opts
     const name = opts.name || `sched-${generateId().slice(0, 8)}`
 
     if (!cron) {
-      return { success: false, output: 'Missing required field: cron', outputSummary: 'Missing cron' }
+      return {
+        success: false,
+        output: 'Missing required field: cron',
+        outputSummary: 'Missing cron',
+      }
     }
     if (!instruction) {
-      return { success: false, output: 'Missing required field: instruction', outputSummary: 'Missing instruction' }
+      return {
+        success: false,
+        output: 'Missing required field: instruction',
+        outputSummary: 'Missing instruction',
+      }
     }
 
     const config: ScheduleConfig = {
@@ -114,7 +123,11 @@ export class ScheduleTool extends BaseTool {
       ctx.scheduleStore?.save(config)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      return { success: false, output: `Failed to create schedule: ${msg}`, outputSummary: `Create failed: ${msg}` }
+      return {
+        success: false,
+        output: `Failed to create schedule: ${msg}`,
+        outputSummary: `Create failed: ${msg}`,
+      }
     }
 
     const binding = config.channel
@@ -150,15 +163,27 @@ export class ScheduleTool extends BaseTool {
 
   private handleCancel(ctx: ToolContext, name?: string): ToolResult {
     if (!name) {
-      return { success: false, output: 'Missing required field: name', outputSummary: 'Missing name' }
+      return {
+        success: false,
+        output: 'Missing required field: name',
+        outputSummary: 'Missing name',
+      }
     }
 
     const removed = ctx.schedulerHandle!.remove(name)
     if (removed) {
       ctx.scheduleStore?.delete(name)
-      return { success: true, output: `Schedule "${name}" cancelled.`, outputSummary: `Cancelled "${name}"` }
+      return {
+        success: true,
+        output: `Schedule "${name}" cancelled.`,
+        outputSummary: `Cancelled "${name}"`,
+      }
     }
 
-    return { success: false, output: `Schedule "${name}" not found.`, outputSummary: `Not found: "${name}"` }
+    return {
+      success: false,
+      output: `Schedule "${name}" not found.`,
+      outputSummary: `Not found: "${name}"`,
+    }
   }
 }

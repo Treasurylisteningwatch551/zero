@@ -1,7 +1,7 @@
-import type { SystemConfig, ProviderConfig, ModelConfig, ApiType } from '@zero-os/shared'
-import type { ProviderAdapter, AdapterConfig } from './adapters/base'
-import { OpenAIChatAdapter } from './adapters/openai-chat'
+import type { ApiType, ModelConfig, ProviderConfig, SystemConfig } from '@zero-os/shared'
 import { AnthropicAdapter } from './adapters/anthropic'
+import type { AdapterConfig, ProviderAdapter } from './adapters/base'
+import { OpenAIChatAdapter } from './adapters/openai-chat'
 import { OpenAIResponsesAdapter } from './adapters/openai-resp'
 import { LiteLLMPricing } from './pricing'
 
@@ -92,7 +92,8 @@ export class ModelRegistry {
    * List all registered models.
    */
   listModels(): { providerName: string; modelName: string; modelId: string; tags: string[] }[] {
-    const models: { providerName: string; modelName: string; modelId: string; tags: string[] }[] = []
+    const models: { providerName: string; modelName: string; modelId: string; tags: string[] }[] =
+      []
     for (const [providerName, provider] of this.providers) {
       for (const [name, model] of Object.entries(provider.models)) {
         models.push({
@@ -109,14 +110,16 @@ export class ModelRegistry {
   private getOrCreateAdapter(
     providerName: string,
     provider: ProviderConfig,
-    model: ModelConfig
+    model: ModelConfig,
   ): ProviderAdapter {
     const key = `${providerName}:${model.modelId}`
     let adapter = this.adapters.get(key)
     if (adapter) return adapter
 
     const apiKey = provider.auth.apiKeyRef ? this.secrets.get(provider.auth.apiKeyRef) : undefined
-    const oauthToken = provider.auth.oauthTokenRef ? this.secrets.get(provider.auth.oauthTokenRef) : undefined
+    const oauthToken = provider.auth.oauthTokenRef
+      ? this.secrets.get(provider.auth.oauthTokenRef)
+      : undefined
 
     const config: AdapterConfig = {
       providerName,

@@ -1,19 +1,19 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import {
-  buildSystemPrompt,
+  buildBootstrapContextBlock,
+  buildConstraintsBlock,
+  buildDynamicContext,
+  buildExecutionModeBlock,
+  buildIdentityBlock,
   buildRoleBlock,
   buildRulesBlock,
-  buildExecutionModeBlock,
-  buildToolRulesBlock,
-  buildConstraintsBlock,
-  buildIdentityBlock,
-  buildSkillCatalog,
-  buildDynamicContext,
-  buildSkillReminder,
-  buildSafetyBlock,
-  buildToolCallStyleBlock,
   buildRuntimeBlock,
-  buildBootstrapContextBlock,
+  buildSafetyBlock,
+  buildSkillCatalog,
+  buildSkillReminder,
+  buildSystemPrompt,
+  buildToolCallStyleBlock,
+  buildToolRulesBlock,
 } from '../prompt'
 
 const makeTool = (name: string): import('@zero-os/shared').ToolDefinition => ({
@@ -22,7 +22,10 @@ const makeTool = (name: string): import('@zero-os/shared').ToolDefinition => ({
   parameters: {},
 })
 
-const makeSkill = (name: string, description = 'A test skill.'): import('@zero-os/shared').SkillDefinition => ({
+const makeSkill = (
+  name: string,
+  description = 'A test skill.',
+): import('@zero-os/shared').SkillDefinition => ({
   name,
   description,
   allowedTools: ['bash'],
@@ -30,7 +33,10 @@ const makeSkill = (name: string, description = 'A test skill.'): import('@zero-o
   sourcePath: `/path/to/skills/${name}/SKILL.md`,
 })
 
-const makeBootstrapFile = (name: string, content: string): import('@zero-os/shared').BootstrapFile => ({
+const makeBootstrapFile = (
+  name: string,
+  content: string,
+): import('@zero-os/shared').BootstrapFile => ({
   name,
   path: `/project/.zero/${name}`,
   content,
@@ -74,7 +80,7 @@ describe('buildRulesBlock', () => {
 
     // Count lines inside the tags (8 rules = 8 lines)
     const inner = result.replace('<rules>\n', '').replace('\n</rules>', '')
-    const lines = inner.split('\n').filter(l => l.trim().length > 0)
+    const lines = inner.split('\n').filter((l) => l.trim().length > 0)
     expect(lines.length).toBe(8)
   })
 })
@@ -95,7 +101,13 @@ describe('buildExecutionModeBlock', () => {
 
 describe('buildToolRulesBlock', () => {
   test('generates rules only for available tools', () => {
-    const tools = [makeTool('Read'), makeTool('Bash'), makeTool('memory_search'), makeTool('memory_get'), makeTool('memory')]
+    const tools = [
+      makeTool('Read'),
+      makeTool('Bash'),
+      makeTool('memory_search'),
+      makeTool('memory_get'),
+      makeTool('memory'),
+    ]
     const result = buildToolRulesBlock(tools)
 
     expect(result).toContain('<tool_rules>')
@@ -195,7 +207,9 @@ describe('buildIdentityBlock', () => {
 
 describe('buildSkillCatalog', () => {
   test('renders skill metadata in <skill_catalog> tags', () => {
-    const skills = [makeSkill('browser', '通过 agent-browser CLI 控制浏览器。\n触发词：浏览器、打开网页。')]
+    const skills = [
+      makeSkill('browser', '通过 agent-browser CLI 控制浏览器。\n触发词：浏览器、打开网页。'),
+    ]
     const result = buildSkillCatalog(skills)
 
     expect(result).toContain('<skill_catalog>')
@@ -337,9 +351,7 @@ describe('buildBootstrapContextBlock', () => {
   })
 
   test('does not add persona instruction without SOUL.md', () => {
-    const files = [
-      makeBootstrapFile('AGENTS.md', '# Rules'),
-    ]
+    const files = [makeBootstrapFile('AGENTS.md', '# Rules')]
     const result = buildBootstrapContextBlock(files)
 
     expect(result).not.toContain('体现其人格和语调')

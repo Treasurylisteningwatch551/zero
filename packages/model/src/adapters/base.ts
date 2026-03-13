@@ -1,12 +1,12 @@
 import type {
+  AuthConfig,
   CompletionRequest,
   CompletionResponse,
-  StreamEvent,
   ModelConfig,
-  AuthConfig,
+  StreamEvent,
 } from '@zero-os/shared'
 
-export { type CompletionRequest, type CompletionResponse, type StreamEvent }
+export type { CompletionRequest, CompletionResponse, StreamEvent }
 
 /**
  * Unified provider adapter interface.

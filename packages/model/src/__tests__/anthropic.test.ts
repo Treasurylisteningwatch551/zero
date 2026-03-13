@@ -1,7 +1,7 @@
-import { describe, test, expect } from 'bun:test'
-import { AnthropicAdapter } from '../adapters/anthropic'
-import type { Message, CompletionRequest } from '@zero-os/shared'
+import { describe, expect, test } from 'bun:test'
+import type { CompletionRequest, Message } from '@zero-os/shared'
 import { generateId, now } from '@zero-os/shared'
+import { AnthropicAdapter } from '../adapters/anthropic'
 
 /**
  * Anthropic adapter tests.
@@ -42,10 +42,7 @@ function makeMessage(role: 'user' | 'assistant', text: string): Message {
 
 describe('Anthropic Adapter (Pure Logic)', () => {
   test('convertMessages correctly handles text messages', () => {
-    const messages: Message[] = [
-      makeMessage('user', 'Hello'),
-      makeMessage('assistant', 'Hi there'),
-    ]
+    const messages: Message[] = [makeMessage('user', 'Hello'), makeMessage('assistant', 'Hi there')]
 
     const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
     expect(converted).toHaveLength(2)
@@ -147,9 +144,7 @@ describe('Anthropic Adapter (Pure Logic)', () => {
   })
 
   test('parseContent handles tool_use blocks', () => {
-    const content = [
-      { type: 'tool_use', id: 'toolu_123', name: 'calc', input: { expr: '1+1' } },
-    ]
+    const content = [{ type: 'tool_use', id: 'toolu_123', name: 'calc', input: { expr: '1+1' } }]
     const parsed = (adapter as any).parseContent(content)
     expect(parsed).toHaveLength(1)
     expect(parsed[0].type).toBe('tool_use')
@@ -187,7 +182,6 @@ describe('Anthropic Adapter (Pure Logic)', () => {
     const streamAdapter = createAdapter()
     const calls: Array<Record<string, unknown>> = []
     let helperCalled = false
-
     ;(streamAdapter as any).client = {
       messages: {
         create: async (params: Record<string, unknown>) => {

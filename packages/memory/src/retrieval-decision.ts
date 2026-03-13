@@ -7,10 +7,7 @@ export interface RetrievalDecision {
  * Build the prompt for the retrieval decision LLM call.
  * Combines "should we retrieve?" and "what queries?" into one call.
  */
-export function buildRetrievalDecisionPrompt(
-  userMessage: string,
-  identitySummary: string,
-): string {
+export function buildRetrievalDecisionPrompt(userMessage: string, identitySummary: string): string {
   return `<instruction>
 分析用户消息，判断是否需要从记忆库中检索历史信息来辅助回答。
 

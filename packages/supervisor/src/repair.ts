@@ -19,7 +19,7 @@ export class RepairEngine {
   private status: RepairStatus = 'idle'
   private gitOps?: GitOps
 
-  constructor(maxAttempts: number = 5, gitOps?: GitOps) {
+  constructor(maxAttempts = 5, gitOps?: GitOps) {
     this.maxAttempts = maxAttempts
     this.gitOps = gitOps
   }
@@ -47,7 +47,7 @@ export class RepairEngine {
   async runRepairCycle(
     diagnose: () => Promise<string>,
     repair: (diagnosis: string) => Promise<string>,
-    verify: () => Promise<boolean>
+    verify: () => Promise<boolean>,
   ): Promise<RepairAttempt> {
     this.status = 'diagnosing'
     let diagnosis: string

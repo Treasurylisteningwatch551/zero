@@ -1,10 +1,21 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts'
 import { apiFetch } from '../lib/api'
-import { formatNumber, formatCost } from '../lib/format'
+import { formatCost, formatNumber } from '../lib/format'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -13,27 +24,90 @@ import { formatNumber, formatCost } from '../lib/format'
 type Tab = 'cost' | 'operations' | 'health'
 type TimeRange = '7d' | '30d' | '90d' | 'custom'
 
-interface CostByDay { period: string; totalCost: number; totalTokens: number }
-interface CostByModel { model: string; provider: string; totalCost: number; totalInput: number; totalOutput: number; requestCount: number }
-interface CostByDayModel { period: string; model: string; cost: number }
-interface CostDetail { date: string; model: string; input: number; output: number; cacheRead: number; cost: number }
-interface CacheHitRate { period: string; hitRate: number }
-interface ToolStat { tool: string; count: number; successRate: number; avgDurationMs: number }
-interface TaskSuccess { period: string; successRate: number; total: number }
-interface AvgDuration { period: string; avgMs: number }
-interface ToolErrorByDay { period: string; tool: string; total: number; errors: number }
-interface HealthData { repairs: { total: number; successCount: number; successRate: number }; repairTrend: { period: string; total: number; success: number }[] }
-interface LogEntry { ts: string; event?: string; [key: string]: unknown }
+interface CostByDay {
+  period: string
+  totalCost: number
+  totalTokens: number
+}
+interface CostByModel {
+  model: string
+  provider: string
+  totalCost: number
+  totalInput: number
+  totalOutput: number
+  requestCount: number
+}
+interface CostByDayModel {
+  period: string
+  model: string
+  cost: number
+}
+interface CostDetail {
+  date: string
+  model: string
+  input: number
+  output: number
+  cacheRead: number
+  cost: number
+}
+interface CacheHitRate {
+  period: string
+  hitRate: number
+}
+interface ToolStat {
+  tool: string
+  count: number
+  successRate: number
+  avgDurationMs: number
+}
+interface TaskSuccess {
+  period: string
+  successRate: number
+  total: number
+}
+interface AvgDuration {
+  period: string
+  avgMs: number
+}
+interface ToolErrorByDay {
+  period: string
+  tool: string
+  total: number
+  errors: number
+}
+interface HealthData {
+  repairs: { total: number; successCount: number; successRate: number }
+  repairTrend: { period: string; total: number; success: number }[]
+}
+interface LogEntry {
+  ts: string
+  event?: string
+  [key: string]: unknown
+}
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const MODEL_COLORS = ['#22d3ee', '#06b6d4', '#0891b2', '#0e7490', '#155e75', '#164e63', '#083344', '#67e8f9']
+const MODEL_COLORS = [
+  '#22d3ee',
+  '#06b6d4',
+  '#0891b2',
+  '#0e7490',
+  '#155e75',
+  '#164e63',
+  '#083344',
+  '#67e8f9',
+]
 const CHART_GRID = 'rgba(255, 255, 255, 0.05)'
 const CHART_TEXT = 'rgba(255, 255, 255, 0.4)'
 const TOOLTIP_STYLE = {
-  contentStyle: { background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 },
+  contentStyle: {
+    background: '#1a1a2e',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 8,
+    fontSize: 12,
+  },
   labelStyle: { color: 'rgba(255,255,255,0.6)' },
 }
 
@@ -49,7 +123,11 @@ const RANGES: TimeRange[] = ['7d', '30d', '90d', 'custom']
 // Shared UI helpers
 // ---------------------------------------------------------------------------
 
-function ChartCard({ title, delay = 0, children }: { title: string; delay?: number; children: React.ReactNode }) {
+function ChartCard({
+  title,
+  delay = 0,
+  children,
+}: { title: string; delay?: number; children: React.ReactNode }) {
   return (
     <div className="card p-5 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
       <h3 className="text-[14px] font-semibold mb-3 text-[var(--color-text-secondary)]">{title}</h3>
@@ -66,7 +144,11 @@ function ChartEmpty({ loading, message = 'No data' }: { loading: boolean; messag
   )
 }
 
-function StatCard({ label, value, delay = 0 }: { label: string; value: string | number; delay?: number }) {
+function StatCard({
+  label,
+  value,
+  delay = 0,
+}: { label: string; value: string | number; delay?: number }) {
   return (
     <div className="card p-4 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
       <p className="text-[11px] text-[var(--color-text-muted)] mb-1">{label}</p>
@@ -137,10 +219,17 @@ function CostTab({ range }: { range: TimeRange }) {
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => { fetchData(range) }, [range, fetchData])
+  useEffect(() => {
+    fetchData(range)
+  }, [range, fetchData])
 
   // Pivoted cost-by-day-model for stacked bar chart
-  const { data: costTrendData, keys: costModels } = pivotBy(costByDayModel, 'period', 'model', 'cost')
+  const { data: costTrendData, keys: costModels } = pivotBy(
+    costByDayModel,
+    'period',
+    'model',
+    'cost',
+  )
 
   // Token usage: group cost-detail by date for stacked input/output bars
   const tokenUsageMap = new Map<string, { period: string; input: number; output: number }>()
@@ -167,11 +256,23 @@ function CostTab({ range }: { range: TimeRange }) {
               <BarChart data={costTrendData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
                 <XAxis dataKey="period" tick={{ fontSize: 10, fill: CHART_TEXT }} />
-                <YAxis tick={{ fontSize: 10, fill: CHART_TEXT }} tickFormatter={(v: number) => `$${formatCost(v)}`} />
-                <Tooltip {...TOOLTIP_STYLE} formatter={(value: number) => `$${formatCost(value)}`} />
+                <YAxis
+                  tick={{ fontSize: 10, fill: CHART_TEXT }}
+                  tickFormatter={(v: number) => `$${formatCost(v)}`}
+                />
+                <Tooltip
+                  {...TOOLTIP_STYLE}
+                  formatter={(value: number) => `$${formatCost(value)}`}
+                />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 {costModels.map((model, i) => (
-                  <Bar key={model} dataKey={model} stackId="cost" fill={MODEL_COLORS[i % MODEL_COLORS.length]} radius={i === costModels.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+                  <Bar
+                    key={model}
+                    dataKey={model}
+                    stackId="cost"
+                    fill={MODEL_COLORS[i % MODEL_COLORS.length]}
+                    radius={i === costModels.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                  />
                 ))}
               </BarChart>
             </ResponsiveContainer>
@@ -189,11 +290,26 @@ function CostTab({ range }: { range: TimeRange }) {
               <BarChart data={tokenUsageData}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
                 <XAxis dataKey="period" tick={{ fontSize: 10, fill: CHART_TEXT }} />
-                <YAxis tick={{ fontSize: 10, fill: CHART_TEXT }} tickFormatter={(v: number) => formatNumber(v)} />
+                <YAxis
+                  tick={{ fontSize: 10, fill: CHART_TEXT }}
+                  tickFormatter={(v: number) => formatNumber(v)}
+                />
                 <Tooltip {...TOOLTIP_STYLE} formatter={(value: number) => formatNumber(value)} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="input" name="Input" stackId="tokens" fill="#22d3ee" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="output" name="Output" stackId="tokens" fill="#0891b2" radius={[4, 4, 0, 0]} />
+                <Bar
+                  dataKey="input"
+                  name="Input"
+                  stackId="tokens"
+                  fill="#22d3ee"
+                  radius={[0, 0, 0, 0]}
+                />
+                <Bar
+                  dataKey="output"
+                  name="Output"
+                  stackId="tokens"
+                  fill="#0891b2"
+                  radius={[4, 4, 0, 0]}
+                />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -215,14 +331,19 @@ function CostTab({ range }: { range: TimeRange }) {
                   cx="50%"
                   cy="50%"
                   outerRadius={80}
-                  label={({ name, percent }: { name: string; percent: number }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                  label={({ name, percent }: { name: string; percent: number }) =>
+                    `${name} (${(percent * 100).toFixed(0)}%)`
+                  }
                   labelLine={{ stroke: CHART_TEXT }}
                 >
                   {costByModel.map((_, i) => (
                     <Cell key={i} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip {...TOOLTIP_STYLE} formatter={(value: number) => `$${formatCost(value)}`} />
+                <Tooltip
+                  {...TOOLTIP_STYLE}
+                  formatter={(value: number) => `$${formatCost(value)}`}
+                />
               </PieChart>
             </ResponsiveContainer>
           )}
@@ -239,9 +360,19 @@ function CostTab({ range }: { range: TimeRange }) {
               <LineChart data={cacheHitRate}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
                 <XAxis dataKey="period" tick={{ fontSize: 10, fill: CHART_TEXT }} />
-                <YAxis tick={{ fontSize: 10, fill: CHART_TEXT }} tickFormatter={pctTickFormatter} domain={[0, 1]} />
+                <YAxis
+                  tick={{ fontSize: 10, fill: CHART_TEXT }}
+                  tickFormatter={pctTickFormatter}
+                  domain={[0, 1]}
+                />
                 <Tooltip {...TOOLTIP_STYLE} formatter={(value: number) => pctFormatter(value)} />
-                <Line type="monotone" dataKey="hitRate" stroke="#22d3ee" strokeWidth={2} dot={false} />
+                <Line
+                  type="monotone"
+                  dataKey="hitRate"
+                  stroke="#22d3ee"
+                  strokeWidth={2}
+                  dot={false}
+                />
               </LineChart>
             </ResponsiveContainer>
           )}
@@ -252,9 +383,13 @@ function CostTab({ range }: { range: TimeRange }) {
       <div className="lg:col-span-2">
         <ChartCard title="Detail Records" delay={240}>
           {loading ? (
-            <div className="text-center text-[13px] text-[var(--color-text-muted)] py-6">Loading...</div>
+            <div className="text-center text-[13px] text-[var(--color-text-muted)] py-6">
+              Loading...
+            </div>
           ) : costDetail.length === 0 ? (
-            <div className="text-center text-[13px] text-[var(--color-text-muted)] py-6">No detail records</div>
+            <div className="text-center text-[13px] text-[var(--color-text-muted)] py-6">
+              No detail records
+            </div>
           ) : (
             <div className="overflow-x-auto" style={{ maxHeight: 320 }}>
               <table className="w-full text-[12px] font-mono">
@@ -270,12 +405,21 @@ function CostTab({ range }: { range: TimeRange }) {
                 </thead>
                 <tbody>
                   {costDetail.map((d, i) => (
-                    <tr key={i} className="border-b border-[var(--color-border)] last:border-0 hover:bg-white/[0.03] transition-colors">
+                    <tr
+                      key={i}
+                      className="border-b border-[var(--color-border)] last:border-0 hover:bg-white/[0.03] transition-colors"
+                    >
                       <td className="py-1.5 pr-4 text-[var(--color-text-muted)]">{d.date}</td>
                       <td className="py-1.5 pr-4 text-[var(--color-accent)]">{d.model}</td>
-                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-secondary)]">{formatNumber(d.input)}</td>
-                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-secondary)]">{formatNumber(d.output)}</td>
-                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-muted)]">{formatNumber(d.cacheRead)}</td>
+                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-secondary)]">
+                        {formatNumber(d.input)}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-secondary)]">
+                        {formatNumber(d.output)}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-muted)]">
+                        {formatNumber(d.cacheRead)}
+                      </td>
                       <td className="py-1.5 text-right">${formatCost(d.cost)}</td>
                     </tr>
                   ))}
@@ -318,10 +462,17 @@ function OperationsTab({ range }: { range: TimeRange }) {
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => { fetchData(range) }, [range, fetchData])
+  useEffect(() => {
+    fetchData(range)
+  }, [range, fetchData])
 
   // Pivoted tool errors for stacked bar chart
-  const { data: toolErrorData, keys: errorTools } = pivotBy(toolErrorByDay, 'period', 'tool', 'errors')
+  const { data: toolErrorData, keys: errorTools } = pivotBy(
+    toolErrorByDay,
+    'period',
+    'tool',
+    'errors',
+  )
 
   // Sort tool stats descending by count for horizontal bar chart
   const sortedToolStats = [...toolStats].sort((a, b) => b.count - a.count)
@@ -338,9 +489,20 @@ function OperationsTab({ range }: { range: TimeRange }) {
               <LineChart data={taskSuccess}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
                 <XAxis dataKey="period" tick={{ fontSize: 10, fill: CHART_TEXT }} />
-                <YAxis tick={{ fontSize: 10, fill: CHART_TEXT }} tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`} domain={[0, 1]} />
+                <YAxis
+                  tick={{ fontSize: 10, fill: CHART_TEXT }}
+                  tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
+                  domain={[0, 1]}
+                />
                 <Tooltip {...TOOLTIP_STYLE} formatter={(value: number) => pctFormatter(value)} />
-                <Line type="monotone" dataKey="successRate" stroke="#22d3ee" strokeWidth={2} dot={false} name="Success Rate" />
+                <Line
+                  type="monotone"
+                  dataKey="successRate"
+                  stroke="#22d3ee"
+                  strokeWidth={2}
+                  dot={false}
+                  name="Success Rate"
+                />
               </LineChart>
             </ResponsiveContainer>
           )}
@@ -356,8 +518,17 @@ function OperationsTab({ range }: { range: TimeRange }) {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={sortedToolStats} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: CHART_TEXT }} tickFormatter={(v: number) => formatNumber(v)} />
-                <YAxis type="category" dataKey="tool" tick={{ fontSize: 10, fill: CHART_TEXT }} width={80} />
+                <XAxis
+                  type="number"
+                  tick={{ fontSize: 10, fill: CHART_TEXT }}
+                  tickFormatter={(v: number) => formatNumber(v)}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="tool"
+                  tick={{ fontSize: 10, fill: CHART_TEXT }}
+                  width={80}
+                />
                 <Tooltip {...TOOLTIP_STYLE} formatter={(value: number) => formatNumber(value)} />
                 <Bar dataKey="count" fill="#22d3ee" radius={[0, 4, 4, 0]} name="Calls" />
               </BarChart>
@@ -373,12 +544,24 @@ function OperationsTab({ range }: { range: TimeRange }) {
             <ChartEmpty loading={loading} />
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={avgDuration.map(d => ({ period: d.period, avgSec: d.avgMs / 1000 }))}>
+              <LineChart
+                data={avgDuration.map((d) => ({ period: d.period, avgSec: d.avgMs / 1000 }))}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
                 <XAxis dataKey="period" tick={{ fontSize: 10, fill: CHART_TEXT }} />
-                <YAxis tick={{ fontSize: 10, fill: CHART_TEXT }} tickFormatter={(v: number) => `${v.toFixed(1)}s`} />
+                <YAxis
+                  tick={{ fontSize: 10, fill: CHART_TEXT }}
+                  tickFormatter={(v: number) => `${v.toFixed(1)}s`}
+                />
                 <Tooltip {...TOOLTIP_STYLE} formatter={(value: number) => `${value.toFixed(2)}s`} />
-                <Line type="monotone" dataKey="avgSec" stroke="#22d3ee" strokeWidth={2} dot={false} name="Avg Duration" />
+                <Line
+                  type="monotone"
+                  dataKey="avgSec"
+                  stroke="#22d3ee"
+                  strokeWidth={2}
+                  dot={false}
+                  name="Avg Duration"
+                />
               </LineChart>
             </ResponsiveContainer>
           )}
@@ -399,7 +582,13 @@ function OperationsTab({ range }: { range: TimeRange }) {
                 <Tooltip {...TOOLTIP_STYLE} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 {errorTools.map((tool, i) => (
-                  <Bar key={tool} dataKey={tool} stackId="errors" fill={MODEL_COLORS[i % MODEL_COLORS.length]} radius={i === errorTools.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+                  <Bar
+                    key={tool}
+                    dataKey={tool}
+                    stackId="errors"
+                    fill={MODEL_COLORS[i % MODEL_COLORS.length]}
+                    radius={i === errorTools.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                  />
                 ))}
               </BarChart>
             </ResponsiveContainer>
@@ -427,21 +616,24 @@ function HealthTab({ range }: { range: TimeRange }) {
     ])
       .then(([healthRes, logsRes]) => {
         setHealth(healthRes)
-        setFuseEvents(logsRes.entries.filter(e => e.event && String(e.event).toLowerCase().includes('fuse')))
+        setFuseEvents(
+          logsRes.entries.filter((e) => e.event && String(e.event).toLowerCase().includes('fuse')),
+        )
       })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => { fetchData(range) }, [range, fetchData])
+  useEffect(() => {
+    fetchData(range)
+  }, [range, fetchData])
 
   const repairs = health?.repairs
   const repairTrend = health?.repairTrend ?? []
 
   // System availability placeholder: 100% constant line using repairTrend periods
-  const availabilityData = repairTrend.length > 0
-    ? repairTrend.map(d => ({ period: d.period, availability: 1 }))
-    : []
+  const availabilityData =
+    repairTrend.length > 0 ? repairTrend.map((d) => ({ period: d.period, availability: 1 })) : []
 
   return (
     <div className="space-y-4">
@@ -449,9 +641,20 @@ function HealthTab({ range }: { range: TimeRange }) {
       <ChartCard title="Self-Repair Stats" delay={0}>
         {/* Top: 3 stat cards */}
         <div className="grid grid-cols-3 gap-3 mb-4">
-          <StatCard label="Total Repairs" value={loading ? '...' : formatNumber(repairs?.total ?? 0)} />
-          <StatCard label="Success Count" value={loading ? '...' : formatNumber(repairs?.successCount ?? 0)} delay={30} />
-          <StatCard label="Success Rate" value={loading ? '...' : `${((repairs?.successRate ?? 0) * 100).toFixed(1)}%`} delay={60} />
+          <StatCard
+            label="Total Repairs"
+            value={loading ? '...' : formatNumber(repairs?.total ?? 0)}
+          />
+          <StatCard
+            label="Success Count"
+            value={loading ? '...' : formatNumber(repairs?.successCount ?? 0)}
+            delay={30}
+          />
+          <StatCard
+            label="Success Rate"
+            value={loading ? '...' : `${((repairs?.successRate ?? 0) * 100).toFixed(1)}%`}
+            delay={60}
+          />
         </div>
 
         {/* Bottom: repair trend line chart */}
@@ -466,8 +669,22 @@ function HealthTab({ range }: { range: TimeRange }) {
                 <YAxis tick={{ fontSize: 10, fill: CHART_TEXT }} />
                 <Tooltip {...TOOLTIP_STYLE} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Line type="monotone" dataKey="total" stroke="#64748b" strokeWidth={2} dot={false} name="Total Repairs" />
-                <Line type="monotone" dataKey="success" stroke="#22d3ee" strokeWidth={2} dot={false} name="Successful" />
+                <Line
+                  type="monotone"
+                  dataKey="total"
+                  stroke="#64748b"
+                  strokeWidth={2}
+                  dot={false}
+                  name="Total Repairs"
+                />
+                <Line
+                  type="monotone"
+                  dataKey="success"
+                  stroke="#22d3ee"
+                  strokeWidth={2}
+                  dot={false}
+                  name="Successful"
+                />
               </LineChart>
             </ResponsiveContainer>
           )}
@@ -485,9 +702,20 @@ function HealthTab({ range }: { range: TimeRange }) {
                 <LineChart data={availabilityData}>
                   <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
                   <XAxis dataKey="period" tick={{ fontSize: 10, fill: CHART_TEXT }} />
-                  <YAxis tick={{ fontSize: 10, fill: CHART_TEXT }} tickFormatter={pctTickFormatter} domain={[0, 1]} />
+                  <YAxis
+                    tick={{ fontSize: 10, fill: CHART_TEXT }}
+                    tickFormatter={pctTickFormatter}
+                    domain={[0, 1]}
+                  />
                   <Tooltip {...TOOLTIP_STYLE} formatter={(value: number) => pctFormatter(value)} />
-                  <Line type="monotone" dataKey="availability" stroke="#22d3ee" strokeWidth={2} dot={false} name="Availability" />
+                  <Line
+                    type="monotone"
+                    dataKey="availability"
+                    stroke="#22d3ee"
+                    strokeWidth={2}
+                    dot={false}
+                    name="Availability"
+                  />
                 </LineChart>
               </ResponsiveContainer>
             )}
@@ -498,9 +726,13 @@ function HealthTab({ range }: { range: TimeRange }) {
         <ChartCard title="Fuse Events" delay={120}>
           <div style={{ maxHeight: 200, overflowY: 'auto' }}>
             {loading ? (
-              <div className="text-center text-[13px] text-[var(--color-text-muted)] py-6">Loading...</div>
+              <div className="text-center text-[13px] text-[var(--color-text-muted)] py-6">
+                Loading...
+              </div>
             ) : fuseEvents.length === 0 ? (
-              <div className="text-center text-[13px] text-[var(--color-text-muted)] py-6">No fuse events</div>
+              <div className="text-center text-[13px] text-[var(--color-text-muted)] py-6">
+                No fuse events
+              </div>
             ) : (
               <table className="w-full text-[12px] font-mono">
                 <thead>
@@ -511,9 +743,23 @@ function HealthTab({ range }: { range: TimeRange }) {
                 </thead>
                 <tbody>
                   {fuseEvents.map((e, i) => (
-                    <tr key={i} className="border-b border-[var(--color-border)] last:border-0 hover:bg-white/[0.03] transition-colors">
-                      <td className="py-1.5 pr-4 text-[var(--color-text-muted)] whitespace-nowrap">{e.ts ? new Date(e.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}</td>
-                      <td className="py-1.5 text-[var(--color-text-secondary)]">{String(e.event ?? '')}</td>
+                    <tr
+                      key={i}
+                      className="border-b border-[var(--color-border)] last:border-0 hover:bg-white/[0.03] transition-colors"
+                    >
+                      <td className="py-1.5 pr-4 text-[var(--color-text-muted)] whitespace-nowrap">
+                        {e.ts
+                          ? new Date(e.ts).toLocaleString([], {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : '-'}
+                      </td>
+                      <td className="py-1.5 text-[var(--color-text-secondary)]">
+                        {String(e.event ?? '')}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -548,7 +794,7 @@ export function MetricsPage() {
       <div className="flex items-center justify-between mb-4">
         {/* Tabs */}
         <div className="flex gap-1.5">
-          {TABS.map(tab => (
+          {TABS.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
@@ -565,7 +811,7 @@ export function MetricsPage() {
 
         {/* Time range */}
         <div className="flex gap-1">
-          {RANGES.map(r => (
+          {RANGES.map((r) => (
             <button
               key={r}
               onClick={() => setRange(r)}

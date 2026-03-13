@@ -48,8 +48,10 @@ export class EmbeddingClient implements EmbeddingProvider {
       throw new Error(`Embedding request failed with status ${response.status}`)
     }
 
-    const payload = await response.json() as EmbeddingResponse
-    const vectors = payload.data?.map((entry) => entry.embedding).filter((entry): entry is number[] => Array.isArray(entry))
+    const payload = (await response.json()) as EmbeddingResponse
+    const vectors = payload.data
+      ?.map((entry) => entry.embedding)
+      .filter((entry): entry is number[] => Array.isArray(entry))
     if (!vectors || vectors.length !== texts.length) {
       throw new Error('Embedding service returned an unexpected payload')
     }

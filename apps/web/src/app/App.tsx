@@ -1,9 +1,9 @@
-import { useEffect } from 'react'
-import { RouterProvider } from '@tanstack/react-router'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { useUIStore } from './stores/ui'
+import { RouterProvider } from '@tanstack/react-router'
+import { useEffect } from 'react'
 import { queryClient } from './lib/queryClient'
 import { router } from './router'
+import { useUIStore } from './stores/ui'
 
 function AppShell() {
   const { setViewport } = useUIStore()

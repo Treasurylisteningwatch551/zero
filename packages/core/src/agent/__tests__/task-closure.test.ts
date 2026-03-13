@@ -13,8 +13,8 @@ describe('parseTaskClosureDecision', () => {
   test('parses valid JSON surrounded by extra text', () => {
     expect(
       parseTaskClosureDecision(
-        'result: {"action":"continue","reason":"后续仍必要","trimFrom":"如果你愿意"}'
-      )
+        'result: {"action":"continue","reason":"后续仍必要","trimFrom":"如果你愿意"}',
+      ),
     ).toEqual({
       action: 'continue',
       reason: '后续仍必要',
@@ -24,7 +24,7 @@ describe('parseTaskClosureDecision', () => {
 
   test('rejects continue decisions without trimFrom', () => {
     expect(
-      parseTaskClosureDecision('{"action":"continue","reason":"后续仍必要","trimFrom":""}')
+      parseTaskClosureDecision('{"action":"continue","reason":"后续仍必要","trimFrom":""}'),
     ).toBeNull()
   })
 })
@@ -67,7 +67,6 @@ describe('assistant text helpers', () => {
   })
 })
 
-
 test('buildTaskClosureDecisionPrompt includes research-depth guidance', () => {
   const prompt = buildTaskClosureDecisionPrompt(
     '看看这个链接, 然后把可能相关的信息也分析下',
@@ -109,19 +108,14 @@ test('buildTaskClosureDecisionPrompt includes tool call summary', () => {
 })
 
 test('buildTaskClosureDecisionPrompt renders none when no tool calls', () => {
-  const prompt = buildTaskClosureDecisionPrompt(
-    '你好',
-    '你好！',
-    '你好！',
-    {
-      isResearchTask: false,
-      wantsDepth: false,
-      externalLookupCount: 0,
-      externalSourceDomains: [],
-      coverageHint: 'general',
-      toolCallSummary: [],
-    },
-  )
+  const prompt = buildTaskClosureDecisionPrompt('你好', '你好！', '你好！', {
+    isResearchTask: false,
+    wantsDepth: false,
+    externalLookupCount: 0,
+    externalSourceDomains: [],
+    coverageHint: 'general',
+    toolCallSummary: [],
+  })
 
   expect(prompt).toContain('<tool_calls_this_turn>\nnone\n</tool_calls_this_turn>')
 })

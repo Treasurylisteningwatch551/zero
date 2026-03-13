@@ -2,11 +2,11 @@ import Anthropic from '@anthropic-ai/sdk'
 import type {
   CompletionRequest,
   CompletionResponse,
-  StreamEvent,
   ContentBlock,
+  StreamEvent,
   TokenUsage,
 } from '@zero-os/shared'
-import type { ProviderAdapter, AdapterConfig } from './base'
+import type { AdapterConfig, ProviderAdapter } from './base'
 
 /**
  * Anthropic Messages API adapter.
@@ -103,9 +103,7 @@ export class AnthropicAdapter implements ProviderAdapter {
           }
         }
       } else if (event.type === 'content_block_stop') {
-        const toolId = typeof event.index === 'number'
-          ? toolBlockIds.get(event.index)
-          : undefined
+        const toolId = typeof event.index === 'number' ? toolBlockIds.get(event.index) : undefined
         if (toolId) {
           toolBlockIds.delete(event.index)
           yield { type: 'tool_use_end', data: { id: toolId } }
@@ -136,7 +134,10 @@ export class AnthropicAdapter implements ProviderAdapter {
           }
         }
       } else if (event.type === 'message_stop') {
-        yield { type: 'done', data: { model: streamModel, usage: streamUsage, finishReason: streamStopReason } }
+        yield {
+          type: 'done',
+          data: { model: streamModel, usage: streamUsage, finishReason: streamStopReason },
+        }
       }
     }
   }
@@ -237,7 +238,9 @@ export class AnthropicAdapter implements ProviderAdapter {
     return thinkingParts.join('\n')
   }
 
-  private buildThinkingConfig(maxTokens?: number): { type: 'enabled'; budget_tokens: number } | undefined {
+  private buildThinkingConfig(
+    maxTokens?: number,
+  ): { type: 'enabled'; budget_tokens: number } | undefined {
     const requestMaxTokens = maxTokens ?? 4096
     if (requestMaxTokens <= AnthropicAdapter.MIN_THINKING_TOKENS) {
       return undefined

@@ -1,5 +1,5 @@
-import type { TelegramRichText, TelegramTextEntity, TelegramEntityType } from './types'
 import { normalizeMarkdownForChannels } from './normalize'
+import type { TelegramEntityType, TelegramRichText, TelegramTextEntity } from './types'
 
 interface ParsedInline {
   text: string
@@ -15,8 +15,8 @@ interface Chunk {
 const MARKER_TO_ENTITY: Record<string, TelegramEntityType> = {
   '**': 'bold',
   '*': 'italic',
-  '__': 'underline',
-  '_': 'italic',
+  __: 'underline',
+  _: 'italic',
   '~~': 'strikethrough',
   '||': 'spoiler',
 }
@@ -74,7 +74,7 @@ export function markdownToTelegramRichText(markdown: string): TelegramRichText {
 
 export function chunkTelegramRichText(
   rendered: TelegramRichText,
-  maxLength = 4096
+  maxLength = 4096,
 ): TelegramRichText[] {
   if (rendered.text.length <= maxLength) {
     return [rendered]
@@ -289,7 +289,7 @@ function parseInline(input: string, baseOffset: number): ParsedInline {
 function parseLink(
   input: string,
   start: number,
-  baseOffset: number
+  baseOffset: number,
 ): { text: string; entities: TelegramTextEntity[]; nextIndex: number } | null {
   const closeLabel = findUnescaped(input, ']', start + 1)
   if (closeLabel === -1 || input[closeLabel + 1] !== '(') {

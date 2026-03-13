@@ -1,6 +1,6 @@
-import { describe, test, expect } from 'bun:test'
-import { WebMessageHandler } from '../web/handler'
+import { describe, expect, test } from 'bun:test'
 import type { IncomingMessage } from '../base'
+import { WebMessageHandler } from '../web/handler'
 
 describe('WebMessageHandler', () => {
   test('invalid JSON returns error response', async () => {
@@ -29,10 +29,13 @@ describe('WebMessageHandler', () => {
 
   test('subscribe stores client topics', async () => {
     const handler = new WebMessageHandler()
-    await handler.handleMessage('client-1', JSON.stringify({
-      type: 'subscribe',
-      topics: ['session:update', 'metrics'],
-    }))
+    await handler.handleMessage(
+      'client-1',
+      JSON.stringify({
+        type: 'subscribe',
+        topics: ['session:update', 'metrics'],
+      }),
+    )
     expect(handler.isSubscribed('client-1', 'session:update')).toBe(true)
     expect(handler.isSubscribed('client-1', 'metrics')).toBe(true)
   })
@@ -40,13 +43,18 @@ describe('WebMessageHandler', () => {
   test('message calls messageHandler with correct IncomingMessage', async () => {
     const handler = new WebMessageHandler()
     let received: IncomingMessage | null = null
-    handler.setMessageHandler(async (msg) => { received = msg })
+    handler.setMessageHandler(async (msg) => {
+      received = msg
+    })
 
-    await handler.handleMessage('client-42', JSON.stringify({
-      type: 'message',
-      content: 'hello world',
-      sessionId: 'sess-1',
-    }))
+    await handler.handleMessage(
+      'client-42',
+      JSON.stringify({
+        type: 'message',
+        content: 'hello world',
+        sessionId: 'sess-1',
+      }),
+    )
 
     expect(received).not.toBeNull()
     expect(received!.channelType).toBe('web')
@@ -59,7 +67,9 @@ describe('WebMessageHandler', () => {
   test('IncomingMessage has valid ISO timestamp', async () => {
     const handler = new WebMessageHandler()
     let received: IncomingMessage | null = null
-    handler.setMessageHandler(async (msg) => { received = msg })
+    handler.setMessageHandler(async (msg) => {
+      received = msg
+    })
 
     const before = new Date().toISOString()
     await handler.handleMessage('c1', JSON.stringify({ type: 'message', content: 'test' }))
@@ -72,29 +82,38 @@ describe('WebMessageHandler', () => {
 
   test('isSubscribed returns true for exact topic match', async () => {
     const handler = new WebMessageHandler()
-    await handler.handleMessage('c1', JSON.stringify({
-      type: 'subscribe',
-      topics: ['metrics'],
-    }))
+    await handler.handleMessage(
+      'c1',
+      JSON.stringify({
+        type: 'subscribe',
+        topics: ['metrics'],
+      }),
+    )
     expect(handler.isSubscribed('c1', 'metrics')).toBe(true)
   })
 
   test('isSubscribed wildcard session:* matches session:update', async () => {
     const handler = new WebMessageHandler()
-    await handler.handleMessage('c1', JSON.stringify({
-      type: 'subscribe',
-      topics: ['session:*'],
-    }))
+    await handler.handleMessage(
+      'c1',
+      JSON.stringify({
+        type: 'subscribe',
+        topics: ['session:*'],
+      }),
+    )
     expect(handler.isSubscribed('c1', 'session:update')).toBe(true)
     expect(handler.isSubscribed('c1', 'session:delete')).toBe(true)
   })
 
   test('isSubscribed global wildcard * matches any topic', async () => {
     const handler = new WebMessageHandler()
-    await handler.handleMessage('c1', JSON.stringify({
-      type: 'subscribe',
-      topics: ['*'],
-    }))
+    await handler.handleMessage(
+      'c1',
+      JSON.stringify({
+        type: 'subscribe',
+        topics: ['*'],
+      }),
+    )
     expect(handler.isSubscribed('c1', 'anything')).toBe(true)
     expect(handler.isSubscribed('c1', 'session:update')).toBe(true)
   })
@@ -106,10 +125,13 @@ describe('WebMessageHandler', () => {
 
   test('removeClient clears all subscriptions', async () => {
     const handler = new WebMessageHandler()
-    await handler.handleMessage('c1', JSON.stringify({
-      type: 'subscribe',
-      topics: ['metrics', 'session:*'],
-    }))
+    await handler.handleMessage(
+      'c1',
+      JSON.stringify({
+        type: 'subscribe',
+        topics: ['metrics', 'session:*'],
+      }),
+    )
     expect(handler.isSubscribed('c1', 'metrics')).toBe(true)
 
     handler.removeClient('c1')

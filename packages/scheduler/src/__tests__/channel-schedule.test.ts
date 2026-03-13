@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { CronScheduler } from '../cron'
 
 const waitForTick = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -253,7 +253,6 @@ describe('CronScheduler — new methods', () => {
     try {
       const entry = scheduler.getEntry('error_job')
       expect(entry).toBeDefined()
-
       ;(scheduler as any).launchFire('error_job', entry!)
       await waitForTick()
 

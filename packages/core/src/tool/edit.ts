@@ -1,7 +1,7 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { withLock } from '@zero-os/shared'
-import { BaseTool } from './base'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
+import { BaseTool } from './base'
 
 interface EditInput {
   path: string

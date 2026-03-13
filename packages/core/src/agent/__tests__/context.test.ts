@@ -1,7 +1,7 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { generateId, now } from '@zero-os/shared'
-import type { Message, ContentBlock } from '@zero-os/shared'
-import { prepareConversationHistory, estimateConversationTokens } from '../context'
+import type { ContentBlock, Message } from '@zero-os/shared'
+import { estimateConversationTokens, prepareConversationHistory } from '../context'
 
 function makeMessage(role: 'user' | 'assistant', content: ContentBlock[]): Message {
   return {
@@ -47,7 +47,9 @@ function buildConversation(turnCount: number): Message[] {
     const toolId = `tool-${i}`
     messages.push(makeUserText(`User question for turn ${i}`))
     messages.push(makeAssistantToolUse('bash', toolId))
-    messages.push(makeToolResult(toolId, `Full output of tool execution for turn ${i}. `.repeat(20), false))
+    messages.push(
+      makeToolResult(toolId, `Full output of tool execution for turn ${i}. `.repeat(20), false),
+    )
     messages.push(makeAssistantText(`Response for turn ${i}`))
   }
   return messages
@@ -61,7 +63,7 @@ describe('prepareConversationHistory', () => {
 
   test('does not modify original messages array (immutability)', () => {
     const messages = buildConversation(6)
-    const originalContent = messages.map(m => m.content.map(b => ({ ...b })))
+    const originalContent = messages.map((m) => m.content.map((b) => ({ ...b })))
 
     prepareConversationHistory(messages)
 
@@ -81,7 +83,9 @@ describe('prepareConversationHistory', () => {
       if (msg.role === 'user') {
         for (const block of msg.content) {
           if (block.type === 'tool_result') {
-            expect(block.content).toBe(messages[i].content.find(b => b.type === 'tool_result')!.content)
+            expect(block.content).toBe(
+              messages[i].content.find((b) => b.type === 'tool_result')!.content,
+            )
           }
         }
       }
@@ -105,7 +109,7 @@ describe('prepareConversationHistory', () => {
     // Each turn = 4 messages. Turn 5 tool_result is at index 5*4+2 = 22
     const midToolResult = result[22]
     expect(midToolResult.role).toBe('user')
-    const midBlock = midToolResult.content.find(b => b.type === 'tool_result')!
+    const midBlock = midToolResult.content.find((b) => b.type === 'tool_result')!
     // The original content is long (~800 chars), truncated should be ~200 + "..."
     expect(midBlock.content.length).toBeLessThanOrEqual(210)
     expect(midBlock.content).toEndWith('...')
@@ -119,7 +123,7 @@ describe('prepareConversationHistory', () => {
     // Turn 0 tool_result is at index 0*4+2 = 2
     const oldToolResult = result[2]
     expect(oldToolResult.role).toBe('user')
-    const oldBlock = oldToolResult.content.find(b => b.type === 'tool_result')!
+    const oldBlock = oldToolResult.content.find((b) => b.type === 'tool_result')!
     expect(oldBlock.content).toBe('\u2713 success')
   })
 
@@ -139,7 +143,7 @@ describe('prepareConversationHistory', () => {
 
     // Turn 0 (chronological) has age 11 => status only, with error
     const errorResult = result[2]
-    const errorBlock = errorResult.content.find(b => b.type === 'tool_result')!
+    const errorBlock = errorResult.content.find((b) => b.type === 'tool_result')!
     expect(errorBlock.content).toContain('\u2717 failed:')
     expect(errorBlock.content).toContain('Error: command not found')
   })
@@ -151,7 +155,7 @@ describe('prepareConversationHistory', () => {
     // Chronological turn 1 has age 10 => status only, success
     // Turn 1 tool_result at index 1*4+2 = 6
     const successResult = result[6]
-    const successBlock = successResult.content.find(b => b.type === 'tool_result')!
+    const successBlock = successResult.content.find((b) => b.type === 'tool_result')!
     expect(successBlock.content).toBe('\u2713 success')
   })
 
@@ -176,12 +180,16 @@ describe('prepareConversationHistory', () => {
       messages.push(makeAssistantToolUse('bash', toolId))
       if (i === 0) {
         // Give the oldest turn an outputSummary
-        messages.push(makeMessage('user', [{
-          type: 'tool_result',
-          toolUseId: toolId,
-          content: 'A'.repeat(1000),
-          outputSummary: 'Custom summary of output',
-        }]))
+        messages.push(
+          makeMessage('user', [
+            {
+              type: 'tool_result',
+              toolUseId: toolId,
+              content: 'A'.repeat(1000),
+              outputSummary: 'Custom summary of output',
+            },
+          ]),
+        )
       } else {
         messages.push(makeToolResult(toolId, `Output for turn ${i}`))
       }
@@ -191,7 +199,7 @@ describe('prepareConversationHistory', () => {
     const result = prepareConversationHistory(messages)
 
     // Turn 0 (chronological) has age 5 => mid-range truncation
-    const block = result[2].content.find(b => b.type === 'tool_result')!
+    const block = result[2].content.find((b) => b.type === 'tool_result')!
     expect(block.content).toContain('Custom summary of output')
   })
 
@@ -203,7 +211,7 @@ describe('prepareConversationHistory', () => {
     for (let i = 0; i < 12; i++) {
       const textMsg = result[i * 4]
       expect(textMsg.role).toBe('user')
-      const textBlock = textMsg.content.find(b => b.type === 'text')!
+      const textBlock = textMsg.content.find((b) => b.type === 'text')!
       expect(textBlock.text).toContain(`turn ${i}`)
     }
   })

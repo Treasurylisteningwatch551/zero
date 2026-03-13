@@ -1,7 +1,7 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
+import type { ProviderAdapter } from '@zero-os/model'
 import { generateId, now } from '@zero-os/shared'
 import type { Message } from '@zero-os/shared'
-import type { ProviderAdapter } from '@zero-os/model'
 import { compressConversation } from '../compress'
 
 function makeMessage(role: 'user' | 'assistant', text: string): Message {
@@ -27,7 +27,9 @@ const mockAdapter = {
     }
   },
   async *stream() {},
-  async healthCheck() { return true },
+  async healthCheck() {
+    return true
+  },
 } satisfies ProviderAdapter
 
 describe('compressConversation', () => {

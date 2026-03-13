@@ -34,23 +34,25 @@ export const useUIStore = create<UIState>((set) => ({
   sidebarCollapsed: false,
   selectedSessionId: null,
   isMobile: typeof window !== 'undefined' ? window.innerWidth < 768 : false,
-  isTablet: typeof window !== 'undefined' ? window.innerWidth >= 768 && window.innerWidth < 1024 : false,
+  isTablet:
+    typeof window !== 'undefined' ? window.innerWidth >= 768 && window.innerWidth < 1024 : false,
   toasts: [],
   toggleChatDrawer: () => set((s) => ({ chatDrawerOpen: !s.chatDrawerOpen })),
   setCurrentPage: (page) => set({ currentPage: page }),
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   setSelectedSessionId: (id) => set({ selectedSessionId: id }),
-  setViewport: (width: number) => set({
-    isMobile: width < 768,
-    isTablet: width >= 768 && width < 1024,
-  }),
+  setViewport: (width: number) =>
+    set({
+      isMobile: width < 768,
+      isTablet: width >= 768 && width < 1024,
+    }),
   addToast: (type, message) => {
     const id = `toast-${++toastCounter}`
     set((s) => ({ toasts: [...s.toasts, { id, type, message }] }))
     // Auto-dismiss after 4 seconds
     setTimeout(() => {
       set((s) => ({
-        toasts: s.toasts.map((t) => t.id === id ? { ...t, exiting: true } : t),
+        toasts: s.toasts.map((t) => (t.id === id ? { ...t, exiting: true } : t)),
       }))
       setTimeout(() => {
         set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
@@ -59,7 +61,7 @@ export const useUIStore = create<UIState>((set) => ({
   },
   removeToast: (id) => {
     set((s) => ({
-      toasts: s.toasts.map((t) => t.id === id ? { ...t, exiting: true } : t),
+      toasts: s.toasts.map((t) => (t.id === id ? { ...t, exiting: true } : t)),
     }))
     setTimeout(() => {
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))

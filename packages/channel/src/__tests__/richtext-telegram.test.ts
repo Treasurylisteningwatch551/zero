@@ -1,9 +1,11 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { chunkTelegramRichText, markdownToTelegramRichText } from '../richtext'
 
 describe('Telegram richtext renderer', () => {
   test('renders inline markdown to entities', () => {
-    const rendered = markdownToTelegramRichText('**Bold** and _italic_ with [link](https://example.com)')
+    const rendered = markdownToTelegramRichText(
+      '**Bold** and _italic_ with [link](https://example.com)',
+    )
 
     expect(rendered.text).toBe('Bold and italic with link')
     expect(rendered.entities).toEqual([
@@ -17,9 +19,7 @@ describe('Telegram richtext renderer', () => {
     const rendered = markdownToTelegramRichText('```ts\nconst x = 1\n```')
 
     expect(rendered.text).toBe('const x = 1\n')
-    expect(rendered.entities).toEqual([
-      { type: 'pre', offset: 0, length: 12, language: 'ts' },
-    ])
+    expect(rendered.entities).toEqual([{ type: 'pre', offset: 0, length: 12, language: 'ts' }])
   })
 
   test('renders blockquote markers', () => {
@@ -36,9 +36,7 @@ describe('Telegram richtext renderer', () => {
     const rendered = markdownToTelegramRichText('## Title\n- item\n- [x] done\n1. step')
 
     expect(rendered.text).toBe('Title\n• item\n☑ done\n1. step')
-    expect(rendered.entities).toEqual([
-      { type: 'bold', offset: 0, length: 5 },
-    ])
+    expect(rendered.entities).toEqual([{ type: 'bold', offset: 0, length: 5 }])
   })
 
   test('chunks long messages and remaps entity offsets', () => {

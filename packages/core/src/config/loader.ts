@@ -1,6 +1,6 @@
+import { existsSync } from 'node:fs'
 import { readYaml, readYamlOrDefault } from '@zero-os/shared'
 import type { ChannelInstanceConfig, FuseRule, SystemConfig } from '@zero-os/shared'
-import { existsSync } from 'node:fs'
 
 /**
  * Load ZeRo OS system configuration from .zero/config.yaml.
@@ -39,10 +39,10 @@ function normalizeConfig(raw: Record<string, unknown>): SystemConfig {
     }
 
     providers[name] = {
-      apiType: (p.api_type as string) as SystemConfig['providers'][string]['apiType'],
+      apiType: p.api_type as string as SystemConfig['providers'][string]['apiType'],
       baseUrl: (p.base_url as string) ?? '',
       auth: {
-        type: (rawAuth.type as string) as 'api_key' | 'oauth2',
+        type: rawAuth.type as string as 'api_key' | 'oauth2',
         apiKeyRef: rawAuth.api_key_ref as string | undefined,
         oauthTokenRef: rawAuth.oauth_token_ref as string | undefined,
       },
@@ -51,7 +51,7 @@ function normalizeConfig(raw: Record<string, unknown>): SystemConfig {
   }
 
   const rawChannels = Array.isArray(raw.channels)
-    ? raw.channels as Array<Record<string, unknown>>
+    ? (raw.channels as Array<Record<string, unknown>>)
     : []
   const channels = rawChannels
     .map(normalizeChannelConfig)
@@ -59,7 +59,7 @@ function normalizeConfig(raw: Record<string, unknown>): SystemConfig {
 
   const defaultModel = normalizeModelReference((raw.default_model as string) ?? '', providers)
   const fallbackChain = ((raw.fallback_chain as string[]) ?? []).map((model) =>
-    normalizeModelReference(model, providers)
+    normalizeModelReference(model, providers),
   )
 
   return {
@@ -69,14 +69,13 @@ function normalizeConfig(raw: Record<string, unknown>): SystemConfig {
     schedules: (raw.schedules as SystemConfig['schedules']) ?? [],
     fuseList: (raw.fuse_list as FuseRule[]) ?? [],
     ...(raw.channels !== undefined ? { channels } : {}),
-    ...(raw.embedding !== undefined ? { embedding: normalizeEmbeddingConfig(raw.embedding as Record<string, unknown>) } : {}),
+    ...(raw.embedding !== undefined
+      ? { embedding: normalizeEmbeddingConfig(raw.embedding as Record<string, unknown>) }
+      : {}),
   }
 }
 
-function normalizeModelReference(
-  value: string,
-  providers: SystemConfig['providers']
-): string {
+function normalizeModelReference(value: string, providers: SystemConfig['providers']): string {
   if (!value) return value
   if (value.includes('/')) {
     return value
@@ -85,7 +84,7 @@ function normalizeModelReference(
   const matches = Object.entries(providers).flatMap(([providerName, provider]) =>
     Object.entries(provider.models)
       .filter(([modelName, model]) => modelName === value || model.modelId === value)
-      .map(([modelName]) => `${providerName}/${modelName}`)
+      .map(([modelName]) => `${providerName}/${modelName}`),
   )
 
   return matches.length === 1 ? matches[0] : value
@@ -101,7 +100,8 @@ function normalizeChannelConfig(raw: Record<string, unknown>): ChannelInstanceCo
     name,
     type,
     enabled: readBoolean(raw, 'enabled') ?? true,
-    receiveNotifications: readBoolean(raw, 'receiveNotifications', 'receive_notifications') ?? false,
+    receiveNotifications:
+      readBoolean(raw, 'receiveNotifications', 'receive_notifications') ?? false,
   }
 
   if (type === 'feishu') {
@@ -138,7 +138,9 @@ function normalizeChannelConfig(raw: Record<string, unknown>): ChannelInstanceCo
   return null
 }
 
-function normalizeEmbeddingConfig(raw: Record<string, unknown>): NonNullable<SystemConfig['embedding']> {
+function normalizeEmbeddingConfig(
+  raw: Record<string, unknown>,
+): NonNullable<SystemConfig['embedding']> {
   return {
     baseUrl: readString(raw, 'baseUrl', 'base_url') ?? '',
     apiKeyRef: readString(raw, 'apiKeyRef', 'api_key_ref') ?? '',

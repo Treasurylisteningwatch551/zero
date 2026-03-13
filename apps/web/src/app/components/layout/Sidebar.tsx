@@ -1,8 +1,20 @@
-import { useState, useEffect, useRef } from 'react'
-import { ChatCircle, Gauge, ClockCounterClockwise, Brain, ClipboardText, Terminal, Gear, ChartBar, Wrench, List, CaretDown } from '@phosphor-icons/react'
-import { useUIStore } from '../../stores/ui'
-import { useNavigate, useLocation } from '@tanstack/react-router'
+import {
+  Brain,
+  CaretDown,
+  ChartBar,
+  ChatCircle,
+  ClipboardText,
+  ClockCounterClockwise,
+  Gauge,
+  Gear,
+  List,
+  Terminal,
+  Wrench,
+} from '@phosphor-icons/react'
+import { useLocation, useNavigate } from '@tanstack/react-router'
+import { useEffect, useRef, useState } from 'react'
 import { apiFetch, apiPost } from '../../lib/api'
+import { useUIStore } from '../../stores/ui'
 
 const navItems = [
   { name: 'Dashboard', icon: Gauge, path: '/' },
@@ -36,7 +48,9 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
       .then((res) => setModels(res.models.map((m) => m.name)))
       .catch(() => {})
     apiFetch<{ currentModel: string }>('/api/status')
-      .then((res) => { if (res.currentModel) setCurrentModel(res.currentModel) })
+      .then((res) => {
+        if (res.currentModel) setCurrentModel(res.currentModel)
+      })
       .catch(() => {})
   }, [])
 
@@ -85,7 +99,8 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
       {/* Navigation */}
       <nav className={`flex-1 ${isCollapsed ? 'px-1' : 'px-3'} space-y-0.5`}>
         {navItems.map((item) => {
-          const isActive = location.pathname === item.path ||
+          const isActive =
+            location.pathname === item.path ||
             (item.path !== '/' && location.pathname.startsWith(item.path + '/'))
           return (
             <button
@@ -106,7 +121,9 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
       </nav>
 
       {/* Bottom section: status + chat button */}
-      <div className={`${isCollapsed ? 'px-1' : 'px-4'} py-4 space-y-3 border-t border-[var(--color-border)]`}>
+      <div
+        className={`${isCollapsed ? 'px-1' : 'px-4'} py-4 space-y-3 border-t border-[var(--color-border)]`}
+      >
         {!isCollapsed && (
           <div className="space-y-1 relative" ref={pickerRef}>
             <div className="flex items-center gap-2">
@@ -118,7 +135,10 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
               className="flex items-center gap-1 text-[11px] font-mono text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors w-full text-left"
             >
               <span className="truncate flex-1">{currentModel}</span>
-              <CaretDown size={10} className={`shrink-0 transition-transform ${showModelPicker ? 'rotate-180' : ''}`} />
+              <CaretDown
+                size={10}
+                className={`shrink-0 transition-transform ${showModelPicker ? 'rotate-180' : ''}`}
+              />
             </button>
             <p className="text-[11px] font-mono text-[var(--color-text-disabled)]">v0.1 stable</p>
 

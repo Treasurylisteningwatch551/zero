@@ -1,11 +1,10 @@
-import { describe, test, expect } from 'bun:test'
-import { Session } from '../session'
-import { SessionManager } from '../manager'
+import { describe, expect, test } from 'bun:test'
 import { ModelRouter } from '@zero-os/model'
-import { ToolRegistry } from '../../tool/registry'
-import { ReadTool } from '../../tool/read'
-import { BashTool } from '../../tool/bash'
 import type { SystemConfig } from '@zero-os/shared'
+import { BashTool } from '../../tool/bash'
+import { ReadTool } from '../../tool/read'
+import { ToolRegistry } from '../../tool/registry'
+import { Session } from '../session'
 
 const API_KEY = 'sk-c6c02cbd0c25473f97f9be0da6070f6d'
 

@@ -1,6 +1,6 @@
-import { describe, test, expect } from 'bun:test'
-import { estimateTokens, truncateToTokens, estimateMessageTokens } from '../tokens'
+import { describe, expect, test } from 'bun:test'
 import type { ContentBlock } from '../../types/message'
+import { estimateMessageTokens, estimateTokens, truncateToTokens } from '../tokens'
 
 describe('estimateTokens', () => {
   test('returns 0 for empty string', () => {
@@ -56,31 +56,37 @@ describe('estimateMessageTokens', () => {
   })
 
   test('estimates tool_use block tokens', () => {
-    const blocks: ContentBlock[] = [{
-      type: 'tool_use',
-      id: 'tc_001',
-      name: 'Read',
-      input: { path: '/some/file.ts' },
-    }]
+    const blocks: ContentBlock[] = [
+      {
+        type: 'tool_use',
+        id: 'tc_001',
+        name: 'Read',
+        input: { path: '/some/file.ts' },
+      },
+    ]
     const tokens = estimateMessageTokens(blocks)
     expect(tokens).toBeGreaterThan(0)
   })
 
   test('estimates tool_result block tokens', () => {
-    const blocks: ContentBlock[] = [{
-      type: 'tool_result',
-      toolUseId: 'tc_001',
-      content: 'File content here...',
-    }]
+    const blocks: ContentBlock[] = [
+      {
+        type: 'tool_result',
+        toolUseId: 'tc_001',
+        content: 'File content here...',
+      },
+    ]
     expect(estimateMessageTokens(blocks)).toBe(estimateTokens('File content here...'))
   })
 
   test('estimates image block with fixed value', () => {
-    const blocks: ContentBlock[] = [{
-      type: 'image',
-      mediaType: 'image/png',
-      data: 'base64data...',
-    }]
+    const blocks: ContentBlock[] = [
+      {
+        type: 'image',
+        mediaType: 'image/png',
+        data: 'base64data...',
+      },
+    ]
     expect(estimateMessageTokens(blocks)).toBe(300)
   })
 
@@ -89,8 +95,6 @@ describe('estimateMessageTokens', () => {
       { type: 'text', text: 'Hello' },
       { type: 'text', text: 'World' },
     ]
-    expect(estimateMessageTokens(blocks)).toBe(
-      estimateTokens('Hello') + estimateTokens('World')
-    )
+    expect(estimateMessageTokens(blocks)).toBe(estimateTokens('Hello') + estimateTokens('World'))
   })
 })

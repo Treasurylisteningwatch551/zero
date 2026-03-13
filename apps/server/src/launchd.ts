@@ -35,7 +35,7 @@ interface LaunchctlResult {
 export function getSupervisorLaunchAgentPaths(
   projectRoot = process.cwd(),
   userHome = homedir(),
-  bunPath = getBunExecutable()
+  bunPath = getBunExecutable(),
 ): SupervisorLaunchAgentPaths {
   const zeroDir = join(projectRoot, '.zero')
   const logsDir = join(zeroDir, 'logs')
@@ -63,7 +63,10 @@ export function renderSupervisorLaunchAgentPlist(paths: SupervisorLaunchAgentPat
   }
 
   const envLines = Object.entries(env)
-    .map(([key, value]) => `    <key>${escapeXml(key)}</key>\n    <string>${escapeXml(value)}</string>`)
+    .map(
+      ([key, value]) =>
+        `    <key>${escapeXml(key)}</key>\n    <string>${escapeXml(value)}</string>`,
+    )
     .join('\n')
 
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -135,7 +138,9 @@ export function uninstallSupervisorLaunchAgent(projectRoot = process.cwd()) {
   return paths
 }
 
-export function getSupervisorLaunchAgentStatus(projectRoot = process.cwd()): SupervisorLaunchAgentStatus {
+export function getSupervisorLaunchAgentStatus(
+  projectRoot = process.cwd(),
+): SupervisorLaunchAgentStatus {
   const paths = getSupervisorLaunchAgentPaths(projectRoot)
 
   if (process.platform !== 'darwin') {

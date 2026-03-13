@@ -1,9 +1,9 @@
-import { Hono } from 'hono'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { readFileSync, existsSync } from 'node:fs'
-import { createRoutes } from './api/routes'
-import type { ZeroOS } from '../../server/src/main'
 import { WebMessageHandler } from '@zero-os/channel'
+import { Hono } from 'hono'
+import type { ZeroOS } from '../../server/src/main'
+import { createRoutes } from './api/routes'
 
 const WEB_DIST = join(import.meta.dir, '../dist')
 
@@ -120,7 +120,7 @@ export function startWebServer(zero: ZeroOS): { port: number } {
     for (const [clientId, { ws }] of wsClients) {
       if (wsHandler.isSubscribed(clientId, payload.topic)) {
         try {
-          (ws as any).send(msg)
+          ;(ws as any).send(msg)
         } catch {
           // Client disconnected
           wsClients.delete(clientId)

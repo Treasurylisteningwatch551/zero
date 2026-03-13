@@ -1,20 +1,15 @@
-import {
-  createRouter,
-  createRootRoute,
-  createRoute,
-  Outlet,
-} from '@tanstack/react-router'
+import { createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import { RootLayout } from './RootLayout'
-import { DashboardPage } from './routes/dashboard'
-import { SessionsPage } from './routes/sessions'
-import { SessionDetailPage } from './routes/session-detail'
-import { SessionChannelDetailPage } from './routes/session-channel-detail'
-import { MemoryPage } from './routes/memory'
-import { MemoPage } from './routes/memo'
-import { ToolsPage } from './routes/tools'
-import { LogsPage } from './routes/logs'
 import { ConfigPage } from './routes/config'
+import { DashboardPage } from './routes/dashboard'
+import { LogsPage } from './routes/logs'
+import { MemoPage } from './routes/memo'
+import { MemoryPage } from './routes/memory'
 import { MetricsPage } from './routes/metrics'
+import { SessionChannelDetailPage } from './routes/session-channel-detail'
+import { SessionDetailPage } from './routes/session-detail'
+import { SessionsPage } from './routes/sessions'
+import { ToolsPage } from './routes/tools'
 
 const rootRoute = createRootRoute({
   component: RootLayout,

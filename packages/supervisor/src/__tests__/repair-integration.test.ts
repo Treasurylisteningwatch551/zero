@@ -1,9 +1,9 @@
-import { describe, test, expect, afterAll } from 'bun:test'
+import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { HeartbeatChecker, HeartbeatWriter } from '../heartbeat'
 import { RepairEngine } from '../repair'
-import { HeartbeatWriter, HeartbeatChecker } from '../heartbeat'
 
 const tmpDir = mkdtempSync(join(tmpdir(), 'zero-repair-int-'))
 const heartbeatPath = join(tmpDir, 'heartbeat.json')

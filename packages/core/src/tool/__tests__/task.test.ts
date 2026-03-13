@@ -1,12 +1,12 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { TaskTool } from '../task'
-import { ToolRegistry } from '../registry'
-import { ReadTool } from '../read'
-import { BashTool } from '../bash'
 import { ModelRouter } from '@zero-os/model'
 import type { SystemConfig } from '@zero-os/shared'
+import { BashTool } from '../bash'
+import { ReadTool } from '../read'
+import { ToolRegistry } from '../registry'
+import { TaskTool } from '../task'
 
 // Use the same config pattern as packages/model/src/__tests__/router.test.ts
 const API_KEY = 'sk-c6c02cbd0c25473f97f9be0da6070f6d'

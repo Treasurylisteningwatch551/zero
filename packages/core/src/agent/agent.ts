@@ -1,38 +1,42 @@
+import type { ProviderAdapter } from '@zero-os/model'
+import { computeCost } from '@zero-os/model'
+import type { JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
 import type {
-  Message,
-  ContentBlock,
   CompletionRequest,
   CompletionResponse,
   CompressionResult,
-  ToolContext,
-  ToolResult,
-  ToolDefinition,
-  TokenUsage,
+  ContentBlock,
+  Message,
   SecretFilter,
+  TokenUsage,
+  ToolContext,
+  ToolDefinition,
+  ToolResult,
 } from '@zero-os/shared'
 import { generateId, generatePrefixedId, now } from '@zero-os/shared'
-import type { ProviderAdapter } from '@zero-os/model'
-import { computeCost } from '@zero-os/model'
-import type { BaseTool } from '../tool/base'
 import type { ToolRegistry } from '../tool/registry'
-import type { JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
-import { truncateToolOutput } from './truncate'
-import { prepareConversationHistory, estimateConversationTokens } from './context'
 import { allocateBudget, shouldCompress } from './budget'
-import { type QueuedMessage, injectQueuedMessages, CONTINUATION_PROMPT, isTaskComplete } from './queue'
+import { estimateConversationTokens, prepareConversationHistory } from './context'
+import { CONTEXT_PARAMS } from './params'
 import {
-  TASK_CLOSURE_PROMPT,
+  CONTINUATION_PROMPT,
+  type QueuedMessage,
+  injectQueuedMessages,
+  isTaskComplete,
+} from './queue'
+import {
   TASK_CLOSURE_CLASSIFIER_SYSTEM_PROMPT,
+  TASK_CLOSURE_PROMPT,
+  type TaskClosureDecision,
+  type TaskClosurePromptContext,
   buildTaskClosureDecisionPrompt,
   extractAssistantTail,
   extractAssistantText,
   hasAssistantText,
   parseTaskClosureDecision,
   stripAssistantTrimFrom,
-  type TaskClosureDecision,
-  type TaskClosurePromptContext,
 } from './task-closure'
-import { CONTEXT_PARAMS } from './params'
+import { truncateToolOutput } from './truncate'
 
 class ToolInputParseError extends Error {
   constructor(message: string) {
@@ -85,7 +89,8 @@ export interface AgentObservability {
   }) => void
 }
 
-const EMPTY_RESPONSE_RETRY_PROMPT = 'Your previous reply was empty. Continue the current task and provide the actual answer or the next required tool call. Do not return an empty response.'
+const EMPTY_RESPONSE_RETRY_PROMPT =
+  'Your previous reply was empty. Continue the current task and provide the actual answer or the next required tool call. Do not return an empty response.'
 
 /**
  * Agent execution engine — runs the tool use loop.
@@ -136,7 +141,7 @@ export class Agent {
     adapter: ProviderAdapter,
     toolRegistry: ToolRegistry,
     toolContext: ToolContext,
-    obs: AgentObservability = {}
+    obs: AgentObservability = {},
   ) {
     this.config = config
     this.adapter = adapter
@@ -155,7 +160,7 @@ export class Agent {
     onNewMessage?: (msg: Message) => void,
     onTextDelta?: (delta: string, meta: { role: 'assistant'; turnId: string }) => void,
     shouldInterrupt?: () => boolean,
-    getQueuedMessages?: () => QueuedMessage[]
+    getQueuedMessages?: () => QueuedMessage[],
   ): Promise<Message[]> {
     let continuationCount = 0
     let taskClosureRetryCount = 0
@@ -166,7 +171,7 @@ export class Agent {
     // Start root trace span
     const rootSpan = this.obs.tracer?.startSpan(
       this.toolContext.sessionId,
-      `agent.run:${this.config.name}`
+      `agent.run:${this.config.name}`,
     )
 
     // Add user message (text + optional images)
@@ -270,11 +275,11 @@ export class Agent {
       const taskClosureDecision = taskClosureEvaluation.decision
       const displayContent =
         taskClosureDecision?.action === 'continue' && taskClosureDecision.trimFrom
-          ? stripAssistantTrimFrom(response.content, taskClosureDecision.trimFrom) ?? response.content
+          ? (stripAssistantTrimFrom(response.content, taskClosureDecision.trimFrom) ??
+            response.content)
           : response.content
       const shouldAutoContinueTaskClosure =
-        taskClosureDecision?.action === 'continue' &&
-        displayContent !== response.content
+        taskClosureDecision?.action === 'continue' && displayContent !== response.content
 
       // Create assistant message — filter secrets from text blocks
       const filteredContent = this.filterContent(displayContent)
@@ -292,8 +297,9 @@ export class Agent {
       newMessages.push(assistantMsg)
       onNewMessage?.(assistantMsg)
 
-      const assistantMessagePreview = extractAssistantTail(filteredContent, 240)
-        || extractAssistantText(filteredContent).slice(-240)
+      const assistantMessagePreview =
+        extractAssistantTail(filteredContent, 240) ||
+        extractAssistantText(filteredContent).slice(-240)
 
       if (taskClosureEvaluation.traceSpanId) {
         const taskClosureSpan = this.obs.tracer?.getSpan(taskClosureEvaluation.traceSpanId)
@@ -359,7 +365,11 @@ export class Agent {
 
       // If no tool use, check if continuation is needed after queued message response
       if (response.stopReason !== 'tool_use') {
-        if (hadQueuedMessages && !isTaskComplete(response.content) && continuationCount < CONTEXT_PARAMS.queue.maxContinuationRetries) {
+        if (
+          hadQueuedMessages &&
+          !isTaskComplete(response.content) &&
+          continuationCount < CONTEXT_PARAMS.queue.maxContinuationRetries
+        ) {
           // Task not complete after responding to queued messages — inject continuation prompt
           const contMsg: Message = {
             id: generateId(),
@@ -376,7 +386,10 @@ export class Agent {
           continue
         }
 
-        if (shouldAutoContinueTaskClosure && taskClosureRetryCount < CONTEXT_PARAMS.completion.maxTaskClosureRetries) {
+        if (
+          shouldAutoContinueTaskClosure &&
+          taskClosureRetryCount < CONTEXT_PARAMS.completion.maxTaskClosureRetries
+        ) {
           const contMsg: Message = {
             id: generateId(),
             sessionId: this.toolContext.sessionId,
@@ -413,11 +426,15 @@ export class Agent {
         const toolSpan = this.obs.tracer?.startSpan(
           this.toolContext.sessionId,
           `tool:${block.name}`,
-          rootSpan?.id
+          rootSpan?.id,
         )
 
         // Detect malformed tool input (truncated by max_tokens)
-        if (block.type === 'tool_use' && block.input && typeof (block.input as Record<string, unknown>).__parse_error === 'string') {
+        if (
+          block.type === 'tool_use' &&
+          block.input &&
+          typeof (block.input as Record<string, unknown>).__parse_error === 'string'
+        ) {
           const parseError = (block.input as Record<string, unknown>).__parse_error as string
           toolResultBlocks.push({
             type: 'tool_result',
@@ -508,7 +525,12 @@ export class Agent {
         const budget = allocateBudget(context.maxContext, context.maxOutput)
         if (shouldCompress(estimateConversationTokens(messages), budget.conversation)) {
           const { compressConversation } = await import('./compress')
-          const result = await compressConversation(messages, budget.conversation, this.adapter, this.toolContext.sessionId)
+          const result = await compressConversation(
+            messages,
+            budget.conversation,
+            this.adapter,
+            this.toolContext.sessionId,
+          )
           messages.length = 0
           messages.push(...result.retainedMessages)
           this.obs.onContextCompressed?.({
@@ -571,7 +593,7 @@ export class Agent {
 
   private async completeWithStreamFallback(
     request: CompletionRequest,
-    onTextDelta?: (delta: string, meta: { role: 'assistant'; turnId: string }) => void
+    onTextDelta?: (delta: string, meta: { role: 'assistant'; turnId: string }) => void,
   ): Promise<CompletionResponse> {
     try {
       const streamed = await this.completeFromStream(request, onTextDelta)
@@ -599,7 +621,7 @@ export class Agent {
 
   private async completeFromStream(
     request: CompletionRequest,
-    onTextDelta?: (delta: string, meta: { role: 'assistant'; turnId: string }) => void
+    onTextDelta?: (delta: string, meta: { role: 'assistant'; turnId: string }) => void,
   ): Promise<CompletionResponse> {
     const stream = this.adapter.stream({ ...request, stream: true })
     const turnId = generatePrefixedId('turn_')
@@ -670,7 +692,7 @@ export class Agent {
       if (event.type === 'done') {
         const data = this.toRecord(event.data)
         stopReason = this.mapFinishReason(
-          typeof data.finishReason === 'string' ? data.finishReason : undefined
+          typeof data.finishReason === 'string' ? data.finishReason : undefined,
         )
         usage = this.extractUsage(data.usage)
         if (typeof data.model === 'string') {
@@ -681,11 +703,7 @@ export class Agent {
 
       if (event.type === 'error') {
         const data = this.toRecord(event.data)
-        throw new Error(
-          typeof data.message === 'string'
-            ? data.message
-            : 'Unknown streaming error'
-        )
+        throw new Error(typeof data.message === 'string' ? data.message : 'Unknown streaming error')
       }
     }
 
@@ -703,7 +721,9 @@ export class Agent {
       }
       // Empty args with tool call means truncation (LLM started tool_use but args were cut off)
       if (Object.keys(input).length === 0 && !tc.args.trim()) {
-        input = { __parse_error: `Tool arguments empty (likely truncated by max_tokens, stopReason=${stopReason})` }
+        input = {
+          __parse_error: `Tool arguments empty (likely truncated by max_tokens, stopReason=${stopReason})`,
+        }
       }
       content.push({
         type: 'tool_use',
@@ -773,7 +793,12 @@ export class Agent {
     const userMessagePreview = userMessage.slice(0, 240)
     const assistantTailPreview = assistantTail.slice(0, 400)
     const promptContext = this.buildTaskClosurePromptContext(userMessage, messages)
-    const prompt = buildTaskClosureDecisionPrompt(userMessage, assistantText, assistantTail, promptContext)
+    const prompt = buildTaskClosureDecisionPrompt(
+      userMessage,
+      assistantText,
+      assistantTail,
+      promptContext,
+    )
 
     const classifierMessage: Message = {
       id: generateId(),
@@ -859,8 +884,14 @@ export class Agent {
     userMessage: string,
     messages: Message[],
   ): TaskClosurePromptContext {
-    const isResearchTask = /(https?:\/\/|reddit|analy|analysis|research|investig|verify|核验|分析|研究|调查|看看)/i.test(userMessage)
-    const wantsDepth = /(相关信息|相关线索|尽可能|深入|深挖|详细|交叉验证|多源|in depth|thorough|related info|cross)/i.test(userMessage)
+    const isResearchTask =
+      /(https?:\/\/|reddit|analy|analysis|research|investig|verify|核验|分析|研究|调查|看看)/i.test(
+        userMessage,
+      )
+    const wantsDepth =
+      /(相关信息|相关线索|尽可能|深入|深挖|详细|交叉验证|多源|in depth|thorough|related info|cross)/i.test(
+        userMessage,
+      )
 
     const externalSourceDomains = new Set<string>()
     let externalLookupCount = 0
@@ -885,11 +916,12 @@ export class Agent {
         const toolName = block.name.toLowerCase()
         const input = block.input as Record<string, unknown>
         const url = typeof input.url === 'string' ? input.url : ''
-        const looksExternal = toolName === 'fetch'
-          || toolName.includes('search')
-          || toolName.includes('browser')
-          || url.startsWith('http://')
-          || url.startsWith('https://')
+        const looksExternal =
+          toolName === 'fetch' ||
+          toolName.includes('search') ||
+          toolName.includes('browser') ||
+          url.startsWith('http://') ||
+          url.startsWith('https://')
 
         if (looksExternal) {
           externalLookupCount++
@@ -950,12 +982,10 @@ export class Agent {
     if (!raw.trim()) return {}
     try {
       const parsed = JSON.parse(raw)
-      return parsed && typeof parsed === 'object'
-        ? parsed as Record<string, unknown>
-        : {}
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
     } catch {
       throw new ToolInputParseError(
-        `Failed to parse tool input JSON (${raw.length} chars, likely truncated by max_tokens)`
+        `Failed to parse tool input JSON (${raw.length} chars, likely truncated by max_tokens)`,
       )
     }
   }
@@ -980,25 +1010,26 @@ export class Agent {
   }
 
   private toRecord(value: unknown): Record<string, unknown> {
-    return value && typeof value === 'object'
-      ? value as Record<string, unknown>
-      : {}
+    return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   }
 
-  private getStreamErrorDetails(
-    streamErr: unknown,
-  ): { message: string; status?: number; requestId?: string } {
+  private getStreamErrorDetails(streamErr: unknown): {
+    message: string
+    status?: number
+    requestId?: string
+  } {
     const data = this.toRecord(streamErr)
     const message = streamErr instanceof Error ? streamErr.message : String(streamErr)
     const anthropicPayload = this.parseAnthropicStreamErrorPayload(message)
     return {
       message,
       status: this.toNumber(data.status),
-      requestId: typeof data.request_id === 'string'
-        ? data.request_id
-        : typeof data.requestId === 'string'
-          ? data.requestId
-          : anthropicPayload?.requestId,
+      requestId:
+        typeof data.request_id === 'string'
+          ? data.request_id
+          : typeof data.requestId === 'string'
+            ? data.requestId
+            : anthropicPayload?.requestId,
     }
   }
 
@@ -1018,12 +1049,12 @@ export class Agent {
     }
 
     return message.includes(
-      'Streaming is strongly recommended for operations that may take longer than 10 minutes'
+      'Streaming is strongly recommended for operations that may take longer than 10 minutes',
     )
   }
 
   private parseAnthropicStreamErrorPayload(
-    message: string
+    message: string,
   ): { requestId?: string; errorType?: string } | undefined {
     if (!message.startsWith('{')) {
       return undefined
@@ -1056,7 +1087,7 @@ export class Agent {
   private logLLMRequest(
     response: CompletionResponse,
     userPrompt: string,
-    durationMs: number
+    durationMs: number,
   ): void {
     const cost = computeCost(response.usage, this.obs.pricing)
     const filter = this.obs.secretFilter
@@ -1068,7 +1099,9 @@ export class Agent {
     const safeUserPrompt = filter ? filter.filter(userPrompt) : userPrompt
     const safeResponseText = filter ? filter.filter(responseText) : responseText
     const safeReasoningContent = response.reasoningContent
-      ? (filter ? filter.filter(response.reasoningContent) : response.reasoningContent)
+      ? filter
+        ? filter.filter(response.reasoningContent)
+        : response.reasoningContent
       : undefined
 
     this.obs.logger?.logSessionRequest({

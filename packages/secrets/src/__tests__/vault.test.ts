@@ -1,8 +1,8 @@
-import { describe, test, expect, afterAll } from 'bun:test'
-import { Vault, encryptSecrets, decryptSecrets } from '../vault'
+import { afterAll, describe, expect, test } from 'bun:test'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { Vault, decryptSecrets, encryptSecrets } from '../vault'
 
 const testDir = join(import.meta.dir, '__fixtures__')
 const testKey = randomBytes(32)

@@ -1,6 +1,6 @@
-import type { Message, CompressionResult } from '@zero-os/shared'
-import { generateId, now, estimateMessageTokens } from '@zero-os/shared'
 import type { ProviderAdapter } from '@zero-os/model'
+import type { CompressionResult, Message } from '@zero-os/shared'
+import { estimateMessageTokens, generateId, now } from '@zero-os/shared'
 import { CONTEXT_PARAMS } from './params'
 
 /**
@@ -60,15 +60,20 @@ export async function compressConversation(
     sessionId,
     role: 'user',
     messageType: 'message',
-    content: [{
-      type: 'text',
-      text: `[以下是之前对话的摘要]\n\n${summary}\n\n[摘要结束，以下是最近的对话]`,
-    }],
+    content: [
+      {
+        type: 'text',
+        text: `[以下是之前对话的摘要]\n\n${summary}\n\n[摘要结束，以下是最近的对话]`,
+      },
+    ],
     createdAt: now(),
   }
 
   const retainedMessages = [summaryMessage, ...retained]
-  const tokensAfter = retainedMessages.reduce((sum, m) => sum + estimateMessageTokens(m.content) + 4, 0)
+  const tokensAfter = retainedMessages.reduce(
+    (sum, m) => sum + estimateMessageTokens(m.content) + 4,
+    0,
+  )
 
   return {
     summary,
@@ -84,19 +89,21 @@ export async function compressConversation(
 }
 
 async function generateSummary(messages: Message[], adapter: ProviderAdapter): Promise<string> {
-  const conversationText = messages.map(m => {
-    const role = m.role
-    const textParts = m.content
-      .map(b => {
-        if (b.type === 'text') return b.text
-        if (b.type === 'tool_use') return `[调用工具: ${b.name}]`
-        if (b.type === 'tool_result') return `[工具结果: ${b.content.slice(0, 200)}]`
-        return ''
-      })
-      .filter(Boolean)
-      .join('\n')
-    return `${role}: ${textParts}`
-  }).join('\n\n')
+  const conversationText = messages
+    .map((m) => {
+      const role = m.role
+      const textParts = m.content
+        .map((b) => {
+          if (b.type === 'text') return b.text
+          if (b.type === 'tool_use') return `[调用工具: ${b.name}]`
+          if (b.type === 'tool_result') return `[工具结果: ${b.content.slice(0, 200)}]`
+          return ''
+        })
+        .filter(Boolean)
+        .join('\n')
+      return `${role}: ${textParts}`
+    })
+    .join('\n\n')
 
   const prompt = `<instruction>
 将以下对话历史压缩为一段简洁的摘要。
@@ -120,19 +127,21 @@ ${conversationText}
 </conversation>`
 
   const response = await adapter.complete({
-    messages: [{
-      id: generateId(),
-      sessionId: 'compression',
-      role: 'user',
-      messageType: 'message',
-      content: [{ type: 'text', text: prompt }],
-      createdAt: now(),
-    }],
+    messages: [
+      {
+        id: generateId(),
+        sessionId: 'compression',
+        role: 'user',
+        messageType: 'message',
+        content: [{ type: 'text', text: prompt }],
+        createdAt: now(),
+      },
+    ],
     system: '你是一个对话摘要助手。请将提供的对话历史压缩为简洁的摘要。',
     stream: false,
     maxTokens: 1024,
   })
 
-  const textBlocks = response.content.filter(b => b.type === 'text')
-  return textBlocks.map(b => (b as { type: 'text'; text: string }).text).join('\n')
+  const textBlocks = response.content.filter((b) => b.type === 'text')
+  return textBlocks.map((b) => (b as { type: 'text'; text: string }).text).join('\n')
 }

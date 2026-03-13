@@ -1,28 +1,28 @@
+import { existsSync, mkdirSync } from 'node:fs'
+import { hostname } from 'node:os'
+import { join } from 'node:path'
+import type { MemoryRetriever } from '@zero-os/memory'
+import type { ModelRouter, ModelSwitchResult, ResolvedModel } from '@zero-os/model'
+import type { JsonlLogger, MetricsDB, SessionDB, SnapshotEntry, Tracer } from '@zero-os/observe'
 import type {
+  CompressionResult,
+  Message,
+  SecretFilter,
   Session as SessionData,
   SessionSource,
   SessionStatus,
-  Message,
   ToolDefinition,
-  SecretFilter,
-  CompressionResult,
 } from '@zero-os/shared'
-import { generateSessionId, generateId, now, Mutex } from '@zero-os/shared'
-import { join } from 'node:path'
-import { mkdirSync, existsSync } from 'node:fs'
-import { hostname } from 'node:os'
-import type { ModelRouter, ModelSwitchResult, ResolvedModel } from '@zero-os/model'
+import { Mutex, generateId, generateSessionId, now } from '@zero-os/shared'
 import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
-import { buildSystemPrompt, buildDynamicContext } from '../agent/prompt'
-import { loadSkills } from '../skill/loader'
-import { loadBootstrapFiles } from '../bootstrap/loader'
 import { allocateBudget } from '../agent/budget'
 import { estimateConversationTokens } from '../agent/context'
+import { buildDynamicContext, buildSystemPrompt } from '../agent/prompt'
 import type { QueuedMessage } from '../agent/queue'
 import { buildSnapshot } from '../agent/snapshot'
+import { loadBootstrapFiles } from '../bootstrap/loader'
+import { loadSkills } from '../skill/loader'
 import type { ToolRegistry } from '../tool/registry'
-import type { JsonlLogger, MetricsDB, Tracer, SessionDB, SnapshotEntry } from '@zero-os/observe'
-import type { MemoryRetriever } from '@zero-os/memory'
 
 /**
  * Dependencies injected into Session for observability, memory, and eventing.
@@ -82,7 +82,7 @@ export class Session {
   private interruptFlag = false
   private messageQueue: QueuedMessage[] = []
   private lastAgentConfig: AgentConfig | null = null
-  private lastSystemPrompt: string = ''
+  private lastSystemPrompt = ''
   private cachedSystemPrompt: string | null = null
   private cachedToolNames: string[] = []
   private knownSkillNames = new Set<string>()
@@ -94,11 +94,13 @@ export class Session {
     modelRouter: ModelRouter,
     toolRegistry: ToolRegistry,
     deps: SessionDeps = {},
-    initialModel?: string
+    initialModel?: string,
   ) {
     const currentModel = initialModel
-      ? modelRouter.resolveModel(initialModel) ?? modelRouter.getDefaultModel() ?? modelRouter.getCurrentModel()
-      : modelRouter.getDefaultModel() ?? modelRouter.getCurrentModel()
+      ? (modelRouter.resolveModel(initialModel) ??
+        modelRouter.getDefaultModel() ??
+        modelRouter.getCurrentModel())
+      : (modelRouter.getDefaultModel() ?? modelRouter.getCurrentModel())
     this.data = {
       id: generateSessionId(),
       createdAt: now(),
@@ -140,7 +142,8 @@ export class Session {
     this.cachedToolNames = []
     this.lastSystemPrompt = ''
     this.knownSkillNames.clear()
-    const resolved = this.activeModel ?? this.modelRouter.getDefaultModel() ?? this.modelRouter.getCurrentModel()
+    const resolved =
+      this.activeModel ?? this.modelRouter.getDefaultModel() ?? this.modelRouter.getCurrentModel()
     if (!resolved) {
       throw new Error('No active model available for session.')
     }
@@ -152,12 +155,13 @@ export class Session {
       mkdirSync(workspacePath, { recursive: true })
     }
 
-    const observabilityHandle = this.deps.logger && this.deps.metrics
-      ? {
-          logOperation: this.deps.logger.logOperation.bind(this.deps.logger),
-          recordOperation: this.deps.metrics.recordOperation.bind(this.deps.metrics),
-        }
-      : undefined
+    const observabilityHandle =
+      this.deps.logger && this.deps.metrics
+        ? {
+            logOperation: this.deps.logger.logOperation.bind(this.deps.logger),
+            recordOperation: this.deps.metrics.recordOperation.bind(this.deps.metrics),
+          }
+        : undefined
 
     const toolContext = {
       sessionId: this.data.id,
@@ -261,7 +265,8 @@ export class Session {
   }
 
   private getCurrentModelLabel(): string | undefined {
-    const resolved = this.activeModel ?? this.modelRouter.getDefaultModel() ?? this.modelRouter.getCurrentModel()
+    const resolved =
+      this.activeModel ?? this.modelRouter.getDefaultModel() ?? this.modelRouter.getCurrentModel()
     return resolved ? this.modelRouter.getModelLabel(resolved) : undefined
   }
 
@@ -310,7 +315,8 @@ export class Session {
 
       this.cachedSystemPrompt = buildSystemPrompt({
         agentName,
-        agentDescription: this.lastAgentConfig?.agentInstruction || '擅长 TypeScript 全栈开发，使用 Bun 运行时。',
+        agentDescription:
+          this.lastAgentConfig?.agentInstruction || '擅长 TypeScript 全栈开发，使用 Bun 运行时。',
         tools,
         skills,
         globalIdentity,
@@ -429,8 +435,12 @@ export class Session {
     this.lastSnapshotContext = Session.snapshotContextFromEntry(lastSnapshot)
   }
 
-  private async processMessage(content: string, options?: HandleMessageOptions): Promise<Message[]> {
-    const { currentModel, tools, toolNames, systemPrompt, projectRoot, workspacePath } = this.ensureStaticContext()
+  private async processMessage(
+    content: string,
+    options?: HandleMessageOptions,
+  ): Promise<Message[]> {
+    const { currentModel, tools, toolNames, systemPrompt, projectRoot, workspacePath } =
+      this.ensureStaticContext()
     this.ensureCurrentContextSnapshot(toolNames)
 
     // === DYNAMIC: Per-message context ===
@@ -439,7 +449,7 @@ export class Session {
     const globalSkills = loadSkills(join(projectRoot, '.zero', 'skills'))
     const workspaceSkills = loadSkills(join(workspacePath, 'skills'))
     const allSkills = [...globalSkills, ...workspaceSkills]
-    const newSkills = allSkills.filter(s => !this.knownSkillNames.has(s.name))
+    const newSkills = allSkills.filter((s) => !this.knownSkillNames.has(s.name))
     for (const s of newSkills) this.knownSkillNames.add(s.name)
 
     // Build dynamic context — injected into API request only, not stored in messages
@@ -477,7 +487,7 @@ export class Session {
       onNewMessage,
       options?.onTextDelta,
       shouldInterrupt,
-      getQueuedMessages
+      getQueuedMessages,
     )
 
     // Emit session:update
@@ -560,7 +570,8 @@ export class Session {
           return [this.makeSystemMessage(`Current model: ${this.data.currentModel}`)]
         }
         if (args.toLowerCase() === 'list') {
-          const available = this.modelRouter.getRegistry()
+          const available = this.modelRouter
+            .getRegistry()
             .listModels()
             .map((model) => `- ${model.providerName}/${model.modelName}`)
             .join('\n')
@@ -577,7 +588,11 @@ export class Session {
           if (!result.success) {
             return [this.makeSystemMessage(result.message)]
           }
-          return [this.makeSystemMessage(`New conversation started with model: ${this.data.currentModel}`)]
+          return [
+            this.makeSystemMessage(
+              `New conversation started with model: ${this.data.currentModel}`,
+            ),
+          ]
         }
         this.reinitializeAgent()
         return [this.makeSystemMessage('New conversation started.')]
@@ -598,7 +613,7 @@ export class Session {
     this.deps.sessionDb?.saveSession(
       this.data,
       agentConfig ? JSON.stringify(agentConfig) : undefined,
-      this.lastSystemPrompt || undefined
+      this.lastSystemPrompt || undefined,
     )
   }
 
@@ -622,9 +637,10 @@ export class Session {
     modelRouter: ModelRouter,
     toolRegistry: ToolRegistry,
     deps: SessionDeps = {},
-    systemPrompt?: string
+    systemPrompt?: string,
   ): Session {
-    const normalizedCurrentModel = modelRouter.normalizeModelReference(data.currentModel) ?? data.currentModel
+    const normalizedCurrentModel =
+      modelRouter.normalizeModelReference(data.currentModel) ?? data.currentModel
     const normalizedHistory = data.modelHistory.map((entry) => ({
       ...entry,
       model: modelRouter.normalizeModelReference(entry.model) ?? entry.model,

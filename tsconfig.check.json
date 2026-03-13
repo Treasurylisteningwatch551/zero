@@ -7,18 +7,6 @@
     "baseUrl": ".",
     "jsx": "react-jsx"
   },
-  "include": [
-    "apps/**/*.ts",
-    "apps/**/*.tsx",
-    "packages/**/*.ts",
-    "packages/**/*.tsx"
-  ],
-  "exclude": [
-    ".zero",
-    "node_modules",
-    "dist",
-    "test-results",
-    "apps/web/.zero",
-    "apps/web/dist"
-  ]
+  "include": ["apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts", "packages/**/*.tsx"],
+  "exclude": [".zero", "node_modules", "dist", "test-results", "apps/web/.zero", "apps/web/dist"]
 }

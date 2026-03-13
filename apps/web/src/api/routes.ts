@@ -1,12 +1,15 @@
-import { Hono } from 'hono'
-import { cors } from 'hono/cors'
-import type { ZeroOS } from '../../../server/src/main'
-import { ChatGptOAuthBroker } from '../../../server/src/chatgpt-oauth'
-import { ensureChatgptProviderConfig, getConfigPath, getChatgptOAuthTokenRef } from '../../../server/src/chatgpt-provider'
 import { loadConfig } from '@zero-os/core'
 import type { MemoryStatus, MemoryType, SessionStatus } from '@zero-os/shared'
-import type { SessionRow } from '@zero-os/observe'
 import { GitOps } from '@zero-os/supervisor'
+import { Hono } from 'hono'
+import { cors } from 'hono/cors'
+import { ChatGptOAuthBroker } from '../../../server/src/chatgpt-oauth'
+import {
+  ensureChatgptProviderConfig,
+  getChatgptOAuthTokenRef,
+  getConfigPath,
+} from '../../../server/src/chatgpt-provider'
+import type { ZeroOS } from '../../../server/src/main'
 
 export function createRoutes(zero: ZeroOS) {
   const chatgptOAuth = new ChatGptOAuthBroker(zero.vault)
@@ -25,22 +28,23 @@ export function createRoutes(zero: ZeroOS) {
       Object.entries(config.providers).map(([name, provider]) => {
         const secretRef = provider.auth.apiKeyRef ?? provider.auth.oauthTokenRef
         const configured = secretRef ? !!zero.vault.get(secretRef) : false
-        const oauthStatus = name === 'chatgpt'
-          ? chatgptOAuth.getStatus()
-          : undefined
+        const oauthStatus = name === 'chatgpt' ? chatgptOAuth.getStatus() : undefined
 
-        return [name, {
-          apiType: provider.apiType,
-          baseUrl: provider.baseUrl,
-          authType: provider.auth.type,
-          secretRef,
-          configured,
-          authorized: oauthStatus ? oauthStatus.authorized : configured,
-          oauthState: oauthStatus?.state,
-          requiresRestart: oauthStatus?.requiresRestart ?? false,
-          models: provider.models,
-        }]
-      })
+        return [
+          name,
+          {
+            apiType: provider.apiType,
+            baseUrl: provider.baseUrl,
+            authType: provider.auth.type,
+            secretRef,
+            configured,
+            authorized: oauthStatus ? oauthStatus.authorized : configured,
+            oauthState: oauthStatus?.state,
+            requiresRestart: oauthStatus?.requiresRestart ?? false,
+            models: provider.models,
+          },
+        ]
+      }),
     )
   }
 
@@ -73,12 +77,15 @@ export function createRoutes(zero: ZeroOS) {
     })
 
     .get('/api/models', (c) => {
-      const models = zero.modelRouter.getRegistry().listModels().map((model) => ({
-        name: formatModelLabel(model.providerName, model.modelName),
-        provider: model.providerName,
-        modelId: model.modelId,
-        tags: model.tags,
-      }))
+      const models = zero.modelRouter
+        .getRegistry()
+        .listModels()
+        .map((model) => ({
+          name: formatModelLabel(model.providerName, model.modelName),
+          provider: model.providerName,
+          modelId: model.modelId,
+          tags: model.tags,
+        }))
       return c.json({ models })
     })
 
@@ -111,7 +118,12 @@ export function createRoutes(zero: ZeroOS) {
         return c.json({ error: result.message }, 400)
       }
 
-      const currentModel = zero.sessionManager.setPreferredModel('web', 'default', body.model, 'web')
+      const currentModel = zero.sessionManager.setPreferredModel(
+        'web',
+        'default',
+        body.model,
+        'web',
+      )
       return c.json({ ok: true, currentModel, message: result.message })
     })
 
@@ -121,9 +133,8 @@ export function createRoutes(zero: ZeroOS) {
       const q = c.req.query('q')?.toLowerCase() ?? ''
 
       // In-memory sessions (active runtime)
-      let sessions = filter === 'active'
-        ? zero.sessionManager.listActive()
-        : zero.sessionManager.listAll()
+      let sessions =
+        filter === 'active' ? zero.sessionManager.listActive() : zero.sessionManager.listAll()
 
       if (filter === 'completed') {
         sessions = sessions.filter((s) => s.getStatus() === 'completed')
@@ -171,14 +182,14 @@ export function createRoutes(zero: ZeroOS) {
       // Merge DB-only sessions for non-active filters
       if (filter !== 'active') {
         const inMemoryIds = new Set(sessionIds)
-        const dbFilter = filter === 'completed' || filter === 'archived'
-          ? { status: filter as SessionStatus }
-          : undefined
+        const dbFilter =
+          filter === 'completed' || filter === 'archived'
+            ? { status: filter as SessionStatus }
+            : undefined
         const dbRows = zero.sessionManager.listAllFromDB(dbFilter)
         const dbOnlyIds = dbRows.filter((r) => !inMemoryIds.has(r.id)).map((r) => r.id)
-        const dbStatsBatch = dbOnlyIds.length > 0
-          ? zero.metrics.sessionStatsBatch(dbOnlyIds)
-          : new Map()
+        const dbStatsBatch =
+          dbOnlyIds.length > 0 ? zero.metrics.sessionStatsBatch(dbOnlyIds) : new Map()
 
         for (const row of dbRows) {
           if (inMemoryIds.has(row.id)) continue
@@ -206,13 +217,14 @@ export function createRoutes(zero: ZeroOS) {
       }
 
       const filtered = q
-        ? result.filter((s) =>
-            (s.id as string).toLowerCase().includes(q) ||
-            (s.source as string).toLowerCase().includes(q) ||
-            ((s.channelName as string)?.toLowerCase().includes(q) ?? false) ||
-            (s.currentModel as string).toLowerCase().includes(q) ||
-            ((s.summary as string)?.toLowerCase().includes(q) ?? false) ||
-            ((s.channelId as string)?.toLowerCase().includes(q) ?? false)
+        ? result.filter(
+            (s) =>
+              (s.id as string).toLowerCase().includes(q) ||
+              (s.source as string).toLowerCase().includes(q) ||
+              ((s.channelName as string)?.toLowerCase().includes(q) ?? false) ||
+              (s.currentModel as string).toLowerCase().includes(q) ||
+              ((s.summary as string)?.toLowerCase().includes(q) ?? false) ||
+              ((s.channelId as string)?.toLowerCase().includes(q) ?? false),
           )
         : result
 
@@ -370,15 +382,14 @@ export function createRoutes(zero: ZeroOS) {
     .post('/api/chat', async (c) => {
       const body = await c.req.json<{ message: string; sessionId?: string }>()
 
-      let session = body.sessionId
-        ? zero.sessionManager.get(body.sessionId)
-        : undefined
+      let session = body.sessionId ? zero.sessionManager.get(body.sessionId) : undefined
 
       if (!session) {
         session = zero.sessionManager.create('web')
         session.initAgent({
           name: 'zero-web',
-          agentInstruction: 'You are ZeRo OS, an AI agent system running on macOS. Be helpful, concise, and accurate.',
+          agentInstruction:
+            'You are ZeRo OS, an AI agent system running on macOS. Be helpful, concise, and accurate.',
         })
       }
 
@@ -402,7 +413,7 @@ export function createRoutes(zero: ZeroOS) {
     // Memory
     .get('/api/memory', (c) => {
       const type = c.req.query('type') as MemoryType | undefined
-      if (type && type !== 'all' as unknown) {
+      if (type && type !== ('all' as unknown)) {
         const memories = zero.memoryStore.list(type)
         return c.json({ memories, type })
       }
@@ -608,13 +619,12 @@ export function createRoutes(zero: ZeroOS) {
         return c.json({ entries: traceEntries.slice(0, limit), limit })
       }
 
-      let entries = type === 'requests'
-        ? zero.logger.readAllRequests().map((entry) => ({ ...entry }))
-        : type === 'snapshots'
-          ? zero.logger.readAllSnapshots().map((entry) => ({ ...entry }))
-        : zero.logger.readEntries<Record<string, unknown>>(
-            'operations.jsonl'
-          )
+      let entries =
+        type === 'requests'
+          ? zero.logger.readAllRequests().map((entry) => ({ ...entry }))
+          : type === 'snapshots'
+            ? zero.logger.readAllSnapshots().map((entry) => ({ ...entry }))
+            : zero.logger.readEntries<Record<string, unknown>>('operations.jsonl')
 
       if (level && level !== 'all') {
         entries = entries.filter((e) => e.level === level)
@@ -650,7 +660,7 @@ export function createRoutes(zero: ZeroOS) {
         .map((e) => ({
           id: crypto.randomUUID(),
           type: 'system' as const,
-          severity: (e.level as string) === 'error' ? 'error' as const : 'warn' as const,
+          severity: (e.level as string) === 'error' ? ('error' as const) : ('warn' as const),
           title: (e.event as string) ?? 'System Event',
           description: (e.event as string) ?? (e.outputSummary as string) ?? 'Unknown event',
           source: (e.tool as string) ?? (e.event as string) ?? 'system',

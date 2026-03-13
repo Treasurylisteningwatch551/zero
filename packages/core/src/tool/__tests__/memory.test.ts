@@ -1,8 +1,8 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
-import { MemoryTool } from '../memory'
-import { MemoryStore } from '@zero-os/memory'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { MemoryStore } from '@zero-os/memory'
+import { MemoryTool } from '../memory'
 
 const testDir = join(import.meta.dir, '__fixtures__', 'memory-tool-test')
 

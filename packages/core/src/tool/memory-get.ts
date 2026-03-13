@@ -1,5 +1,5 @@
-import { BaseTool } from './base'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
+import { BaseTool } from './base'
 
 interface MemoryGetInput {
   path: string
@@ -9,11 +9,15 @@ interface MemoryGetInput {
 
 export class MemoryGetTool extends BaseTool {
   name = 'memory_get'
-  description = '按 path 读取 `.zero/memory/**` 下的记忆文件，可选 from/lines 窗口。memo.md 不在此工具范围内。'
+  description =
+    '按 path 读取 `.zero/memory/**` 下的记忆文件，可选 from/lines 窗口。memo.md 不在此工具范围内。'
   parameters = {
     type: 'object',
     properties: {
-      path: { type: 'string', description: 'Project-relative or memory-relative path under .zero/memory' },
+      path: {
+        type: 'string',
+        description: 'Project-relative or memory-relative path under .zero/memory',
+      },
       from: { type: 'number', description: 'Start line (1-indexed)' },
       lines: { type: 'number', description: 'Number of lines to read' },
     },
@@ -40,14 +44,17 @@ export class MemoryGetTool extends BaseTool {
       }
     }
 
-    const range = from !== undefined || lines !== undefined
-      ? `\nRange: from=${Math.max(1, Math.floor(from ?? 1))}${lines !== undefined ? ` lines=${Math.max(0, Math.floor(lines))}` : ''}`
-      : ''
+    const range =
+      from !== undefined || lines !== undefined
+        ? `\nRange: from=${Math.max(1, Math.floor(from ?? 1))}${lines !== undefined ? ` lines=${Math.max(0, Math.floor(lines))}` : ''}`
+        : ''
 
     return {
       success: true,
       output: `Path: ${result.path}${range}\n\n${result.text}`,
-      outputSummary: result.text ? `Read memory file ${result.path}` : `Memory file empty or missing: ${result.path}`,
+      outputSummary: result.text
+        ? `Read memory file ${result.path}`
+        : `Memory file empty or missing: ${result.path}`,
     }
   }
 }

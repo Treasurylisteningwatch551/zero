@@ -1,6 +1,12 @@
 export interface Notification {
   id: string
-  type: 'authorization' | 'verification' | 'config_missing' | 'model_degradation' | 'repair_failure' | 'system'
+  type:
+    | 'authorization'
+    | 'verification'
+    | 'config_missing'
+    | 'model_degradation'
+    | 'repair_failure'
+    | 'system'
   severity: 'info' | 'warn' | 'error'
   title: string
   description: string

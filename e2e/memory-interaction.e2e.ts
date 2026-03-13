@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 test.describe('Memory Page Interactions', () => {
   test('memory page loads with heading and filters', async ({ page }) => {

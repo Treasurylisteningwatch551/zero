@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react'
-import { formatModelHistory, formatNumber, formatTimeAgo } from '../../lib/format'
-import { toolColors } from '../../lib/colors'
+import { useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../../lib/api'
-import { flattenTraceSpans, filterDuplicateTaskClosureEvents } from './timeline'
+import { toolColors } from '../../lib/colors'
+import { formatModelHistory, formatNumber, formatTimeAgo } from '../../lib/format'
+import { filterDuplicateTaskClosureEvents, flattenTraceSpans } from './timeline'
 
 interface ModelHistoryEntry {
   model: string
@@ -114,15 +114,14 @@ export function ContextPanel({
 
   useEffect(() => {
     if (!summary) return
-    apiFetch<{ results: MemoryResult[] }>(`/api/memory/search?q=${encodeURIComponent(summary.slice(0, 100))}`)
+    apiFetch<{ results: MemoryResult[] }>(
+      `/api/memory/search?q=${encodeURIComponent(summary.slice(0, 100))}`,
+    )
       .then((res) => setRelatedMemory(res.results ?? []))
       .catch(() => {})
   }, [summary])
 
-
-  const selectedTool = selectedToolId
-    ? toolCalls.find((t) => t.id === selectedToolId)
-    : null
+  const selectedTool = selectedToolId ? toolCalls.find((t) => t.id === selectedToolId) : null
 
   const toolDist = new Map<string, number>()
   for (const tc of toolCalls) {
@@ -136,30 +135,43 @@ export function ContextPanel({
   )
 
   const persistedTaskClosureCards = useMemo(
-    () => filterDuplicateTaskClosureEvents(flattenTraceSpans(traces), taskClosureEvents).map(mapPersistedTaskClosureEventToCard),
+    () =>
+      filterDuplicateTaskClosureEvents(flattenTraceSpans(traces), taskClosureEvents).map(
+        mapPersistedTaskClosureEventToCard,
+      ),
     [traces, taskClosureEvents],
   )
 
   if (selectedTool) {
     return (
       <div className="card p-4 h-full min-h-0 overflow-y-auto animate-fade-up">
-        <h3 className="text-[13px] font-semibold text-[var(--color-text-primary)] mb-3">Tool Detail</h3>
+        <h3 className="text-[13px] font-semibold text-[var(--color-text-primary)] mb-3">
+          Tool Detail
+        </h3>
         <div className="space-y-3">
           <div>
-            <span className="text-[10px] font-semibold text-[var(--color-text-disabled)] tracking-wide">TOOL</span>
-            <p className={`text-[13px] font-mono mt-0.5 ${toolColors[selectedTool.name.toLowerCase()] ?? 'text-slate-400'}`}>
+            <span className="text-[10px] font-semibold text-[var(--color-text-disabled)] tracking-wide">
+              TOOL
+            </span>
+            <p
+              className={`text-[13px] font-mono mt-0.5 ${toolColors[selectedTool.name.toLowerCase()] ?? 'text-slate-400'}`}
+            >
               {selectedTool.name}
             </p>
           </div>
           <div>
-            <span className="text-[10px] font-semibold text-[var(--color-text-disabled)] tracking-wide">INPUT</span>
+            <span className="text-[10px] font-semibold text-[var(--color-text-disabled)] tracking-wide">
+              INPUT
+            </span>
             <pre className="text-[11px] font-mono text-[var(--color-text-secondary)] mt-1 whitespace-pre-wrap break-all bg-black/20 rounded p-2 max-h-[320px] overflow-y-auto">
               {JSON.stringify(selectedTool.input, null, 2)}
             </pre>
           </div>
           {selectedTool.result !== undefined && (
             <div>
-              <span className="text-[10px] font-semibold text-[var(--color-text-disabled)] tracking-wide">OUTPUT</span>
+              <span className="text-[10px] font-semibold text-[var(--color-text-disabled)] tracking-wide">
+                OUTPUT
+              </span>
               <pre className="text-[11px] font-mono text-[var(--color-text-secondary)] mt-1 whitespace-pre-wrap break-all bg-black/20 rounded p-2 max-h-[400px] overflow-y-auto">
                 {selectedTool.result}
               </pre>
@@ -202,7 +214,8 @@ export function ContextPanel({
                 onClick={() => setPromptExpanded(!promptExpanded)}
                 className="text-[11px] text-[var(--color-accent)] hover:underline mb-1"
               >
-                {promptExpanded ? 'Collapse' : 'Expand'} ({systemPrompt.length.toLocaleString()} chars)
+                {promptExpanded ? 'Collapse' : 'Expand'} ({systemPrompt.length.toLocaleString()}{' '}
+                chars)
               </button>
               {promptExpanded && (
                 <pre className="text-[11px] font-mono text-[var(--color-text-muted)] whitespace-pre-wrap break-all bg-black/20 rounded p-2 max-h-[400px] overflow-y-auto mt-1">
@@ -222,18 +235,24 @@ export function ContextPanel({
             <div className="space-y-1">
               <div className="flex items-center justify-between text-[12px]">
                 <span className="text-[var(--color-text-muted)]">Total</span>
-                <span className="font-mono text-[var(--color-text-secondary)]">{formatNumber(totalTokens)}</span>
+                <span className="font-mono text-[var(--color-text-secondary)]">
+                  {formatNumber(totalTokens)}
+                </span>
               </div>
               {inputTokens !== undefined && (
                 <div className="flex items-center justify-between text-[12px]">
                   <span className="text-[var(--color-text-muted)]">Input</span>
-                  <span className="font-mono text-[var(--color-text-secondary)]">{formatNumber(inputTokens)}</span>
+                  <span className="font-mono text-[var(--color-text-secondary)]">
+                    {formatNumber(inputTokens)}
+                  </span>
                 </div>
               )}
               {outputTokens !== undefined && (
                 <div className="flex items-center justify-between text-[12px]">
                   <span className="text-[var(--color-text-muted)]">Output</span>
-                  <span className="font-mono text-[var(--color-text-secondary)]">{formatNumber(outputTokens)}</span>
+                  <span className="font-mono text-[var(--color-text-secondary)]">
+                    {formatNumber(outputTokens)}
+                  </span>
                 </div>
               )}
               {inputTokens !== undefined && outputTokens !== undefined && totalTokens > 0 && (
@@ -258,10 +277,14 @@ export function ContextPanel({
                   <div key={name} className="flex items-center gap-2">
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-0.5">
-                        <span className={`text-[11px] font-mono ${toolColors[name.toLowerCase()] ?? 'text-slate-400'}`}>
+                        <span
+                          className={`text-[11px] font-mono ${toolColors[name.toLowerCase()] ?? 'text-slate-400'}`}
+                        >
                           {name}
                         </span>
-                        <span className="text-[10px] text-[var(--color-text-disabled)]">{count}</span>
+                        <span className="text-[10px] text-[var(--color-text-disabled)]">
+                          {count}
+                        </span>
                       </div>
                       <div className="h-1 bg-white/5 rounded-full overflow-hidden">
                         <div
@@ -279,30 +302,39 @@ export function ContextPanel({
           {llmRequests.length > 0 && (
             <Section title="LLM Requests">
               <div className="space-y-2">
-                {llmRequests.slice(-5).reverse().map((request) => (
-                  <details key={request.id} className="rounded bg-white/[0.02] p-2">
-                    <summary className="cursor-pointer select-none text-[11px] text-[var(--color-text-secondary)]">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="truncate font-mono text-[var(--color-accent)]">
-                          {request.model}
-                        </span>
-                        <span className="shrink-0 text-[10px] text-[var(--color-text-disabled)]">
-                          {formatTimeAgo(request.ts)}
-                        </span>
+                {llmRequests
+                  .slice(-5)
+                  .reverse()
+                  .map((request) => (
+                    <details key={request.id} className="rounded bg-white/[0.02] p-2">
+                      <summary className="cursor-pointer select-none text-[11px] text-[var(--color-text-secondary)]">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="truncate font-mono text-[var(--color-accent)]">
+                            {request.model}
+                          </span>
+                          <span className="shrink-0 text-[10px] text-[var(--color-text-disabled)]">
+                            {formatTimeAgo(request.ts)}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-3 text-[10px] text-[var(--color-text-muted)]">
+                          <span>${request.cost.toFixed(4)}</span>
+                          <span>
+                            {request.tokens.input}/{request.tokens.output} tok
+                          </span>
+                          <span>{request.toolUseCount} tool</span>
+                          <span>
+                            {request.durationMs !== undefined
+                              ? `${request.durationMs}ms`
+                              : request.stopReason}
+                          </span>
+                        </div>
+                      </summary>
+                      <div className="mt-2 space-y-2">
+                        <TracePreview label="prompt" value={request.userPrompt} />
+                        <TracePreview label="response" value={request.response} />
                       </div>
-                      <div className="mt-1 flex items-center gap-3 text-[10px] text-[var(--color-text-muted)]">
-                        <span>${request.cost.toFixed(4)}</span>
-                        <span>{request.tokens.input}/{request.tokens.output} tok</span>
-                        <span>{request.toolUseCount} tool</span>
-                        <span>{request.durationMs !== undefined ? `${request.durationMs}ms` : request.stopReason}</span>
-                      </div>
-                    </summary>
-                    <div className="mt-2 space-y-2">
-                      <TracePreview label="prompt" value={request.userPrompt} />
-                      <TracePreview label="response" value={request.response} />
-                    </div>
-                  </details>
-                ))}
+                    </details>
+                  ))}
               </div>
             </Section>
           )}
@@ -311,7 +343,12 @@ export function ContextPanel({
             <Section title="Files Touched">
               <div className="space-y-0.5">
                 {filesTouched.map((f) => (
-                  <p key={f} className="text-[11px] font-mono text-[var(--color-text-muted)] truncate">{f}</p>
+                  <p
+                    key={f}
+                    className="text-[11px] font-mono text-[var(--color-text-muted)] truncate"
+                  >
+                    {f}
+                  </p>
                 ))}
               </div>
             </Section>
@@ -322,11 +359,17 @@ export function ContextPanel({
               <div className="space-y-1.5">
                 {relatedMemory.slice(0, 5).map((m) => (
                   <div key={m.id} className="rounded bg-white/[0.02] p-2">
-                    <span className="text-[10px] text-[var(--color-accent)] capitalize">{m.type}</span>
+                    <span className="text-[10px] text-[var(--color-accent)] capitalize">
+                      {m.type}
+                    </span>
                     {m.title && (
-                      <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">{m.title}</p>
+                      <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">
+                        {m.title}
+                      </p>
                     )}
-                    <p className="text-[11px] text-[var(--color-text-muted)] truncate">{m.snippet}</p>
+                    <p className="text-[11px] text-[var(--color-text-muted)] truncate">
+                      {m.snippet}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -364,7 +407,9 @@ export function ContextPanel({
             {traceLoading ? (
               <p className="text-[12px] text-[var(--color-text-disabled)]">Loading trace…</p>
             ) : traces.length === 0 ? (
-              <p className="text-[12px] text-[var(--color-text-disabled)]">No trace spans for this session.</p>
+              <p className="text-[12px] text-[var(--color-text-disabled)]">
+                No trace spans for this session.
+              </p>
             ) : (
               <div className="space-y-2">
                 {traces.map((span) => (
@@ -378,7 +423,6 @@ export function ContextPanel({
     </div>
   )
 }
-
 
 function mapPersistedTaskClosureEventToCard(event: PersistedTaskClosureEvent) {
   return {
@@ -409,17 +453,36 @@ function PersistedTaskClosureCard({
       <div className="flex items-center justify-between gap-3 mb-1.5">
         <div className="flex items-center gap-2">
           <code className="text-[11px] text-cyan-300">task_closure_event</code>
-          <span className="rounded px-1.5 py-0.5 text-[10px] text-cyan-200 bg-cyan-400/10">persisted</span>
+          <span className="rounded px-1.5 py-0.5 text-[10px] text-cyan-200 bg-cyan-400/10">
+            persisted
+          </span>
         </div>
         <span className="text-[10px] font-mono text-[var(--color-text-disabled)]">
           {formatTimeAgo(card.createdAt)}
         </span>
       </div>
       <div className="space-y-1 text-[11px] text-[var(--color-text-secondary)]">
-        {card.action && <p><span className="text-[var(--color-text-disabled)]">action:</span> {card.action}</p>}
-        {card.reason && <p><span className="text-[var(--color-text-disabled)]">reason:</span> {card.reason}</p>}
-        {card.skipReason && <p><span className="text-[var(--color-text-disabled)]">skip:</span> {card.skipReason}</p>}
-        {card.assistantMessageId && <p><span className="text-[var(--color-text-disabled)]">assistant_message_id:</span> {card.assistantMessageId}</p>}
+        {card.action && (
+          <p>
+            <span className="text-[var(--color-text-disabled)]">action:</span> {card.action}
+          </p>
+        )}
+        {card.reason && (
+          <p>
+            <span className="text-[var(--color-text-disabled)]">reason:</span> {card.reason}
+          </p>
+        )}
+        {card.skipReason && (
+          <p>
+            <span className="text-[var(--color-text-disabled)]">skip:</span> {card.skipReason}
+          </p>
+        )}
+        {card.assistantMessageId && (
+          <p>
+            <span className="text-[var(--color-text-disabled)]">assistant_message_id:</span>{' '}
+            {card.assistantMessageId}
+          </p>
+        )}
         {card.assistantMessageId && onJumpToAssistantMessage && (
           <button
             type="button"
@@ -429,19 +492,37 @@ function PersistedTaskClosureCard({
             Jump to assistant
           </button>
         )}
-        {card.error && <p><span className="text-[var(--color-text-disabled)]">error:</span> {card.error}</p>}
+        {card.error && (
+          <p>
+            <span className="text-[var(--color-text-disabled)]">error:</span> {card.error}
+          </p>
+        )}
       </div>
-      {(card.userMessagePreview || card.assistantTailPreview || card.rawClassifierResponse || card.trimFromPreview || card.assistantMessagePreview) && (
+      {(card.userMessagePreview ||
+        card.assistantTailPreview ||
+        card.rawClassifierResponse ||
+        card.trimFromPreview ||
+        card.assistantMessagePreview) && (
         <details className="mt-2 rounded bg-black/15 p-2">
           <summary className="cursor-pointer text-[10px] text-[var(--color-accent)] select-none">
             Raw Decision Details
           </summary>
           <div className="mt-2 space-y-2">
-            {card.assistantMessagePreview && <TracePreview label="assistant_message" value={card.assistantMessagePreview} />}
-            {card.userMessagePreview && <TracePreview label="user_message" value={card.userMessagePreview} />}
-            {card.assistantTailPreview && <TracePreview label="assistant_tail" value={card.assistantTailPreview} />}
-            {card.rawClassifierResponse && <TracePreview label="classifier_raw" value={card.rawClassifierResponse} />}
-            {card.trimFromPreview && <TracePreview label="trim_from" value={card.trimFromPreview} />}
+            {card.assistantMessagePreview && (
+              <TracePreview label="assistant_message" value={card.assistantMessagePreview} />
+            )}
+            {card.userMessagePreview && (
+              <TracePreview label="user_message" value={card.userMessagePreview} />
+            )}
+            {card.assistantTailPreview && (
+              <TracePreview label="assistant_tail" value={card.assistantTailPreview} />
+            )}
+            {card.rawClassifierResponse && (
+              <TracePreview label="classifier_raw" value={card.rawClassifierResponse} />
+            )}
+            {card.trimFromPreview && (
+              <TracePreview label="trim_from" value={card.trimFromPreview} />
+            )}
           </div>
         </details>
       )}
@@ -454,20 +535,20 @@ export function TraceSummaryCard({ span }: { span: TraceSpan }) {
   const action = typeof metadata.action === 'string' ? metadata.action : undefined
   const reason = typeof metadata.reason === 'string' ? metadata.reason : undefined
   const skipReason = typeof metadata.skipReason === 'string' ? metadata.skipReason : undefined
-  const trimFromPreview = typeof metadata.trimFromPreview === 'string'
-    ? metadata.trimFromPreview
-    : undefined
-  const userMessagePreview = typeof metadata.userMessagePreview === 'string'
-    ? metadata.userMessagePreview
-    : undefined
-  const assistantTailPreview = typeof metadata.assistantTailPreview === 'string'
-    ? metadata.assistantTailPreview
-    : undefined
-  const rawClassifierResponse = typeof metadata.rawClassifierResponse === 'string'
-    ? metadata.rawClassifierResponse
-    : undefined
-  const assistantMessageId = typeof metadata.assistantMessageId === 'string' ? metadata.assistantMessageId : undefined
-  const assistantMessagePreview = typeof metadata.assistantMessagePreview === 'string' ? metadata.assistantMessagePreview : undefined
+  const trimFromPreview =
+    typeof metadata.trimFromPreview === 'string' ? metadata.trimFromPreview : undefined
+  const userMessagePreview =
+    typeof metadata.userMessagePreview === 'string' ? metadata.userMessagePreview : undefined
+  const assistantTailPreview =
+    typeof metadata.assistantTailPreview === 'string' ? metadata.assistantTailPreview : undefined
+  const rawClassifierResponse =
+    typeof metadata.rawClassifierResponse === 'string' ? metadata.rawClassifierResponse : undefined
+  const assistantMessageId =
+    typeof metadata.assistantMessageId === 'string' ? metadata.assistantMessageId : undefined
+  const assistantMessagePreview =
+    typeof metadata.assistantMessagePreview === 'string'
+      ? metadata.assistantMessagePreview
+      : undefined
   const error = typeof metadata.error === 'string' ? metadata.error : undefined
 
   return (
@@ -482,22 +563,53 @@ export function TraceSummaryCard({ span }: { span: TraceSpan }) {
         </span>
       </div>
       <div className="space-y-1 text-[11px] text-[var(--color-text-secondary)]">
-        {action && <p><span className="text-[var(--color-text-disabled)]">action:</span> {action}</p>}
-        {reason && <p><span className="text-[var(--color-text-disabled)]">reason:</span> {reason}</p>}
-        {skipReason && <p><span className="text-[var(--color-text-disabled)]">skip:</span> {skipReason}</p>}
-        {assistantMessageId && <p><span className="text-[var(--color-text-disabled)]">assistant_message_id:</span> {assistantMessageId}</p>}
-        {error && <p><span className="text-[var(--color-text-disabled)]">error:</span> {error}</p>}
+        {action && (
+          <p>
+            <span className="text-[var(--color-text-disabled)]">action:</span> {action}
+          </p>
+        )}
+        {reason && (
+          <p>
+            <span className="text-[var(--color-text-disabled)]">reason:</span> {reason}
+          </p>
+        )}
+        {skipReason && (
+          <p>
+            <span className="text-[var(--color-text-disabled)]">skip:</span> {skipReason}
+          </p>
+        )}
+        {assistantMessageId && (
+          <p>
+            <span className="text-[var(--color-text-disabled)]">assistant_message_id:</span>{' '}
+            {assistantMessageId}
+          </p>
+        )}
+        {error && (
+          <p>
+            <span className="text-[var(--color-text-disabled)]">error:</span> {error}
+          </p>
+        )}
       </div>
-      {(assistantMessagePreview || userMessagePreview || assistantTailPreview || rawClassifierResponse || trimFromPreview) && (
+      {(assistantMessagePreview ||
+        userMessagePreview ||
+        assistantTailPreview ||
+        rawClassifierResponse ||
+        trimFromPreview) && (
         <details className="mt-2 rounded bg-black/15 p-2">
           <summary className="cursor-pointer text-[10px] text-[var(--color-accent)] select-none">
             Raw Decision Details
           </summary>
           <div className="mt-2 space-y-2">
-            {assistantMessagePreview && <TracePreview label="assistant_message" value={assistantMessagePreview} />}
+            {assistantMessagePreview && (
+              <TracePreview label="assistant_message" value={assistantMessagePreview} />
+            )}
             {userMessagePreview && <TracePreview label="user_message" value={userMessagePreview} />}
-            {assistantTailPreview && <TracePreview label="assistant_tail" value={assistantTailPreview} />}
-            {rawClassifierResponse && <TracePreview label="classifier_raw" value={rawClassifierResponse} />}
+            {assistantTailPreview && (
+              <TracePreview label="assistant_tail" value={assistantTailPreview} />
+            )}
+            {rawClassifierResponse && (
+              <TracePreview label="classifier_raw" value={rawClassifierResponse} />
+            )}
             {trimFromPreview && <TracePreview label="trim_from" value={trimFromPreview} />}
           </div>
         </details>
@@ -509,7 +621,9 @@ export function TraceSummaryCard({ span }: { span: TraceSpan }) {
 function TracePreview({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="mb-1 text-[10px] uppercase tracking-wide text-[var(--color-text-disabled)]">{label}</div>
+      <div className="mb-1 text-[10px] uppercase tracking-wide text-[var(--color-text-disabled)]">
+        {label}
+      </div>
       <pre className="whitespace-pre-wrap break-words rounded bg-black/20 p-2 text-[10px] text-[var(--color-text-muted)]">
         {value}
       </pre>
@@ -526,7 +640,9 @@ function TraceTree({ span, depth }: { span: TraceSpan; depth: number }) {
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
-            <code className="text-[11px] text-[var(--color-text-secondary)] truncate">{span.name}</code>
+            <code className="text-[11px] text-[var(--color-text-secondary)] truncate">
+              {span.name}
+            </code>
             <StatusBadge status={span.status} />
           </div>
           <span className="text-[10px] font-mono text-[var(--color-text-disabled)]">
@@ -535,15 +651,17 @@ function TraceTree({ span, depth }: { span: TraceSpan; depth: number }) {
         </div>
         {span.metadata && Object.keys(span.metadata).length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {Object.entries(span.metadata).slice(0, 6).map(([key, value]) => (
-              <span
-                key={key}
-                className="rounded bg-black/20 px-2 py-1 text-[10px] text-[var(--color-text-muted)]"
-                title={`${key}: ${String(value)}`}
-              >
-                {key}: {formatMetadataValue(value)}
-              </span>
-            ))}
+            {Object.entries(span.metadata)
+              .slice(0, 6)
+              .map(([key, value]) => (
+                <span
+                  key={key}
+                  className="rounded bg-black/20 px-2 py-1 text-[10px] text-[var(--color-text-muted)]"
+                  title={`${key}: ${String(value)}`}
+                >
+                  {key}: {formatMetadataValue(value)}
+                </span>
+              ))}
           </div>
         )}
       </div>
@@ -556,17 +674,14 @@ function TraceTree({ span, depth }: { span: TraceSpan; depth: number }) {
 }
 
 function StatusBadge({ status }: { status: TraceSpan['status'] }) {
-  const cls = status === 'success'
-    ? 'text-emerald-300 bg-emerald-400/10'
-    : status === 'error'
-      ? 'text-rose-300 bg-rose-400/10'
-      : 'text-amber-300 bg-amber-400/10'
+  const cls =
+    status === 'success'
+      ? 'text-emerald-300 bg-emerald-400/10'
+      : status === 'error'
+        ? 'text-rose-300 bg-rose-400/10'
+        : 'text-amber-300 bg-amber-400/10'
 
-  return (
-    <span className={`rounded px-1.5 py-0.5 text-[10px] ${cls}`}>
-      {status}
-    </span>
-  )
+  return <span className={`rounded px-1.5 py-0.5 text-[10px] ${cls}`}>{status}</span>
 }
 
 function formatMetadataValue(value: unknown): string {

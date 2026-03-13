@@ -68,11 +68,7 @@ export const DEFAULT_TOOLS_TEMPLATE = `# Tool Notes
 `
 
 /** Bootstrap file names in load order */
-export const BOOTSTRAP_FILE_NAMES = [
-  'SOUL.md',
-  'USER.md',
-  'TOOLS.md',
-] as const
+export const BOOTSTRAP_FILE_NAMES = ['SOUL.md', 'USER.md', 'TOOLS.md'] as const
 
 export type BootstrapFileName = (typeof BOOTSTRAP_FILE_NAMES)[number]
 
@@ -87,6 +83,4 @@ export const DEFAULT_TEMPLATES: Record<BootstrapFileName, string> = {
  * Files to include for minimal/subagent mode.
  * SubAgents only need tool environment notes — no persona or user profile.
  */
-export const MINIMAL_BOOTSTRAP_ALLOWLIST = new Set<BootstrapFileName>([
-  'TOOLS.md',
-])
+export const MINIMAL_BOOTSTRAP_ALLOWLIST = new Set<BootstrapFileName>(['TOOLS.md'])

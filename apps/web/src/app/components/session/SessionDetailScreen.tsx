@@ -1,19 +1,19 @@
-import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from 'react'
 import { ArrowLeft } from '@phosphor-icons/react'
 import { useNavigate } from '@tanstack/react-router'
-import { Skeleton, SkeletonText } from '../shared/Skeleton'
-import { useUIStore } from '../../stores/ui'
-import { apiFetch } from '../../lib/api'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWebSocket } from '../../hooks/useWebSocket'
+import { apiFetch } from '../../lib/api'
+import { useUIStore } from '../../stores/ui'
+import { Skeleton, SkeletonText } from '../shared/Skeleton'
+import { ContextPanel } from './ContextPanel'
 import { MetadataBar } from './MetadataBar'
 import { TimelineView } from './TimelineView'
 import {
-  buildTimeline,
-  extractFilesTouched,
   type PersistedTaskClosureEvent,
   type TraceSpan,
+  buildTimeline,
+  extractFilesTouched,
 } from './timeline'
-import { ContextPanel } from './ContextPanel'
 
 interface ContentBlock {
   type: string
@@ -96,46 +96,53 @@ export function SessionDetailScreen({
   const [loading, setLoading] = useState(true)
   const [traceLoading, setTraceLoading] = useState(true)
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null)
-  const [highlightedAssistantMessageId, setHighlightedAssistantMessageId] = useState<string | null>(null)
+  const [highlightedAssistantMessageId, setHighlightedAssistantMessageId] = useState<string | null>(
+    null,
+  )
   const timelineRef = useRef<HTMLDivElement>(null)
   const lastKeyRef = useRef<string>('')
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const wasAtBottomRef = useRef(true)
 
-  const fetchSession = useCallback((showLoading = false) => {
-    if (!sessionId) return Promise.resolve()
-    if (showLoading) {
-      setLoading(true)
-      setSession(null)
-      setTraces([])
-      setTaskClosureEvents([])
-      setLlmRequests([])
-    }
-    setTraceLoading(true)
-    return Promise.all([
-      apiFetch<SessionDetail>(`/api/sessions/${sessionId}`),
-      apiFetch<{ traces: TraceSpan[] }>(`/api/sessions/${sessionId}/traces`),
-      apiFetch<{ events: PersistedTaskClosureEvent[] }>(`/api/sessions/${sessionId}/task-closure-events`),
-      apiFetch<{ requests: SessionRequestEntry[] }>(`/api/sessions/${sessionId}/requests`),
-    ])
-      .then(([data, traceResponse, taskClosureResponse, requestResponse]) => {
-        setSession(data)
-        setTraces(traceResponse.traces ?? [])
-        setTaskClosureEvents(taskClosureResponse.events ?? [])
-        setLlmRequests(requestResponse.requests ?? [])
-        if (wasAtBottomRef.current) {
-          requestAnimationFrame(() => {
-            const el = timelineRef.current
-            if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-          })
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        setTraceLoading(false)
-        if (showLoading) setLoading(false)
-      })
-  }, [sessionId])
+  const fetchSession = useCallback(
+    (showLoading = false) => {
+      if (!sessionId) return Promise.resolve()
+      if (showLoading) {
+        setLoading(true)
+        setSession(null)
+        setTraces([])
+        setTaskClosureEvents([])
+        setLlmRequests([])
+      }
+      setTraceLoading(true)
+      return Promise.all([
+        apiFetch<SessionDetail>(`/api/sessions/${sessionId}`),
+        apiFetch<{ traces: TraceSpan[] }>(`/api/sessions/${sessionId}/traces`),
+        apiFetch<{ events: PersistedTaskClosureEvent[] }>(
+          `/api/sessions/${sessionId}/task-closure-events`,
+        ),
+        apiFetch<{ requests: SessionRequestEntry[] }>(`/api/sessions/${sessionId}/requests`),
+      ])
+        .then(([data, traceResponse, taskClosureResponse, requestResponse]) => {
+          setSession(data)
+          setTraces(traceResponse.traces ?? [])
+          setTaskClosureEvents(taskClosureResponse.events ?? [])
+          setLlmRequests(requestResponse.requests ?? [])
+          if (wasAtBottomRef.current) {
+            requestAnimationFrame(() => {
+              const el = timelineRef.current
+              if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+            })
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          setTraceLoading(false)
+          if (showLoading) setLoading(false)
+        })
+    },
+    [sessionId],
+  )
 
   useEffect(() => {
     setSelectedToolId(null)
@@ -160,12 +167,15 @@ export function SessionDetailScreen({
 
   useEffect(() => () => clearTimeout(debounceRef.current), [])
 
-  const onEvent = useCallback((_: string, data: unknown) => {
-    const ev = data as { sessionId?: string }
-    if (ev?.sessionId !== sessionId) return
-    clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(fetchSession, 300)
-  }, [sessionId, fetchSession])
+  const onEvent = useCallback(
+    (_: string, data: unknown) => {
+      const ev = data as { sessionId?: string }
+      if (ev?.sessionId !== sessionId) return
+      clearTimeout(debounceRef.current)
+      debounceRef.current = setTimeout(fetchSession, 300)
+    },
+    [sessionId, fetchSession],
+  )
 
   useWebSocket({
     url: `ws://${window.location.host}/ws`,
@@ -186,7 +196,9 @@ export function SessionDetailScreen({
   const toolCalls = useMemo(
     () =>
       timelineItems
-        .filter((item): item is Extract<typeof item, { type: 'tool-call' }> => item.type === 'tool-call')
+        .filter(
+          (item): item is Extract<typeof item, { type: 'tool-call' }> => item.type === 'tool-call',
+        )
         .map((toolCall) => ({
           id: toolCall.id,
           name: toolCall.name,
@@ -204,7 +216,9 @@ export function SessionDetailScreen({
 
     requestAnimationFrame(() => {
       const container = timelineRef.current
-      const target = container?.querySelector(`[data-assistant-message-id="${messageId}"]`) as HTMLElement | null
+      const target = container?.querySelector(
+        `[data-assistant-message-id="${messageId}"]`,
+      ) as HTMLElement | null
       target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     })
   }, [])
@@ -245,20 +259,25 @@ export function SessionDetailScreen({
   }, [handleKeyDown])
 
   if (!sessionId) {
-    return emptyState ?? (
-      <div className="p-6 text-center text-[var(--color-text-muted)]">
-        No session selected.{' '}
-        <button onClick={goBack} className="text-[var(--color-accent)] underline">
-          Back to sessions
-        </button>
-      </div>
+    return (
+      emptyState ?? (
+        <div className="p-6 text-center text-[var(--color-text-muted)]">
+          No session selected.{' '}
+          <button onClick={goBack} className="text-[var(--color-accent)] underline">
+            Back to sessions
+          </button>
+        </div>
+      )
     )
   }
 
   if (loading) {
     return (
       <div className="p-6 max-w-[1400px] mx-auto">
-        <button onClick={goBack} className="flex items-center gap-1.5 text-[13px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors mb-4">
+        <button
+          onClick={goBack}
+          className="flex items-center gap-1.5 text-[13px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors mb-4"
+        >
           <ArrowLeft size={16} /> Sessions
         </button>
         <Skeleton className="h-3 w-48 mb-3" />
@@ -293,7 +312,10 @@ export function SessionDetailScreen({
   if (!session) {
     return (
       <div className="p-6 max-w-[1400px] mx-auto">
-        <button onClick={goBack} className="flex items-center gap-1.5 text-[13px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors mb-4">
+        <button
+          onClick={goBack}
+          className="flex items-center gap-1.5 text-[13px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors mb-4"
+        >
           <ArrowLeft size={16} /> Sessions
         </button>
         <div className="card p-8 text-center text-[13px] text-[var(--color-text-muted)]">
@@ -313,7 +335,9 @@ export function SessionDetailScreen({
       </button>
 
       <div className="flex items-center gap-2 mb-3 flex-wrap">
-        <span className="text-[11px] font-mono text-[var(--color-text-disabled)]">{session.id}</span>
+        <span className="text-[11px] font-mono text-[var(--color-text-disabled)]">
+          {session.id}
+        </span>
         {headerContent}
       </div>
 

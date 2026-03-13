@@ -1,7 +1,7 @@
-import { describe, test, expect, afterAll } from 'bun:test'
-import { JsonlLogger } from '../logger'
+import { afterAll, describe, expect, test } from 'bun:test'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { JsonlLogger } from '../logger'
 
 const testDir = join(import.meta.dir, '__fixtures__/logs')
 

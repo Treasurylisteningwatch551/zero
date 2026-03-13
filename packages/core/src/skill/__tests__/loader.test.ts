@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { buildSkillCatalog, buildSkillsBlock } from '../../agent/prompt'
 import { loadSkills } from '../loader'
-import { buildSkillsBlock, buildSkillCatalog } from '../../agent/prompt'
 
 const TEST_DIR = join(import.meta.dir, '__fixtures__', 'skills')
 
@@ -11,7 +11,9 @@ beforeAll(() => {
   mkdirSync(join(TEST_DIR, 'browser'), { recursive: true })
   mkdirSync(join(TEST_DIR, 'empty-dir'), { recursive: true })
 
-  writeFileSync(join(TEST_DIR, 'browser', 'SKILL.md'), `---
+  writeFileSync(
+    join(TEST_DIR, 'browser', 'SKILL.md'),
+    `---
 name: browser
 description: |
   通过 agent-browser CLI 控制浏览器。
@@ -28,7 +30,8 @@ allowed-tools:
 
 1. Navigate — \`agent-browser open <url>\`
 2. Snapshot — \`agent-browser snapshot -i\`
-`)
+`,
+  )
 })
 
 afterAll(() => {
@@ -64,7 +67,9 @@ describe('loadSkills', () => {
 
   it('uses directory name as fallback when frontmatter has no name', () => {
     mkdirSync(join(TEST_DIR, 'noname'), { recursive: true })
-    writeFileSync(join(TEST_DIR, 'noname', 'SKILL.md'), `---
+    writeFileSync(
+      join(TEST_DIR, 'noname', 'SKILL.md'),
+      `---
 description: A skill without a name field.
 allowed-tools:
   - read
@@ -73,9 +78,10 @@ allowed-tools:
 # No Name Skill
 
 This skill has no name in frontmatter.
-`)
+`,
+    )
     const skills = loadSkills(TEST_DIR)
-    const noname = skills.find(s => s.name === 'noname')
+    const noname = skills.find((s) => s.name === 'noname')
     expect(noname).toBeDefined()
     expect(noname!.allowedTools).toEqual(['read'])
     expect(noname!.sourcePath).toBe(join(TEST_DIR, 'noname', 'SKILL.md'))
@@ -85,14 +91,17 @@ This skill has no name in frontmatter.
 
   it('handles missing allowed-tools gracefully', () => {
     mkdirSync(join(TEST_DIR, 'minimal'), { recursive: true })
-    writeFileSync(join(TEST_DIR, 'minimal', 'SKILL.md'), `---
+    writeFileSync(
+      join(TEST_DIR, 'minimal', 'SKILL.md'),
+      `---
 name: minimal
 ---
 
 Minimal skill.
-`)
+`,
+    )
     const skills = loadSkills(TEST_DIR)
-    const minimal = skills.find(s => s.name === 'minimal')
+    const minimal = skills.find((s) => s.name === 'minimal')
     expect(minimal).toBeDefined()
     expect(minimal!.allowedTools).toEqual([])
     expect(minimal!.description).toBe('')
@@ -113,8 +122,20 @@ describe('buildSkillsBlock (deprecated)', () => {
 
   it('renders multiple skills', () => {
     const block = buildSkillsBlock([
-      { name: 'a', description: 'Skill A', allowedTools: ['bash'], content: 'Content A', sourcePath: '/a/SKILL.md' },
-      { name: 'b', description: 'Skill B', allowedTools: ['read', 'write'], content: 'Content B', sourcePath: '/b/SKILL.md' },
+      {
+        name: 'a',
+        description: 'Skill A',
+        allowedTools: ['bash'],
+        content: 'Content A',
+        sourcePath: '/a/SKILL.md',
+      },
+      {
+        name: 'b',
+        description: 'Skill B',
+        allowedTools: ['read', 'write'],
+        content: 'Content B',
+        sourcePath: '/b/SKILL.md',
+      },
     ])
     expect(block).toContain('name="a"')
     expect(block).toContain('name="b"')

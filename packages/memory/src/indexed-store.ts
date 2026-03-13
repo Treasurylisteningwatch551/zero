@@ -10,7 +10,12 @@ export class IndexedMemoryStore implements MemoryRepository {
     private vectorIndex: VectorIndexLike,
   ) {}
 
-  async create(type: MemoryType, title: string, content: string, options?: Partial<Memory>): Promise<Memory> {
+  async create(
+    type: MemoryType,
+    title: string,
+    content: string,
+    options?: Partial<Memory>,
+  ): Promise<Memory> {
     const memory = await this.store.create(type, title, content, options)
 
     try {
@@ -42,7 +47,11 @@ export class IndexedMemoryStore implements MemoryRepository {
     return this.store.searchByTags(tags, types)
   }
 
-  async update(type: MemoryType, id: string, updates: Partial<Memory>): Promise<Memory | undefined> {
+  async update(
+    type: MemoryType,
+    id: string,
+    updates: Partial<Memory>,
+  ): Promise<Memory | undefined> {
     const existing = this.store.get(type, id)
     if (!existing) return undefined
 
@@ -75,7 +84,15 @@ export class IndexedMemoryStore implements MemoryRepository {
   }
 
   async deleteBySessionId(sessionId: string): Promise<number> {
-    const allTypes: MemoryType[] = ['session', 'incident', 'runbook', 'decision', 'note', 'preference', 'inbox']
+    const allTypes: MemoryType[] = [
+      'session',
+      'incident',
+      'runbook',
+      'decision',
+      'note',
+      'preference',
+      'inbox',
+    ]
     let deleted = 0
 
     for (const type of allTypes) {
@@ -90,14 +107,25 @@ export class IndexedMemoryStore implements MemoryRepository {
     return deleted
   }
 
-  readByPath(path: string, options?: { from?: number; lines?: number }): { path: string; text: string } | undefined {
+  readByPath(
+    path: string,
+    options?: { from?: number; lines?: number },
+  ): { path: string; text: string } | undefined {
     return this.store.readByPath(path, options)
   }
 
   async reindexAll(): Promise<number> {
     await this.vectorIndex.ensureIndex()
 
-    const allTypes: MemoryType[] = ['session', 'incident', 'runbook', 'decision', 'note', 'preference', 'inbox']
+    const allTypes: MemoryType[] = [
+      'session',
+      'incident',
+      'runbook',
+      'decision',
+      'note',
+      'preference',
+      'inbox',
+    ]
     let count = 0
 
     for (const type of allTypes) {

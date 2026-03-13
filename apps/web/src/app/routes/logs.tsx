@@ -1,9 +1,9 @@
-import { MagnifyingGlass, Play, Pause, ArrowDown } from '@phosphor-icons/react'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { ArrowDown, MagnifyingGlass, Pause, Play } from '@phosphor-icons/react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Skeleton } from '../components/shared/Skeleton'
+import { useWebSocket } from '../hooks/useWebSocket'
 import { apiFetch } from '../lib/api'
 import { formatTimeAgo } from '../lib/format'
-import { useWebSocket } from '../hooks/useWebSocket'
 
 interface LogEntry {
   ts: string
@@ -62,7 +62,7 @@ const levelRowBg: Record<string, string> = {
 }
 
 const LOG_TYPES = ['operations', 'requests', 'snapshots', 'trace'] as const
-type LogType = typeof LOG_TYPES[number]
+type LogType = (typeof LOG_TYPES)[number]
 
 const TIME_RANGES = [
   { label: '最近 1 小时', value: '1h' },
@@ -84,12 +84,22 @@ function getColumnConfig(type: LogType): ColumnConfig {
         cols: 'grid-cols-[90px_60px_90px_70px_1fr_1fr]',
         headers: ['Time', 'Level', 'Session', 'Tool', 'Input', 'Output'],
         render: (e) => [
-          <span key="ts" className="text-[var(--color-text-disabled)] truncate">{e.ts ? formatTimeAgo(e.ts) : '-'}</span>,
+          <span key="ts" className="text-[var(--color-text-disabled)] truncate">
+            {e.ts ? formatTimeAgo(e.ts) : '-'}
+          </span>,
           <LevelBadge key="lvl" level={e.level} />,
-          <span key="sid" className="text-[var(--color-text-muted)] truncate">{getSid(e)}</span>,
-          <span key="tool" className="text-[var(--color-accent)]">{e.tool ?? '-'}</span>,
-          <span key="input" className="text-[var(--color-text-secondary)] truncate">{e.input ?? e.event ?? '-'}</span>,
-          <span key="output" className="text-[var(--color-text-muted)] truncate">{e.outputSummary ?? '-'}</span>,
+          <span key="sid" className="text-[var(--color-text-muted)] truncate">
+            {getSid(e)}
+          </span>,
+          <span key="tool" className="text-[var(--color-accent)]">
+            {e.tool ?? '-'}
+          </span>,
+          <span key="input" className="text-[var(--color-text-secondary)] truncate">
+            {e.input ?? e.event ?? '-'}
+          </span>,
+          <span key="output" className="text-[var(--color-text-muted)] truncate">
+            {e.outputSummary ?? '-'}
+          </span>,
         ],
       }
     case 'requests':
@@ -97,10 +107,16 @@ function getColumnConfig(type: LogType): ColumnConfig {
         cols: 'grid-cols-[90px_60px_90px_120px_80px_80px]',
         headers: ['Time', 'Level', 'Session', 'Model', 'Tokens', 'Cost'],
         render: (e) => [
-          <span key="ts" className="text-[var(--color-text-disabled)] truncate">{e.ts ? formatTimeAgo(e.ts) : '-'}</span>,
+          <span key="ts" className="text-[var(--color-text-disabled)] truncate">
+            {e.ts ? formatTimeAgo(e.ts) : '-'}
+          </span>,
           <LevelBadge key="lvl" level={e.level} />,
-          <span key="sid" className="text-[var(--color-text-muted)] truncate">{getSid(e)}</span>,
-          <span key="model" className="text-[var(--color-accent)] font-mono truncate">{e.model ?? '-'}</span>,
+          <span key="sid" className="text-[var(--color-text-muted)] truncate">
+            {getSid(e)}
+          </span>,
+          <span key="model" className="text-[var(--color-accent)] font-mono truncate">
+            {e.model ?? '-'}
+          </span>,
           <span key="tokens" className="text-[var(--color-text-secondary)]">
             {e.tokens ? `${e.tokens.input}/${e.tokens.output}` : '-'}
           </span>,
@@ -114,10 +130,16 @@ function getColumnConfig(type: LogType): ColumnConfig {
         cols: 'grid-cols-[90px_60px_90px_100px_1fr_80px]',
         headers: ['Time', 'Level', 'Session', 'Trigger', 'Tools', 'MsgBefore'],
         render: (e) => [
-          <span key="ts" className="text-[var(--color-text-disabled)] truncate">{e.ts ? formatTimeAgo(e.ts) : '-'}</span>,
+          <span key="ts" className="text-[var(--color-text-disabled)] truncate">
+            {e.ts ? formatTimeAgo(e.ts) : '-'}
+          </span>,
           <LevelBadge key="lvl" level={e.level} />,
-          <span key="sid" className="text-[var(--color-text-muted)] truncate">{getSid(e)}</span>,
-          <span key="trigger" className="text-[var(--color-accent)]">{e.trigger ?? '-'}</span>,
+          <span key="sid" className="text-[var(--color-text-muted)] truncate">
+            {getSid(e)}
+          </span>,
+          <span key="trigger" className="text-[var(--color-accent)]">
+            {e.trigger ?? '-'}
+          </span>,
           <span key="tools" className="text-[var(--color-text-secondary)] truncate">
             {Array.isArray(e.tools) ? e.tools.join(', ') : '-'}
           </span>,
@@ -131,8 +153,12 @@ function getColumnConfig(type: LogType): ColumnConfig {
         cols: 'grid-cols-[90px_100px_1fr_90px]',
         headers: ['Time', 'Session', 'Summary', 'Duration'],
         render: (e) => [
-          <span key="ts" className="text-[var(--color-text-disabled)] truncate">{e.ts ? formatTimeAgo(e.ts) : '-'}</span>,
-          <span key="sid" className="text-[var(--color-text-muted)] truncate">{getSid(e)}</span>,
+          <span key="ts" className="text-[var(--color-text-disabled)] truncate">
+            {e.ts ? formatTimeAgo(e.ts) : '-'}
+          </span>,
+          <span key="sid" className="text-[var(--color-text-muted)] truncate">
+            {getSid(e)}
+          </span>,
           <span key="name" className="text-[var(--color-text-secondary)] truncate">
             {e.name ?? '-'} {e.childCount ? `(${e.childCount} spans)` : ''}
           </span>,
@@ -239,7 +265,11 @@ function WaterfallChart({ spans }: { spans: TraceSpan[] }) {
         const barColor = spanBarColors[span.name.toLowerCase()] ?? 'bg-slate-500'
 
         return (
-          <div key={idx} className="flex items-center h-6" style={{ paddingLeft: `${span.depth * 16}px` }}>
+          <div
+            key={idx}
+            className="flex items-center h-6"
+            style={{ paddingLeft: `${span.depth * 16}px` }}
+          >
             <div className="relative flex-1 h-4">
               <div
                 className={`absolute top-0 h-full rounded-sm ${barColor} opacity-80`}
@@ -249,7 +279,10 @@ function WaterfallChart({ spans }: { spans: TraceSpan[] }) {
                 className="absolute top-0 h-full flex items-center text-[10px] font-mono text-[var(--color-text-primary)] whitespace-nowrap pointer-events-none"
                 style={{ left: `${leftPct + widthPct + 0.5}%` }}
               >
-                {span.name} <span className="ml-1 text-[var(--color-text-disabled)]">{formatMs(span.durationMs)}</span>
+                {span.name}{' '}
+                <span className="ml-1 text-[var(--color-text-disabled)]">
+                  {formatMs(span.durationMs)}
+                </span>
               </span>
             </div>
           </div>
@@ -278,54 +311,60 @@ export function LogsPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval>>(undefined)
 
-  const fetchLogs = useCallback((lvls: Set<string>, typ: LogType, range: string, cStart: string, cEnd: string) => {
-    setLoading(true)
-    const params = new URLSearchParams({ type: typ, limit: '200' })
+  const fetchLogs = useCallback(
+    (lvls: Set<string>, typ: LogType, range: string, cStart: string, cEnd: string) => {
+      setLoading(true)
+      const params = new URLSearchParams({ type: typ, limit: '200' })
 
-    if (range === 'custom') {
-      if (cStart) params.set('since', new Date(cStart).toISOString())
-      if (cEnd) params.set('until', new Date(cEnd).toISOString())
-    } else {
-      const ms = range === '1h' ? 3_600_000 : range === '24h' ? 86_400_000 : 604_800_000
-      params.set('since', new Date(Date.now() - ms).toISOString())
-    }
+      if (range === 'custom') {
+        if (cStart) params.set('since', new Date(cStart).toISOString())
+        if (cEnd) params.set('until', new Date(cEnd).toISOString())
+      } else {
+        const ms = range === '1h' ? 3_600_000 : range === '24h' ? 86_400_000 : 604_800_000
+        params.set('since', new Date(Date.now() - ms).toISOString())
+      }
 
-    // Level filter — if not all selected, pass a single level (API supports single level)
-    // For multiple levels, we filter client-side
-    apiFetch<{ entries: LogEntry[] }>(`/api/logs?${params}`)
-      .then((res) => {
-        let filtered = res.entries
-        if (lvls.size < 3 && typ !== 'trace') {
-          filtered = filtered.filter((e) => !e.level || lvls.has(e.level))
-        }
-        setEntries(filtered)
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
+      // Level filter — if not all selected, pass a single level (API supports single level)
+      // For multiple levels, we filter client-side
+      apiFetch<{ entries: LogEntry[] }>(`/api/logs?${params}`)
+        .then((res) => {
+          let filtered = res.entries
+          if (lvls.size < 3 && typ !== 'trace') {
+            filtered = filtered.filter((e) => !e.level || lvls.has(e.level))
+          }
+          setEntries(filtered)
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false))
+    },
+    [],
+  )
 
   useEffect(() => {
     fetchLogs(levels, logType, timeRange, customStart, customEnd)
   }, [levels, logType, timeRange, customStart, customEnd, fetchLogs])
 
   // WebSocket live tail (replaces 3-second polling)
-  const onWsEvent = useCallback((_topic: string, data: unknown) => {
-    if (!isLive) return
-    const entry = data as LogEntry
-    if (!entry) return
-    const logEntry: LogEntry = {
-      ...entry,
-      ts: entry.ts ?? new Date().toISOString(),
-    }
-    setEntries((prev) => [...prev, logEntry].slice(-200))
+  const onWsEvent = useCallback(
+    (_topic: string, data: unknown) => {
+      if (!isLive) return
+      const entry = data as LogEntry
+      if (!entry) return
+      const logEntry: LogEntry = {
+        ...entry,
+        ts: entry.ts ?? new Date().toISOString(),
+      }
+      setEntries((prev) => [...prev, logEntry].slice(-200))
 
-    // Auto-scroll to bottom if user hasn't scrolled up
-    if (!userScrolledUp && scrollRef.current) {
-      requestAnimationFrame(() => {
-        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-      })
-    }
-  }, [isLive, userScrolledUp])
+      // Auto-scroll to bottom if user hasn't scrolled up
+      if (!userScrolledUp && scrollRef.current) {
+        requestAnimationFrame(() => {
+          scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+        })
+      }
+    },
+    [isLive, userScrolledUp],
+  )
 
   useWebSocket({
     url: `ws://${window.location.host}/ws`,
@@ -428,7 +467,10 @@ export function LogsPage() {
             {LOG_TYPES.map((t) => (
               <button
                 key={t}
-                onClick={() => { setLogType(t); setExpandedRow(null) }}
+                onClick={() => {
+                  setLogType(t)
+                  setExpandedRow(null)
+                }}
                 className={`px-3 py-1 rounded-md text-[12px] transition-colors ${
                   logType === t
                     ? 'bg-[var(--color-accent-glow)] text-[var(--color-accent)]'
@@ -470,7 +512,9 @@ export function LogsPage() {
                       : 'text-[var(--color-text-disabled)]'
                   }`}
                 >
-                  <span className={`w-2 h-2 rounded-full ${levels.has(lvl) ? levelDotColors[lvl] : 'bg-slate-600'}`} />
+                  <span
+                    className={`w-2 h-2 rounded-full ${levels.has(lvl) ? levelDotColors[lvl] : 'bg-slate-600'}`}
+                  />
                   {lvl}
                 </button>
               ))}
@@ -484,13 +528,18 @@ export function LogsPage() {
             onChange={(e) => setTimeRange(e.target.value)}
           >
             {TIME_RANGES.map((r) => (
-              <option key={r.value} value={r.value}>{r.label}</option>
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
             ))}
           </select>
 
           {/* Search */}
           <div className="relative flex-1">
-            <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-disabled)]" />
+            <MagnifyingGlass
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-disabled)]"
+            />
             <input
               ref={filterRef}
               type="text"
@@ -529,7 +578,10 @@ export function LogsPage() {
         {userScrolledUp && !loading && filtered.length > 0 && (
           <button
             onClick={() => {
-              scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+              scrollRef.current?.scrollTo({
+                top: scrollRef.current.scrollHeight,
+                behavior: 'smooth',
+              })
               setUserScrolledUp(false)
             }}
             className="absolute bottom-4 right-4 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--color-accent)] text-[var(--color-deep-bg)] text-[12px] font-medium shadow-lg hover:bg-[var(--color-accent-hover)] transition-colors animate-fade-up"
@@ -540,7 +592,9 @@ export function LogsPage() {
         )}
         {/* Header */}
         <div className="p-3 border-b border-[var(--color-border)]">
-          <div className={`grid ${config.cols} gap-3 text-[10px] font-semibold text-[var(--color-text-disabled)] tracking-wide`}>
+          <div
+            className={`grid ${config.cols} gap-3 text-[10px] font-semibold text-[var(--color-text-disabled)] tracking-wide`}
+          >
             {config.headers.map((h) => (
               <span key={h}>{h}</span>
             ))}
@@ -564,7 +618,11 @@ export function LogsPage() {
             No log entries
           </div>
         ) : (
-          <div ref={scrollRef} className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 340px)' }}>
+          <div
+            ref={scrollRef}
+            className="overflow-y-auto"
+            style={{ maxHeight: 'calc(100vh - 340px)' }}
+          >
             {filtered.map((entry, i) => {
               const rowBgClass = levelRowBg[entry.level ?? ''] ?? ''
               return (
@@ -580,10 +638,16 @@ export function LogsPage() {
                   </div>
 
                   {/* Expanded detail drawer */}
-                  {expandedRow === i && (
-                    logType === 'trace' ? (
+                  {expandedRow === i &&
+                    (logType === 'trace' ? (
                       <div className="px-4 py-3 bg-black/20 border-b border-[var(--color-border)]">
-                        {traceData ? <WaterfallChart spans={traceData} /> : <p className="text-[11px] text-[var(--color-text-muted)]">Loading trace...</p>}
+                        {traceData ? (
+                          <WaterfallChart spans={traceData} />
+                        ) : (
+                          <p className="text-[11px] text-[var(--color-text-muted)]">
+                            Loading trace...
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <div className="px-4 py-3 bg-black/20 border-b border-[var(--color-border)]">
@@ -591,8 +655,7 @@ export function LogsPage() {
                           {JSON.stringify(entry, null, 2)}
                         </pre>
                       </div>
-                    )
-                  )}
+                    ))}
                 </div>
               )
             })}

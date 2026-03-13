@@ -1,18 +1,23 @@
 import {
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
+  readdirSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
-import matter from 'gray-matter'
 import type { Memory, MemoryType } from '@zero-os/shared'
 import { generatePrefixedId, now } from '@zero-os/shared'
+import matter from 'gray-matter'
 
 export interface MemoryRepository {
-  create(type: MemoryType, title: string, content: string, options?: Partial<Memory>): Promise<Memory>
+  create(
+    type: MemoryType,
+    title: string,
+    content: string,
+    options?: Partial<Memory>,
+  ): Promise<Memory>
   save(memory: Memory): Promise<void>
   get(type: MemoryType, id: string): Memory | undefined
   getRelativePath(type: MemoryType, id: string): string
@@ -22,7 +27,10 @@ export interface MemoryRepository {
   delete(type: MemoryType, id: string): Promise<boolean>
   getAgentPreference(agentName: string): string
   deleteBySessionId(sessionId: string): Promise<number>
-  readByPath(path: string, options?: { from?: number; lines?: number }): { path: string; text: string } | undefined
+  readByPath(
+    path: string,
+    options?: { from?: number; lines?: number },
+  ): { path: string; text: string } | undefined
 }
 
 /**
@@ -34,7 +42,12 @@ export class MemoryStore implements MemoryRepository {
   /**
    * Create a new memory entry.
    */
-  async create(type: MemoryType, title: string, content: string, options?: Partial<Memory>): Promise<Memory> {
+  async create(
+    type: MemoryType,
+    title: string,
+    content: string,
+    options?: Partial<Memory>,
+  ): Promise<Memory> {
     const timestamp = now()
     const memory: Memory = {
       id: generatePrefixedId('mem'),
@@ -121,7 +134,11 @@ export class MemoryStore implements MemoryRepository {
   /**
    * Update a memory's metadata.
    */
-  async update(type: MemoryType, id: string, updates: Partial<Memory>): Promise<Memory | undefined> {
+  async update(
+    type: MemoryType,
+    id: string,
+    updates: Partial<Memory>,
+  ): Promise<Memory | undefined> {
     const memory = this.get(type, id)
     if (!memory) return undefined
 
@@ -163,7 +180,15 @@ export class MemoryStore implements MemoryRepository {
    * Delete all memory files associated with a session.
    */
   async deleteBySessionId(sessionId: string): Promise<number> {
-    const allTypes: MemoryType[] = ['session', 'incident', 'runbook', 'decision', 'note', 'preference', 'inbox']
+    const allTypes: MemoryType[] = [
+      'session',
+      'incident',
+      'runbook',
+      'decision',
+      'note',
+      'preference',
+      'inbox',
+    ]
     let deleted = 0
 
     for (const type of allTypes) {
@@ -187,7 +212,10 @@ export class MemoryStore implements MemoryRepository {
    * Read a memory file via a project-relative or memory-relative path.
    * Returns empty text for missing files and undefined for invalid paths.
    */
-  readByPath(path: string, options: { from?: number; lines?: number } = {}): { path: string; text: string } | undefined {
+  readByPath(
+    path: string,
+    options: { from?: number; lines?: number } = {},
+  ): { path: string; text: string } | undefined {
     const resolved = this.resolveMemoryPath(path)
     if (!resolved) return undefined
 
@@ -204,7 +232,10 @@ export class MemoryStore implements MemoryRepository {
     const lines = options.lines === undefined ? undefined : Math.max(0, Math.floor(options.lines))
     const allLines = content.split('\n')
     const startIndex = from - 1
-    const sliced = lines === undefined ? allLines.slice(startIndex) : allLines.slice(startIndex, startIndex + lines)
+    const sliced =
+      lines === undefined
+        ? allLines.slice(startIndex)
+        : allLines.slice(startIndex, startIndex + lines)
     return {
       path: resolved.projectRelativePath,
       text: sliced.join('\n'),
@@ -228,7 +259,9 @@ export class MemoryStore implements MemoryRepository {
     return dirMap[type]
   }
 
-  private resolveMemoryPath(path: string): { absolutePath: string; projectRelativePath: string } | undefined {
+  private resolveMemoryPath(
+    path: string,
+  ): { absolutePath: string; projectRelativePath: string } | undefined {
     const trimmed = path.trim().replaceAll('\\', '/')
     if (!trimmed) return undefined
 

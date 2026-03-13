@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { RepairEngine } from '../repair'
 
 describe('RepairEngine', () => {
@@ -51,7 +51,7 @@ describe('RepairEngine', () => {
     const attempt = await engine.runRepairCycle(
       async () => 'diag',
       async () => 'action',
-      async () => false
+      async () => false,
     )
 
     expect(attempt.status).toBe('failed')
@@ -63,9 +63,11 @@ describe('RepairEngine', () => {
     const engine = new RepairEngine()
 
     const attempt = await engine.runRepairCycle(
-      async () => { throw new Error('diag error') },
+      async () => {
+        throw new Error('diag error')
+      },
       async (d) => `repaired with: ${d}`,
-      async () => true
+      async () => true,
     )
 
     expect(attempt.diagnosis).toContain('Diagnosis failed:')
@@ -77,8 +79,10 @@ describe('RepairEngine', () => {
 
     const attempt = await engine.runRepairCycle(
       async () => 'diag ok',
-      async () => { throw new Error('repair error') },
-      async () => true
+      async () => {
+        throw new Error('repair error')
+      },
+      async () => true,
     )
 
     expect(attempt.action).toContain('Repair failed:')
@@ -91,7 +95,9 @@ describe('RepairEngine', () => {
     const attempt = await engine.runRepairCycle(
       async () => 'diag',
       async () => 'action',
-      async () => { throw new Error('verify error') }
+      async () => {
+        throw new Error('verify error')
+      },
     )
 
     expect(attempt.status).toBe('failed')
@@ -105,7 +111,7 @@ describe('RepairEngine', () => {
       await engine.runRepairCycle(
         async () => 'diag',
         async () => 'action',
-        async () => false
+        async () => false,
       )
     }
 
@@ -119,7 +125,7 @@ describe('RepairEngine', () => {
     await engine.runRepairCycle(
       async () => 'diag',
       async () => 'action',
-      async () => false
+      async () => false,
     )
 
     expect(engine.getAttemptCount()).toBe(1)

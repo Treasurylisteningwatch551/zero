@@ -1,9 +1,17 @@
 import { describe, expect, test } from 'bun:test'
-import { getSupervisorLaunchAgentPaths, renderSupervisorLaunchAgentPlist, SUPERVISOR_LABEL } from '../launchd'
+import {
+  SUPERVISOR_LABEL,
+  getSupervisorLaunchAgentPaths,
+  renderSupervisorLaunchAgentPlist,
+} from '../launchd'
 
 describe('launchd', () => {
   test('renders a LaunchAgent plist for the supervisor', () => {
-    const paths = getSupervisorLaunchAgentPaths('/tmp/zero-os', '/Users/tester', '/Users/tester/.bun/bin/bun')
+    const paths = getSupervisorLaunchAgentPaths(
+      '/tmp/zero-os',
+      '/Users/tester',
+      '/Users/tester/.bun/bin/bun',
+    )
     const plist = renderSupervisorLaunchAgentPlist(paths)
 
     expect(plist).toContain(`<string>${SUPERVISOR_LABEL}</string>`)
@@ -17,7 +25,11 @@ describe('launchd', () => {
   })
 
   test('escapes xml-sensitive characters in generated plist values', () => {
-    const paths = getSupervisorLaunchAgentPaths('/tmp/zero & os', '/Users/test<er>', '/Users/test"er"/.bun/bin/bun')
+    const paths = getSupervisorLaunchAgentPaths(
+      '/tmp/zero & os',
+      '/Users/test<er>',
+      '/Users/test"er"/.bun/bin/bun',
+    )
     const plist = renderSupervisorLaunchAgentPlist(paths)
 
     expect(plist).toContain('/tmp/zero &amp; os')

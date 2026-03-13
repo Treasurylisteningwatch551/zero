@@ -1,12 +1,12 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { SessionDetailScreen } from '../components/session/SessionDetailScreen'
+import { useWebSocket } from '../hooks/useWebSocket'
 import { apiFetch } from '../lib/api'
 import { formatTimeAgo } from '../lib/format'
-import { useWebSocket } from '../hooks/useWebSocket'
-import { SessionDetailScreen } from '../components/session/SessionDetailScreen'
 import {
-  resolveChannelSessionCandidate,
   type ChannelSessionCandidate,
+  resolveChannelSessionCandidate,
 } from './session-detail-helpers'
 
 export function SessionChannelDetailPage() {
@@ -24,22 +24,25 @@ export function SessionChannelDetailPage() {
 
   const activeSource = search.source ?? inferredSource
 
-  const fetchCandidatesByChannel = useCallback((showLoading = true) => {
-    if (showLoading) setLoading(true)
-    return apiFetch<{ sessions: ChannelSessionCandidate[] }>(
-      `/api/sessions/channel/${encodeURIComponent(channel)}/active`,
-    )
-      .then((res) => {
-        const sessions = res.sessions ?? []
-        setCandidates(sessions)
-        setInferredSource(sessions[0]?.source ?? null)
-      })
-      .catch(() => {
-        setCandidates([])
-        setInferredSource(null)
-      })
-      .finally(() => setLoading(false))
-  }, [channel])
+  const fetchCandidatesByChannel = useCallback(
+    (showLoading = true) => {
+      if (showLoading) setLoading(true)
+      return apiFetch<{ sessions: ChannelSessionCandidate[] }>(
+        `/api/sessions/channel/${encodeURIComponent(channel)}/active`,
+      )
+        .then((res) => {
+          const sessions = res.sessions ?? []
+          setCandidates(sessions)
+          setInferredSource(sessions[0]?.source ?? null)
+        })
+        .catch(() => {
+          setCandidates([])
+          setInferredSource(null)
+        })
+        .finally(() => setLoading(false))
+    },
+    [channel],
+  )
 
   const fetchCandidatesBySource = useCallback((source: string, showLoading = true) => {
     if (showLoading) setLoading(true)
@@ -113,24 +116,35 @@ export function SessionChannelDetailPage() {
 
   const selector = (
     <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-[10px] text-[var(--color-text-disabled)] uppercase tracking-wide">Source</span>
+      <span className="text-[10px] text-[var(--color-text-disabled)] uppercase tracking-wide">
+        Source
+      </span>
       <span className="text-[11px] font-mono text-[var(--color-text-secondary)]">
         {selectedCandidate?.source ?? activeSource ?? '—'}
       </span>
-      <span className="text-[10px] text-[var(--color-text-disabled)] uppercase tracking-wide ml-2">Channel</span>
+      <span className="text-[10px] text-[var(--color-text-disabled)] uppercase tracking-wide ml-2">
+        Channel
+      </span>
       <span className="text-[11px] font-mono text-[var(--color-text-secondary)]">
         {selectedCandidate?.channelName ?? '—'}
       </span>
-      <span className="text-[10px] text-[var(--color-text-disabled)] uppercase tracking-wide ml-2">Channel ID</span>
+      <span className="text-[10px] text-[var(--color-text-disabled)] uppercase tracking-wide ml-2">
+        Channel ID
+      </span>
       <select
         className="input-field py-1.5 px-2.5 min-w-[220px]"
-        value={selectedCandidate
-          ? `${selectedCandidate.channelName ?? selectedCandidate.source}::${selectedCandidate.channelId}`
-          : ''}
+        value={
+          selectedCandidate
+            ? `${selectedCandidate.channelName ?? selectedCandidate.source}::${selectedCandidate.channelId}`
+            : ''
+        }
         disabled={loading || candidates.length === 0}
         onChange={(e) => {
-          const next = candidates.find((candidate) =>
-            `${candidate.channelName ?? candidate.source}::${candidate.channelId}` === e.target.value)
+          const next = candidates.find(
+            (candidate) =>
+              `${candidate.channelName ?? candidate.source}::${candidate.channelId}` ===
+              e.target.value,
+          )
           navigate({
             to: '/sessions/channel/$channel/detail',
             params: { channel: next?.channelId ?? e.target.value },
@@ -146,7 +160,8 @@ export function SessionChannelDetailPage() {
             key={`${candidate.channelName ?? candidate.source}-${candidate.channelId}-${candidate.id}`}
             value={`${candidate.channelName ?? candidate.source}::${candidate.channelId}`}
           >
-            {(candidate.channelName ?? candidate.source)} · {candidate.channelId} · {candidate.status} · {formatTimeAgo(candidate.updatedAt)}
+            {candidate.channelName ?? candidate.source} · {candidate.channelId} · {candidate.status}{' '}
+            · {formatTimeAgo(candidate.updatedAt)}
           </option>
         ))}
       </select>

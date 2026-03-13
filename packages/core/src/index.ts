@@ -34,15 +34,35 @@ export { loadSkills } from './skill/loader'
 
 // Bootstrap
 export { loadBootstrapFiles, hasSoulFile } from './bootstrap/loader'
-export { BOOTSTRAP_FILE_NAMES, MINIMAL_BOOTSTRAP_ALLOWLIST, DEFAULT_TEMPLATES } from './bootstrap/templates'
+export {
+  BOOTSTRAP_FILE_NAMES,
+  MINIMAL_BOOTSTRAP_ALLOWLIST,
+  DEFAULT_TEMPLATES,
+} from './bootstrap/templates'
 
 // Context Engineering
-export { buildSystemPrompt, buildSubAgentPrompt, buildSkillsBlock, buildSkillCatalog, buildDynamicContext, buildSkillReminder, buildSafetyBlock, buildToolCallStyleBlock, buildRuntimeBlock, buildBootstrapContextBlock } from './agent/prompt'
+export {
+  buildSystemPrompt,
+  buildSubAgentPrompt,
+  buildSkillsBlock,
+  buildSkillCatalog,
+  buildDynamicContext,
+  buildSkillReminder,
+  buildSafetyBlock,
+  buildToolCallStyleBlock,
+  buildRuntimeBlock,
+  buildBootstrapContextBlock,
+} from './agent/prompt'
 export { allocateBudget, shouldCompress } from './agent/budget'
 export { truncateToolOutput } from './agent/truncate'
 export { prepareConversationHistory, estimateConversationTokens } from './agent/context'
 export { compressConversation } from './agent/compress'
 export { CONTEXT_PARAMS } from './agent/params'
-export { formatQueuedMessages, injectQueuedMessages, isTaskComplete, CONTINUATION_PROMPT } from './agent/queue'
+export {
+  formatQueuedMessages,
+  injectQueuedMessages,
+  isTaskComplete,
+  CONTINUATION_PROMPT,
+} from './agent/queue'
 export type { QueuedMessage } from './agent/queue'
 export { buildSnapshot } from './agent/snapshot'

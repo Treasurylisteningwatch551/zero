@@ -1,12 +1,12 @@
 import { Database, type SQLQueryBindings } from 'bun:sqlite'
 import type {
+  Message,
+  ModelHistoryEntry,
+  ScheduleChannelBinding,
+  ScheduleConfig,
   Session as SessionData,
   SessionSource,
   SessionStatus,
-  ModelHistoryEntry,
-  Message,
-  ScheduleConfig,
-  ScheduleChannelBinding,
 } from '@zero-os/shared'
 
 export interface SessionRow {
@@ -125,9 +125,13 @@ export class SessionDB {
 
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)`)
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_channel ON sessions(source, channel_id)`)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_channel_instance ON sessions(source, channel_name, channel_id)`)
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS idx_sessions_channel_instance ON sessions(source, channel_name, channel_id)`,
+    )
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at)`)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_channel_models_updated ON channel_models(updated_at)`)
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS idx_channel_models_updated ON channel_models(updated_at)`,
+    )
 
     this.db.run(`
       CREATE TABLE IF NOT EXISTS schedules (
@@ -170,7 +174,7 @@ export class SessionDB {
         systemPrompt ?? null,
         data.createdAt,
         data.updatedAt,
-      ]
+      ],
     )
   }
 
@@ -181,33 +185,46 @@ export class SessionDB {
     this.db.run(
       `INSERT OR REPLACE INTO session_messages (session_id, messages_json, message_count, updated_at)
        VALUES (?, ?, ?, ?)`,
-      [
-        sessionId,
-        JSON.stringify(messages),
-        messages.length,
-        new Date().toISOString(),
-      ]
+      [sessionId, JSON.stringify(messages), messages.length, new Date().toISOString()],
     )
   }
 
-  saveChannelModel(source: SessionSource, channelId: string, model: string, channelName?: string): void {
+  saveChannelModel(
+    source: SessionSource,
+    channelId: string,
+    model: string,
+    channelName?: string,
+  ): void {
     this.db.run(
       `INSERT OR REPLACE INTO channel_models (source, channel_name, channel_id, model, updated_at)
        VALUES (?, ?, ?, ?, ?)`,
-      [source, channelName ?? '', channelId, model, new Date().toISOString()]
+      [source, channelName ?? '', channelId, model, new Date().toISOString()],
     )
   }
 
-  getChannelModel(source: SessionSource, channelId: string, channelName?: string): string | undefined {
+  getChannelModel(
+    source: SessionSource,
+    channelId: string,
+    channelName?: string,
+  ): string | undefined {
     const row = this.db
-      .query(`SELECT model FROM channel_models WHERE source = ? AND channel_name = ? AND channel_id = ?`)
+      .query(
+        `SELECT model FROM channel_models WHERE source = ? AND channel_name = ? AND channel_id = ?`,
+      )
       .get(source, channelName ?? '', channelId) as { model: string } | null
     return row?.model ?? undefined
   }
 
-  loadChannelModels(): Array<{ source: SessionSource; channelName?: string; channelId: string; model: string }> {
+  loadChannelModels(): Array<{
+    source: SessionSource
+    channelName?: string
+    channelId: string
+    model: string
+  }> {
     const rows = this.db
-      .query(`SELECT source, channel_name, channel_id, model, updated_at FROM channel_models ORDER BY updated_at DESC`)
+      .query(
+        `SELECT source, channel_name, channel_id, model, updated_at FROM channel_models ORDER BY updated_at DESC`,
+      )
       .all() as RawChannelModelRow[]
 
     return rows.map((row) => ({
@@ -222,10 +239,11 @@ export class SessionDB {
    * Update session status only.
    */
   updateStatus(sessionId: string, status: SessionStatus, updatedAt: string): void {
-    this.db.run(
-      `UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?`,
-      [status, updatedAt, sessionId]
-    )
+    this.db.run(`UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?`, [
+      status,
+      updatedAt,
+      sessionId,
+    ])
   }
 
   /**
@@ -252,7 +270,11 @@ export class SessionDB {
   /**
    * Load all sessions with optional filtering.
    */
-  loadAllSessions(filter?: { status?: SessionStatus; limit?: number; offset?: number }): SessionRow[] {
+  loadAllSessions(filter?: {
+    status?: SessionStatus
+    limit?: number
+    offset?: number
+  }): SessionRow[] {
     let sql = 'SELECT * FROM sessions'
     const params: SQLQueryBindings[] = []
 
@@ -290,10 +312,22 @@ export class SessionDB {
   /**
    * Get channel mappings for active sessions (for startup recovery).
    */
-  getChannelMappings(): Array<{ id: string; source: SessionSource; channelName?: string; channelId: string }> {
+  getChannelMappings(): Array<{
+    id: string
+    source: SessionSource
+    channelName?: string
+    channelId: string
+  }> {
     const rows = this.db
-      .query(`SELECT id, source, channel_name, channel_id FROM sessions WHERE channel_id IS NOT NULL AND status IN ('active', 'idle')`)
-      .all() as Array<{ id: string; source: string; channel_name: string | null; channel_id: string }>
+      .query(
+        `SELECT id, source, channel_name, channel_id FROM sessions WHERE channel_id IS NOT NULL AND status IN ('active', 'idle')`,
+      )
+      .all() as Array<{
+      id: string
+      source: string
+      channel_name: string | null
+      channel_id: string
+    }>
     return rows.map((r) => ({
       id: r.id,
       source: r.source as SessionSource,
@@ -334,7 +368,7 @@ export class SessionDB {
         config.createdBy ?? 'runtime',
         ts,
         ts,
-      ]
+      ],
     )
   }
 

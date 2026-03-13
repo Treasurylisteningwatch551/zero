@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { withLock } from '@zero-os/shared'
 
 /**
@@ -37,10 +37,7 @@ export class MemoManager {
     await withLock(this.filePath, async () => {
       let content = this.read()
       const sectionHeader = `### ${agentName}`
-      const sectionRegex = new RegExp(
-        `### ${escapeRegExp(agentName)}\\n[\\s\\S]*?(?=###|$)`,
-        'g'
-      )
+      const sectionRegex = new RegExp(`### ${escapeRegExp(agentName)}\\n[\\s\\S]*?(?=###|$)`, 'g')
 
       const newSection = `### ${agentName}\n**In Progress**: ${status}\n**Plan**: ${plan}\n\n`
 

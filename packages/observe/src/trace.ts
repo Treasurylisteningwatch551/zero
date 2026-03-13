@@ -51,7 +51,11 @@ export class Tracer {
   /**
    * End a trace span.
    */
-  endSpan(spanId: string, status: 'success' | 'error' = 'success', metadata?: Record<string, unknown>): void {
+  endSpan(
+    spanId: string,
+    status: 'success' | 'error' = 'success',
+    metadata?: Record<string, unknown>,
+  ): void {
     const span = this.spans.get(spanId)
     if (!span) return
 

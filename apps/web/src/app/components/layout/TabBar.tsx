@@ -1,5 +1,5 @@
-import { Gauge, ClockCounterClockwise, Brain, Wrench, Gear } from '@phosphor-icons/react'
-import { useNavigate, useLocation } from '@tanstack/react-router'
+import { Brain, ClockCounterClockwise, Gauge, Gear, Wrench } from '@phosphor-icons/react'
+import { useLocation, useNavigate } from '@tanstack/react-router'
 
 const tabItems = [
   { name: 'Dashboard', icon: Gauge, path: '/' },
@@ -19,16 +19,15 @@ export function TabBar() {
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       {tabItems.map((item) => {
-        const isActive = location.pathname === item.path ||
+        const isActive =
+          location.pathname === item.path ||
           (item.path !== '/' && location.pathname.startsWith(item.path + '/'))
         return (
           <button
             key={item.path}
             onClick={() => navigate({ to: item.path })}
             className={`flex flex-col items-center gap-0.5 py-2 px-3 transition-colors ${
-              isActive
-                ? 'text-[var(--color-accent)]'
-                : 'text-[var(--color-text-muted)]'
+              isActive ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)]'
             }`}
           >
             <item.icon size={20} weight={isActive ? 'fill' : 'regular'} />

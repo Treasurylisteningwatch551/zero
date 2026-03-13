@@ -1,6 +1,6 @@
 import { Outlet } from '@tanstack/react-router'
-import { Sidebar } from './components/layout/Sidebar'
 import { ChatDrawer } from './components/layout/ChatDrawer'
+import { Sidebar } from './components/layout/Sidebar'
 import { TabBar } from './components/layout/TabBar'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
 import { ToastContainer } from './components/shared/Toast'

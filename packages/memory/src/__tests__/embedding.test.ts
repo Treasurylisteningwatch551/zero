@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, mock } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 import { EmbeddingClient } from '../embedding'
 
 const originalFetch = globalThis.fetch
@@ -9,9 +9,14 @@ afterEach(() => {
 
 describe('EmbeddingClient', () => {
   test('embed returns a single vector', async () => {
-    globalThis.fetch = mock(async () => new Response(JSON.stringify({
-      data: [{ embedding: [0.1, 0.2, 0.3] }],
-    }))) as unknown as typeof fetch
+    globalThis.fetch = mock(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ embedding: [0.1, 0.2, 0.3] }],
+          }),
+        ),
+    ) as unknown as typeof fetch
 
     const client = new EmbeddingClient({
       baseUrl: 'https://example.test/v1',
@@ -24,12 +29,14 @@ describe('EmbeddingClient', () => {
   })
 
   test('embedBatch returns all vectors', async () => {
-    globalThis.fetch = mock(async () => new Response(JSON.stringify({
-      data: [
-        { embedding: [1, 0] },
-        { embedding: [0, 1] },
-      ],
-    }))) as unknown as typeof fetch
+    globalThis.fetch = mock(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: [{ embedding: [1, 0] }, { embedding: [0, 1] }],
+          }),
+        ),
+    ) as unknown as typeof fetch
 
     const client = new EmbeddingClient({
       baseUrl: 'https://example.test/v1',
@@ -37,11 +44,16 @@ describe('EmbeddingClient', () => {
       model: 'text-embedding-v4',
     })
 
-    await expect(client.embedBatch(['a', 'b'])).resolves.toEqual([[1, 0], [0, 1]])
+    await expect(client.embedBatch(['a', 'b'])).resolves.toEqual([
+      [1, 0],
+      [0, 1],
+    ])
   })
 
   test('throws on non-ok response', async () => {
-    globalThis.fetch = mock(async () => new Response('bad gateway', { status: 502 })) as unknown as typeof fetch
+    globalThis.fetch = mock(
+      async () => new Response('bad gateway', { status: 502 }),
+    ) as unknown as typeof fetch
 
     const client = new EmbeddingClient({
       baseUrl: 'https://example.test/v1',
@@ -53,7 +65,9 @@ describe('EmbeddingClient', () => {
   })
 
   test('throws on malformed response payload', async () => {
-    globalThis.fetch = mock(async () => new Response(JSON.stringify({ data: [] }))) as unknown as typeof fetch
+    globalThis.fetch = mock(
+      async () => new Response(JSON.stringify({ data: [] })),
+    ) as unknown as typeof fetch
 
     const client = new EmbeddingClient({
       baseUrl: 'https://example.test/v1',
@@ -61,7 +75,9 @@ describe('EmbeddingClient', () => {
       model: 'text-embedding-v4',
     })
 
-    await expect(client.embed('hello')).rejects.toThrow('Embedding service returned an unexpected payload')
+    await expect(client.embed('hello')).rejects.toThrow(
+      'Embedding service returned an unexpected payload',
+    )
   })
 
   test('memoryToText includes title tags and trimmed content', () => {

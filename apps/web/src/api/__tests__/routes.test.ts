@@ -1,10 +1,10 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
-import { mkdtempSync, cpSync, rmSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { createRoutes } from '../routes'
+import { join } from 'node:path'
 import { startZeroOS } from '../../../../server/src/main'
 import type { ZeroOS } from '../../../../server/src/main'
+import { createRoutes } from '../routes'
 
 let app: ReturnType<typeof createRoutes>
 let zero: ZeroOS
@@ -62,7 +62,9 @@ describe('API Routes (Real)', () => {
     const res = await app.request('/api/memo', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: '# Memo\n\n## Goals\n- test goal\n\n## Needs User Action\n' }),
+      body: JSON.stringify({
+        content: '# Memo\n\n## Goals\n- test goal\n\n## Needs User Action\n',
+      }),
     })
     expect(res.status).toBe(200)
     const data = await res.json()
@@ -106,7 +108,9 @@ describe('API Routes (Real)', () => {
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(Array.isArray(data.models)).toBe(true)
-    expect(data.models.some((m: { name: string }) => m.name === 'openai-codex/gpt-5.4-medium')).toBe(true)
+    expect(
+      data.models.some((m: { name: string }) => m.name === 'openai-codex/gpt-5.4-medium'),
+    ).toBe(true)
   })
 
   test('POST /api/chat/model switches runtime model', async () => {
@@ -181,7 +185,9 @@ describe('API Routes (Real)', () => {
       body: JSON.stringify({ message: 'What is 2+2?' }),
     })
     if (res.status === 500) {
-      console.warn('[test] POST /api/chat returned 500 — upstream API unavailable, skipping assertions')
+      console.warn(
+        '[test] POST /api/chat returned 500 — upstream API unavailable, skipping assertions',
+      )
       return
     }
     expect(res.status).toBe(200)

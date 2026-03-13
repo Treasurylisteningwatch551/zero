@@ -25,8 +25,8 @@ export const TASK_CLOSURE_PROMPT = `<system_notice>
 当前进度可参考上方的工具调用历史。
 </system_notice>`
 
-
-export const TASK_CLOSURE_CLASSIFIER_SYSTEM_PROMPT = '你是一个严格的任务收尾判定器。你只输出合法 JSON，不要输出解释、代码块或额外文本。'
+export const TASK_CLOSURE_CLASSIFIER_SYSTEM_PROMPT =
+  '你是一个严格的任务收尾判定器。你只输出合法 JSON，不要输出解释、代码块或额外文本。'
 
 export function buildTaskClosureDecisionPrompt(
   userMessage: string,
@@ -115,8 +115,8 @@ export function parseTaskClosureDecision(response: string): TaskClosureDecision 
 
 export function extractAssistantText(content: ContentBlock[]): string {
   return content
-    .filter(block => block.type === 'text')
-    .map(block => (block as { type: 'text'; text: string }).text)
+    .filter((block) => block.type === 'text')
+    .map((block) => (block as { type: 'text'; text: string }).text)
     .join('')
 }
 
@@ -126,7 +126,10 @@ export function extractAssistantTail(content: ContentBlock[], maxChars = 1200): 
   return lastText.length <= maxChars ? lastText : lastText.slice(-maxChars)
 }
 
-export function stripAssistantTrimFrom(content: ContentBlock[], trimFrom: string): ContentBlock[] | null {
+export function stripAssistantTrimFrom(
+  content: ContentBlock[],
+  trimFrom: string,
+): ContentBlock[] | null {
   if (!trimFrom) return null
 
   for (let index = content.length - 1; index >= 0; index--) {
@@ -150,7 +153,7 @@ export function stripAssistantTrimFrom(content: ContentBlock[], trimFrom: string
 }
 
 export function hasAssistantText(content: ContentBlock[]): boolean {
-  return content.some(block => block.type === 'text' && block.text.trim().length > 0)
+  return content.some((block) => block.type === 'text' && block.text.trim().length > 0)
 }
 
 function getLastTextBlockText(content: ContentBlock[]): string {

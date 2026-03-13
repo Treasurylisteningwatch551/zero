@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
 import { Plugs } from '@phosphor-icons/react'
-import { apiFetch } from '../../lib/api'
+import { useCallback, useEffect, useState } from 'react'
 import { useWebSocket } from '../../hooks/useWebSocket'
+import { apiFetch } from '../../lib/api'
 
 interface Channel {
   name: string
@@ -49,11 +49,7 @@ export function ChannelStatus() {
       }`}
       style={hasOffline ? { boxShadow: '0 0 12px rgba(248, 113, 113, 0.1)' } : undefined}
     >
-      <Plugs
-        size={16}
-        weight="bold"
-        className={hasOffline ? 'text-red-400' : 'text-slate-500'}
-      />
+      <Plugs size={16} weight="bold" className={hasOffline ? 'text-red-400' : 'text-slate-500'} />
       <div className="flex items-center gap-4 flex-wrap">
         {channels.map((ch) => {
           const isOnline = ch.status === 'online'
@@ -63,9 +59,7 @@ export function ChannelStatus() {
                 className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-400' : 'bg-red-400 animate-pulse'}`}
               />
               <span
-                className={`text-[12px] font-mono ${
-                  isOnline ? 'text-slate-500' : 'text-red-400'
-                }`}
+                className={`text-[12px] font-mono ${isOnline ? 'text-slate-500' : 'text-red-400'}`}
               >
                 {ch.name}
               </span>

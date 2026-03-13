@@ -1,7 +1,7 @@
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { MemoryLifecycle } from '../lifecycle'
 import { MemoryStore } from '../store'
 
@@ -32,12 +32,10 @@ describe('MemoryLifecycle', () => {
   })
 
   test('createIncident prefixes tags with incident and sets draft status', async () => {
-    const mem = await lifecycle.createIncident(
-      'OOM Crash',
-      'Process killed by OOM',
-      'sess-002',
-      ['memory', 'crash'],
-    )
+    const mem = await lifecycle.createIncident('OOM Crash', 'Process killed by OOM', 'sess-002', [
+      'memory',
+      'crash',
+    ])
 
     expect(mem.title).toBe('OOM Crash')
     expect(mem.status).toBe('draft')

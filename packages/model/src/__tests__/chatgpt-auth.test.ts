@@ -1,5 +1,9 @@
-import { describe, test, expect } from 'bun:test'
-import { decodeChatGptAccountId, parseChatGptOAuthSession, serializeChatGptOAuthSession } from '../auth/chatgpt'
+import { describe, expect, test } from 'bun:test'
+import {
+  decodeChatGptAccountId,
+  parseChatGptOAuthSession,
+  serializeChatGptOAuthSession,
+} from '../auth/chatgpt'
 import type { ChatGptOAuthSession } from '../auth/chatgpt'
 
 function makeJwt(payload: Record<string, unknown>) {

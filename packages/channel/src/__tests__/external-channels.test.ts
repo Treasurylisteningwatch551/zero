@@ -1,7 +1,7 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { Readable } from 'node:stream'
-import { TelegramChannel } from '../telegram/index'
 import { FeishuChannel } from '../feishu/index'
+import { TelegramChannel } from '../telegram/index'
 
 describe('TelegramChannel contract', () => {
   test('name is telegram and type is telegram', () => {
@@ -18,7 +18,6 @@ describe('TelegramChannel contract', () => {
   test('reply sends message with reply_parameters', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
     const calls: any[] = []
-
     ;(channel as any).bot = {
       telegram: {
         sendMessage: async (...args: any[]) => {
@@ -45,7 +44,6 @@ describe('TelegramChannel contract', () => {
   test('editRich edits existing message with entities', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
     const calls: any[] = []
-
     ;(channel as any).bot = {
       telegram: {
         editMessageText: async (...args: any[]) => {
@@ -72,7 +70,6 @@ describe('TelegramChannel contract', () => {
   test('sendTyping sends typing chat action', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
     const calls: any[] = []
-
     ;(channel as any).bot = {
       telegram: {
         sendChatAction: async (...args: any[]) => {
@@ -91,7 +88,6 @@ describe('TelegramChannel contract', () => {
   test('react sends message reaction', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
     const calls: any[] = []
-
     ;(channel as any).bot = {
       telegram: {
         setMessageReaction: async (...args: any[]) => {
@@ -104,17 +100,12 @@ describe('TelegramChannel contract', () => {
     await channel.react('123', 456, '👀')
 
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toEqual([
-      123,
-      456,
-      [{ type: 'emoji', emoji: '👀' }],
-    ])
+    expect(calls[0]).toEqual([123, 456, [{ type: 'emoji', emoji: '👀' }]])
   })
 
   test('setMyCommands maps scope and language_code', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
     const calls: any[] = []
-
     ;(channel as any).bot = {
       telegram: {
         setMyCommands: async (...args: any[]) => {
@@ -124,17 +115,14 @@ describe('TelegramChannel contract', () => {
       },
     }
 
-    await channel.setMyCommands(
-      [{ command: 'restart', description: 'Restart service' }],
-      {
-        scope: {
-          type: 'chat_member',
-          chatId: 123,
-          userId: 42,
-        },
-        languageCode: '',
+    await channel.setMyCommands([{ command: 'restart', description: 'Restart service' }], {
+      scope: {
+        type: 'chat_member',
+        chatId: 123,
+        userId: 42,
       },
-    )
+      languageCode: '',
+    })
 
     expect(calls).toHaveLength(1)
     expect(calls[0]).toEqual([
@@ -152,13 +140,12 @@ describe('TelegramChannel contract', () => {
 
   test('getMyCommands returns normalized commands', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-
     ;(channel as any).bot = {
       telegram: {
-        getMyCommands: async () => ([
+        getMyCommands: async () => [
           { command: 'new', description: 'Start new chat', ignored: true },
           { command: 'model', description: 'Switch model' },
-        ]),
+        ],
       },
     }
 
@@ -172,7 +159,6 @@ describe('TelegramChannel contract', () => {
   test('setChatMenuButton maps web_app url payload', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
     const calls: any[] = []
-
     ;(channel as any).bot = {
       telegram: {
         setChatMenuButton: async (...args: any[]) => {
@@ -208,7 +194,6 @@ describe('TelegramChannel contract', () => {
 
   test('getChatMenuButton maps web_app response', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-
     ;(channel as any).bot = {
       telegram: {
         getChatMenuButton: async () => ({
@@ -235,12 +220,10 @@ describe('TelegramChannel contract', () => {
     const requestedFileIds: string[] = []
     const requestedUrls: string[] = []
     const originalFetch = globalThis.fetch
-
     ;(globalThis as any).fetch = async (input: RequestInfo | URL) => {
       requestedUrls.push(String(input))
       return new Response(Buffer.from('img-binary'), { status: 200 })
     }
-
     ;(channel as any).bot = {
       telegram: {
         getFile: async (fileId: string) => {
@@ -282,7 +265,6 @@ describe('TelegramChannel contract', () => {
 
   test('message handler sets media hint for non-image media', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-
     ;(channel as any).bot = {
       telegram: {
         getFile: async () => ({ file_path: '' }),
@@ -309,9 +291,8 @@ describe('TelegramChannel contract', () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
 
     const originalFetch = globalThis.fetch
-
-    ;(globalThis as any).fetch = async () => new Response(Buffer.from('png-binary'), { status: 200 })
-
+    ;(globalThis as any).fetch = async () =>
+      new Response(Buffer.from('png-binary'), { status: 200 })
     ;(channel as any).bot = {
       telegram: {
         getFile: async () => ({ file_path: 'docs/pic.png' }),
@@ -339,7 +320,6 @@ describe('TelegramChannel contract', () => {
 
   test('buildIncomingMessage is robust when from/chat/date are missing', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-
     ;(channel as any).bot = {
       telegram: {
         getFile: async () => ({ file_path: '' }),
@@ -375,7 +355,6 @@ describe('FeishuChannel contract', () => {
   test('buildIncomingMessage downloads standalone image via messageResource', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
     const calls: any[] = []
-
     ;(channel as any).client = {
       im: {
         messageResource: {
@@ -434,7 +413,6 @@ describe('FeishuChannel contract', () => {
     console.error = (...args: unknown[]) => {
       errors.push(args)
     }
-
     ;(channel as any).client = {
       im: {
         messageResource: {
@@ -485,7 +463,6 @@ describe('FeishuChannel contract', () => {
 
   test('buildIncomingMessage strips image placeholder text when post image download succeeds', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
-
     ;(channel as any).client = {
       im: {
         messageResource: {
@@ -507,7 +484,10 @@ describe('FeishuChannel contract', () => {
         create_time: '1710000000',
         content: JSON.stringify({
           zh_cn: {
-            content: [[{ tag: 'img', image_key: 'img_v3_test' }], [{ tag: 'text', text: '分析下这个页面' }]],
+            content: [
+              [{ tag: 'img', image_key: 'img_v3_test' }],
+              [{ tag: 'text', text: '分析下这个页面' }],
+            ],
           },
         }),
       },
@@ -525,7 +505,6 @@ describe('FeishuChannel contract', () => {
   test('send uses interactive JSON 2.0 card first', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
     const calls: any[] = []
-
     ;(channel as any).client = {
       im: {
         message: {
@@ -554,7 +533,6 @@ describe('FeishuChannel contract', () => {
   test('send falls back to text when interactive and post sends fail', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
     const calls: any[] = []
-
     ;(channel as any).client = {
       im: {
         message: {
@@ -579,7 +557,6 @@ describe('FeishuChannel contract', () => {
   test('reply sends interactive markdown first', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
     const calls: any[] = []
-
     ;(channel as any).client = {
       im: {
         message: {
@@ -607,7 +584,6 @@ describe('FeishuChannel contract', () => {
   test('reply falls back to post when interactive reply fails', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
     const calls: any[] = []
-
     ;(channel as any).client = {
       im: {
         message: {
@@ -641,7 +617,6 @@ describe('FeishuChannel contract', () => {
   test('reply falls back to text when interactive and post replies fail', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
     const calls: any[] = []
-
     ;(channel as any).client = {
       im: {
         message: {
@@ -665,7 +640,6 @@ describe('FeishuChannel contract', () => {
   test('reply throws when interactive, post and text replies all fail', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
     const calls: any[] = []
-
     ;(channel as any).client = {
       im: {
         message: {

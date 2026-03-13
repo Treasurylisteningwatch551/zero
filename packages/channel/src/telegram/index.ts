@@ -1,8 +1,12 @@
 import { readFile } from 'node:fs/promises'
-import { Telegraf } from 'telegraf'
 import type { MenuButton } from '@telegraf/types/settings'
-import type { Channel, IncomingMessage, MessageHandler, ImageAttachment } from '../base'
-import { chunkTelegramRichText, markdownToTelegramRichText, type TelegramRichText } from '../richtext'
+import { Telegraf } from 'telegraf'
+import type { Channel, ImageAttachment, IncomingMessage, MessageHandler } from '../base'
+import {
+  type TelegramRichText,
+  chunkTelegramRichText,
+  markdownToTelegramRichText,
+} from '../richtext'
 
 export interface TelegramChannelConfig {
   name?: string
@@ -130,7 +134,7 @@ export class TelegramChannel implements Channel {
   async replyRich(
     sessionId: string,
     messageId: number,
-    content: string
+    content: string,
   ): Promise<TelegramSentMessage | null> {
     if (!this.bot) return null
 
@@ -187,29 +191,20 @@ export class TelegramChannel implements Channel {
     const chatId = this.parseChatId(sessionId)
     if (chatId === null) return
 
-    await this.bot.telegram.setMessageReaction(
-      chatId,
-      messageId,
-      [{ type: 'emoji', emoji } as any],
-    )
+    await this.bot.telegram.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji } as any])
   }
 
   async setMyCommands(
     commands: TelegramBotCommand[],
-    options: TelegramSetMyCommandsOptions = {}
+    options: TelegramSetMyCommandsOptions = {},
   ): Promise<void> {
     if (!this.bot) return
-    await this.bot.telegram.setMyCommands(
-      commands,
-      this.toApiSetMyCommandsOptions(options),
-    )
+    await this.bot.telegram.setMyCommands(commands, this.toApiSetMyCommandsOptions(options))
   }
 
   async getMyCommands(options: TelegramSetMyCommandsOptions = {}): Promise<TelegramBotCommand[]> {
     if (!this.bot) return []
-    const commands = await this.bot.telegram.getMyCommands(
-      this.toApiSetMyCommandsOptions(options),
-    )
+    const commands = await this.bot.telegram.getMyCommands(this.toApiSetMyCommandsOptions(options))
     return commands.map((cmd: any) => ({
       command: String(cmd?.command ?? ''),
       description: String(cmd?.description ?? ''),
@@ -222,7 +217,7 @@ export class TelegramChannel implements Channel {
   }
 
   async getChatMenuButton(
-    options: TelegramGetChatMenuButtonOptions = {}
+    options: TelegramGetChatMenuButtonOptions = {},
   ): Promise<TelegramMenuButtonConfig | null> {
     if (!this.bot) return null
     const menuButton = await this.bot.telegram.getChatMenuButton(
@@ -244,7 +239,9 @@ export class TelegramChannel implements Channel {
     return Number.isFinite(chatId) ? chatId : null
   }
 
-  private toApiSetMyCommandsOptions(options: TelegramSetMyCommandsOptions): Record<string, unknown> {
+  private toApiSetMyCommandsOptions(
+    options: TelegramSetMyCommandsOptions,
+  ): Record<string, unknown> {
     const out: Record<string, unknown> = {}
     if (options.scope) {
       out.scope = this.toApiCommandScope(options.scope)
@@ -266,9 +263,10 @@ export class TelegramChannel implements Channel {
     return out
   }
 
-  private toApiSetChatMenuButtonOptions(
-    options: TelegramSetChatMenuButtonOptions
-  ): { chatId?: number; menuButton?: MenuButton } {
+  private toApiSetChatMenuButtonOptions(options: TelegramSetChatMenuButtonOptions): {
+    chatId?: number
+    menuButton?: MenuButton
+  } {
     const out: { chatId?: number; menuButton?: MenuButton } = {}
     if (options.chatId !== undefined) {
       out.chatId = options.chatId
@@ -279,9 +277,9 @@ export class TelegramChannel implements Channel {
     return out
   }
 
-  private toApiGetChatMenuButtonOptions(
-    options: TelegramGetChatMenuButtonOptions
-  ): { chatId?: number } {
+  private toApiGetChatMenuButtonOptions(options: TelegramGetChatMenuButtonOptions): {
+    chatId?: number
+  } {
     if (options.chatId !== undefined) {
       return { chatId: options.chatId }
     }
@@ -324,7 +322,7 @@ export class TelegramChannel implements Channel {
   private async sendRendered(
     chatId: number,
     rendered: TelegramRichText,
-    replyToMessageId?: number
+    replyToMessageId?: number,
   ): Promise<TelegramSentMessage | null> {
     if (!this.bot) return null
 
@@ -368,9 +366,12 @@ export class TelegramChannel implements Channel {
       content = mediaHints.join(' ')
     }
 
-    const senderId = ctx.from?.id != null
-      ? String(ctx.from.id)
-      : (ctx.chat?.id != null ? String(ctx.chat.id) : 'unknown')
+    const senderId =
+      ctx.from?.id != null
+        ? String(ctx.from.id)
+        : ctx.chat?.id != null
+          ? String(ctx.chat.id)
+          : 'unknown'
 
     const tsSec = typeof message.date === 'number' ? message.date : Math.floor(Date.now() / 1000)
 
@@ -413,14 +414,12 @@ export class TelegramChannel implements Channel {
 
     const photoSizes = Array.isArray(message.photo) ? message.photo : []
     if (photoSizes.length > 0) {
-      const best = photoSizes
-        .slice()
-        .sort((a: any, b: any) => {
-          const areaA = (a?.width ?? 0) * (a?.height ?? 0)
-          const areaB = (b?.width ?? 0) * (b?.height ?? 0)
-          if (areaA !== areaB) return areaB - areaA
-          return (b?.file_size ?? 0) - (a?.file_size ?? 0)
-        })[0]
+      const best = photoSizes.slice().sort((a: any, b: any) => {
+        const areaA = (a?.width ?? 0) * (a?.height ?? 0)
+        const areaB = (b?.width ?? 0) * (b?.height ?? 0)
+        if (areaA !== areaB) return areaB - areaA
+        return (b?.file_size ?? 0) - (a?.file_size ?? 0)
+      })[0]
       if (best?.file_id) fileIds.add(best.file_id)
     }
 

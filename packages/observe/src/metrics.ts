@@ -177,7 +177,7 @@ export class MetricsDB {
         entry.cost,
         entry.durationMs,
         entry.createdAt,
-      ]
+      ],
     )
   }
 
@@ -195,14 +195,21 @@ export class MetricsDB {
     this.db.run(
       `INSERT INTO operations (session_id, tool, event, success, duration_ms, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [entry.sessionId, entry.tool, entry.event, entry.success ? 1 : 0, entry.durationMs, entry.createdAt]
+      [
+        entry.sessionId,
+        entry.tool,
+        entry.event,
+        entry.success ? 1 : 0,
+        entry.durationMs,
+        entry.createdAt,
+      ],
     )
   }
 
   /**
    * Get cost breakdown by model for a time range.
    */
-  costByModel(range: string = '7d'): CostByModel[] {
+  costByModel(range = '7d'): CostByModel[] {
     const since = rangeToCutoff(range)
     return this.db
       .query(
@@ -214,7 +221,7 @@ export class MetricsDB {
          FROM requests
          WHERE created_at >= ?
          GROUP BY model, provider
-         ORDER BY totalCost DESC`
+         ORDER BY totalCost DESC`,
       )
       .all(since) as CostByModel[]
   }
@@ -222,7 +229,7 @@ export class MetricsDB {
   /**
    * Get daily cost aggregation.
    */
-  costByDay(range: string = '30d'): CostByPeriod[] {
+  costByDay(range = '30d'): CostByPeriod[] {
     const since = rangeToCutoff(range)
     return this.db
       .query(
@@ -232,7 +239,7 @@ export class MetricsDB {
          FROM requests
          WHERE created_at >= ?
          GROUP BY period
-         ORDER BY period DESC`
+         ORDER BY period DESC`,
       )
       .all(since) as CostByPeriod[]
   }
@@ -240,7 +247,7 @@ export class MetricsDB {
   /**
    * Get total cost and token usage summary.
    */
-  summary(range: string = '7d'): { totalCost: number; totalTokens: number; requestCount: number } {
+  summary(range = '7d'): { totalCost: number; totalTokens: number; requestCount: number } {
     const since = rangeToCutoff(range)
     const row = this.db
       .query(
@@ -248,7 +255,7 @@ export class MetricsDB {
                 COALESCE(SUM(input_tokens + output_tokens), 0) as totalTokens,
                 COUNT(*) as requestCount
          FROM requests
-         WHERE created_at >= ?`
+         WHERE created_at >= ?`,
       )
       .get(since) as { totalCost: number; totalTokens: number; requestCount: number }
     return row
@@ -257,7 +264,9 @@ export class MetricsDB {
   /**
    * Get tool usage statistics.
    */
-  toolStats(range: string = '7d'): { tool: string; count: number; successRate: number; avgDurationMs: number }[] {
+  toolStats(
+    range = '7d',
+  ): { tool: string; count: number; successRate: number; avgDurationMs: number }[] {
     const since = rangeToCutoff(range)
     return this.db
       .query(
@@ -268,7 +277,7 @@ export class MetricsDB {
          FROM operations
          WHERE created_at >= ?
          GROUP BY tool
-         ORDER BY count DESC`
+         ORDER BY count DESC`,
       )
       .all(since) as { tool: string; count: number; successRate: number; avgDurationMs: number }[]
   }
@@ -276,7 +285,13 @@ export class MetricsDB {
   /**
    * Get per-session aggregated stats.
    */
-  sessionStats(sessionId: string): { totalCost: number; totalTokens: number; inputTokens: number; outputTokens: number; requestCount: number } {
+  sessionStats(sessionId: string): {
+    totalCost: number
+    totalTokens: number
+    inputTokens: number
+    outputTokens: number
+    requestCount: number
+  } {
     const row = this.db
       .query(
         `SELECT COALESCE(SUM(cost), 0) as totalCost,
@@ -285,17 +300,41 @@ export class MetricsDB {
                 COALESCE(SUM(output_tokens), 0) as outputTokens,
                 COUNT(*) as requestCount
          FROM requests
-         WHERE session_id = ?`
+         WHERE session_id = ?`,
       )
-      .get(sessionId) as { totalCost: number; totalTokens: number; inputTokens: number; outputTokens: number; requestCount: number }
+      .get(sessionId) as {
+      totalCost: number
+      totalTokens: number
+      inputTokens: number
+      outputTokens: number
+      requestCount: number
+    }
     return row
   }
 
   /**
    * Batch version of sessionStats to avoid N+1 queries.
    */
-  sessionStatsBatch(sessionIds: string[]): Map<string, { totalCost: number; totalTokens: number; inputTokens: number; outputTokens: number; requestCount: number }> {
-    const result = new Map<string, { totalCost: number; totalTokens: number; inputTokens: number; outputTokens: number; requestCount: number }>()
+  sessionStatsBatch(sessionIds: string[]): Map<
+    string,
+    {
+      totalCost: number
+      totalTokens: number
+      inputTokens: number
+      outputTokens: number
+      requestCount: number
+    }
+  > {
+    const result = new Map<
+      string,
+      {
+        totalCost: number
+        totalTokens: number
+        inputTokens: number
+        outputTokens: number
+        requestCount: number
+      }
+    >()
     if (sessionIds.length === 0) return result
 
     const placeholders = sessionIds.map(() => '?').join(',')
@@ -309,9 +348,16 @@ export class MetricsDB {
                 COUNT(*) as requestCount
          FROM requests
          WHERE session_id IN (${placeholders})
-         GROUP BY session_id`
+         GROUP BY session_id`,
       )
-      .all(...sessionIds) as { session_id: string; totalCost: number; totalTokens: number; inputTokens: number; outputTokens: number; requestCount: number }[]
+      .all(...sessionIds) as {
+      session_id: string
+      totalCost: number
+      totalTokens: number
+      inputTokens: number
+      outputTokens: number
+      requestCount: number
+    }[]
 
     for (const row of rows) {
       result.set(row.session_id, {
@@ -328,7 +374,7 @@ export class MetricsDB {
   /**
    * Cache hit rate by day: cache_read_tokens / input_tokens.
    */
-  cacheHitRate(range: string = '30d'): CacheHitRate[] {
+  cacheHitRate(range = '30d'): CacheHitRate[] {
     const since = rangeToCutoff(range)
     return this.db
       .query(
@@ -337,7 +383,7 @@ export class MetricsDB {
          FROM requests
          WHERE created_at >= ?
          GROUP BY period
-         ORDER BY period`
+         ORDER BY period`,
       )
       .all(since) as CacheHitRate[]
   }
@@ -345,7 +391,7 @@ export class MetricsDB {
   /**
    * Task success rate by day from operations table.
    */
-  taskSuccessRate(range: string = '30d'): TaskSuccessRate[] {
+  taskSuccessRate(range = '30d'): TaskSuccessRate[] {
     const since = rangeToCutoff(range)
     return this.db
       .query(
@@ -355,7 +401,7 @@ export class MetricsDB {
          FROM operations
          WHERE created_at >= ?
          GROUP BY period
-         ORDER BY period`
+         ORDER BY period`,
       )
       .all(since) as TaskSuccessRate[]
   }
@@ -363,7 +409,7 @@ export class MetricsDB {
   /**
    * Average operation duration by day.
    */
-  avgDurationByDay(range: string = '30d'): AvgDuration[] {
+  avgDurationByDay(range = '30d'): AvgDuration[] {
     const since = rangeToCutoff(range)
     return this.db
       .query(
@@ -372,7 +418,7 @@ export class MetricsDB {
          FROM operations
          WHERE created_at >= ?
          GROUP BY period
-         ORDER BY period`
+         ORDER BY period`,
       )
       .all(since) as AvgDuration[]
   }
@@ -380,7 +426,7 @@ export class MetricsDB {
   /**
    * Cost grouped by day and model (for stacked bar chart).
    */
-  costByDayModel(range: string = '30d'): CostByDayModel[] {
+  costByDayModel(range = '30d'): CostByDayModel[] {
     const since = rangeToCutoff(range)
     return this.db
       .query(
@@ -390,7 +436,7 @@ export class MetricsDB {
          FROM requests
          WHERE created_at >= ?
          GROUP BY period, model
-         ORDER BY period, cost DESC`
+         ORDER BY period, cost DESC`,
       )
       .all(since) as CostByDayModel[]
   }
@@ -409,21 +455,21 @@ export class MetricsDB {
         entry.action,
         entry.result,
         new Date().toISOString(),
-      ]
+      ],
     )
   }
 
   /**
    * Aggregate repair statistics.
    */
-  repairStats(range: string = '30d'): RepairStats {
+  repairStats(range = '30d'): RepairStats {
     const since = rangeToCutoff(range)
     const row = this.db
       .query(
         `SELECT COUNT(*) as total,
                 SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as successCount
          FROM repairs
-         WHERE created_at >= ?`
+         WHERE created_at >= ?`,
       )
       .get(since) as { total: number; successCount: number }
     return {
@@ -436,7 +482,7 @@ export class MetricsDB {
   /**
    * Repair trend by day.
    */
-  repairByDay(range: string = '30d'): RepairByDay[] {
+  repairByDay(range = '30d'): RepairByDay[] {
     const since = rangeToCutoff(range)
     return this.db
       .query(
@@ -446,7 +492,7 @@ export class MetricsDB {
          FROM repairs
          WHERE created_at >= ?
          GROUP BY period
-         ORDER BY period`
+         ORDER BY period`,
       )
       .all(since) as RepairByDay[]
   }
@@ -454,7 +500,7 @@ export class MetricsDB {
   /**
    * Detailed cost records grouped by date and model.
    */
-  costDetailRecords(range: string = '30d'): CostDetailRecord[] {
+  costDetailRecords(range = '30d'): CostDetailRecord[] {
     const since = rangeToCutoff(range)
     return this.db
       .query(
@@ -467,7 +513,7 @@ export class MetricsDB {
          FROM requests
          WHERE created_at >= ?
          GROUP BY date, model
-         ORDER BY date DESC, cost DESC`
+         ORDER BY date DESC, cost DESC`,
       )
       .all(since) as CostDetailRecord[]
   }
@@ -475,7 +521,7 @@ export class MetricsDB {
   /**
    * Tool error counts by day and tool.
    */
-  toolErrorByDay(range: string = '30d'): ToolErrorByDay[] {
+  toolErrorByDay(range = '30d'): ToolErrorByDay[] {
     const since = rangeToCutoff(range)
     return this.db
       .query(
@@ -486,7 +532,7 @@ export class MetricsDB {
          FROM operations
          WHERE created_at >= ?
          GROUP BY period, tool
-         ORDER BY period, errors DESC`
+         ORDER BY period, errors DESC`,
       )
       .all(since) as ToolErrorByDay[]
   }
@@ -510,7 +556,7 @@ function rangeToCutoff(range: string): string {
   const match = range.match(/^(\d+)(d|h|m)$/)
   if (!match) return new Date(now - 7 * 86_400_000).toISOString()
 
-  const value = parseInt(match[1])
+  const value = Number.parseInt(match[1])
   const unit = match[2]
   const ms = unit === 'd' ? value * 86_400_000 : unit === 'h' ? value * 3_600_000 : value * 60_000
   return new Date(now - ms).toISOString()

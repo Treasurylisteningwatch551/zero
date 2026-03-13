@@ -27,7 +27,11 @@ export abstract class BaseTool {
   /**
    * Post-execution hook - release locks, write logs, filter secrets.
    */
-  protected async afterExecute(ctx: ToolContext, result: ToolResult, durationMs: number): Promise<void> {
+  protected async afterExecute(
+    ctx: ToolContext,
+    result: ToolResult,
+    durationMs: number,
+  ): Promise<void> {
     // Filter secrets from output
     if (ctx.secretFilter) {
       result.output = ctx.secretFilter.filter(result.output)
@@ -101,12 +105,18 @@ export abstract class BaseTool {
     const required = (this.parameters as Record<string, unknown>).required
     if (!Array.isArray(required) || required.length === 0) return
     if (!input || typeof input !== 'object') {
-      throw new Error(`Tool "${this.name}" requires fields [${required.join(', ')}] but received ${input === null ? 'null' : typeof input}`)
+      throw new Error(
+        `Tool "${this.name}" requires fields [${required.join(', ')}] but received ${input === null ? 'null' : typeof input}`,
+      )
     }
     const obj = input as Record<string, unknown>
-    const missing = required.filter((field: string) => obj[field] === undefined || obj[field] === null)
+    const missing = required.filter(
+      (field: string) => obj[field] === undefined || obj[field] === null,
+    )
     if (missing.length > 0) {
-      throw new Error(`Tool "${this.name}" missing required fields: [${missing.join(', ')}]. Input may have been truncated by max_tokens.`)
+      throw new Error(
+        `Tool "${this.name}" missing required fields: [${missing.join(', ')}]. Input may have been truncated by max_tokens.`,
+      )
     }
   }
 

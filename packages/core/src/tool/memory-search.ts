@@ -1,16 +1,25 @@
-import { BaseTool } from './base'
 import type { MemoryType, ToolContext, ToolResult } from '@zero-os/shared'
+import { BaseTool } from './base'
 
 interface MemorySearchInput {
   query: string
   maxResults?: number
 }
 
-const DEFAULT_TYPES: MemoryType[] = ['session', 'incident', 'runbook', 'decision', 'note', 'preference', 'inbox']
+const DEFAULT_TYPES: MemoryType[] = [
+  'session',
+  'incident',
+  'runbook',
+  'decision',
+  'note',
+  'preference',
+  'inbox',
+]
 
 export class MemorySearchTool extends BaseTool {
   name = 'memory_search'
-  description = '搜索 `.zero/memory/**` 中的相关记忆片段。回答过往工作、决策、偏好、待办前优先使用。'
+  description =
+    '搜索 `.zero/memory/**` 中的相关记忆片段。回答过往工作、决策、偏好、待办前优先使用。'
   parameters = {
     type: 'object',
     properties: {
@@ -32,9 +41,18 @@ export class MemorySearchTool extends BaseTool {
     }
 
     const results = ctx.memoryRetriever.retrieveScored
-      ? await ctx.memoryRetriever.retrieveScored(query, { topN: maxResults ?? 5, types: DEFAULT_TYPES, confidenceThreshold: 0 })
-      : (await ctx.memoryRetriever.retrieve(query, { topN: maxResults ?? 5, types: DEFAULT_TYPES, confidenceThreshold: 0 }))
-        .map((memory) => ({
+      ? await ctx.memoryRetriever.retrieveScored(query, {
+          topN: maxResults ?? 5,
+          types: DEFAULT_TYPES,
+          confidenceThreshold: 0,
+        })
+      : (
+          await ctx.memoryRetriever.retrieve(query, {
+            topN: maxResults ?? 5,
+            types: DEFAULT_TYPES,
+            confidenceThreshold: 0,
+          })
+        ).map((memory) => ({
           memory,
           score: 0,
           scoreBreakdown: {
@@ -53,7 +71,9 @@ export class MemorySearchTool extends BaseTool {
 
     const output = results
       .map((entry, index) => {
-        const path = ctx.memoryStore?.getRelativePath?.(entry.memory.type, entry.memory.id) ?? `${entry.memory.type}/${entry.memory.id}`
+        const path =
+          ctx.memoryStore?.getRelativePath?.(entry.memory.type, entry.memory.id) ??
+          `${entry.memory.type}/${entry.memory.id}`
         const snippet = truncateSnippet(entry.memory.content)
         return [
           `${index + 1}. [${entry.memory.type}] ${entry.memory.title}`,
@@ -84,7 +104,11 @@ function formatScore(value: number): string {
   return value.toFixed(2)
 }
 
-function formatScoreBreakdown(breakdown: { keyword: number; recency: number; vector?: number }): string {
+function formatScoreBreakdown(breakdown: {
+  keyword: number
+  recency: number
+  vector?: number
+}): string {
   const parts = []
   if (breakdown.vector !== undefined) {
     parts.push(`vector: ${formatScore(breakdown.vector)}`)

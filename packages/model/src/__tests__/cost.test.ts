@@ -1,6 +1,6 @@
-import { describe, test, expect } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
+import type { ModelPricing, TokenUsage } from '@zero-os/shared'
 import { computeCost } from '../cost'
-import type { TokenUsage, ModelPricing } from '@zero-os/shared'
 
 describe('computeCost', () => {
   test('returns 0 when no pricing is provided', () => {

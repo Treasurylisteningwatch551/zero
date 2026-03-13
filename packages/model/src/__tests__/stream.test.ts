@@ -1,6 +1,6 @@
-import { describe, test, expect } from 'bun:test'
-import { collectStream, consumeStream } from '../stream'
+import { describe, expect, test } from 'bun:test'
 import type { StreamEvent, TokenUsage } from '@zero-os/shared'
+import { collectStream, consumeStream } from '../stream'
 
 describe('collectStream', () => {
   test('aggregates text_delta events into a single TextBlock', async () => {
@@ -55,7 +55,10 @@ describe('collectStream', () => {
   test('parses JSON arguments correctly', async () => {
     async function* stream(): AsyncIterable<StreamEvent> {
       yield { type: 'tool_use_start', data: { id: 't1', name: 'search' } }
-      yield { type: 'tool_use_delta', data: { arguments: '{"query":"test","limit":10,"nested":{"a":true}}' } }
+      yield {
+        type: 'tool_use_delta',
+        data: { arguments: '{"query":"test","limit":10,"nested":{"a":true}}' },
+      }
       yield { type: 'tool_use_end', data: {} }
       yield { type: 'done', data: {} }
     }

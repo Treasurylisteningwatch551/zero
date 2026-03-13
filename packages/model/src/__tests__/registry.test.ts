@@ -1,6 +1,6 @@
-import { describe, test, expect } from 'bun:test'
-import { ModelRegistry } from '../registry'
+import { describe, expect, test } from 'bun:test'
 import type { SystemConfig } from '@zero-os/shared'
+import { ModelRegistry } from '../registry'
 
 const config: SystemConfig = {
   providers: {
@@ -89,9 +89,10 @@ describe('ModelRegistry', () => {
 
   test('resolve finds newly added anthropic/claude-sonnet-4-6', () => {
     const registry = new ModelRegistry(config, secrets)
-    const resolved = registry.resolve('anthropic/claude-sonnet-4-6')
-      ?? registry.resolve('test-anthropic/claude-sonnet-4-6')
-      ?? registry.resolve('claude-sonnet-4-6')
+    const resolved =
+      registry.resolve('anthropic/claude-sonnet-4-6') ??
+      registry.resolve('test-anthropic/claude-sonnet-4-6') ??
+      registry.resolve('claude-sonnet-4-6')
     expect(resolved).toBeDefined()
     expect(resolved?.modelName).toBe('claude-sonnet-4-6')
     expect(resolved?.modelConfig.modelId).toBe('claude-sonnet-4-6')

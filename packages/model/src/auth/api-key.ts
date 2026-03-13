@@ -7,7 +7,10 @@ export interface ApiKeyAuth {
   getKey(): string | undefined
 }
 
-export function createApiKeyAuth(secretsGet: (ref: string) => string | undefined, keyRef: string): ApiKeyAuth {
+export function createApiKeyAuth(
+  secretsGet: (ref: string) => string | undefined,
+  keyRef: string,
+): ApiKeyAuth {
   return {
     type: 'api_key',
     getKey() {

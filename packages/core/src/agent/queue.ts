@@ -1,4 +1,4 @@
-import type { Message, ContentBlock } from '@zero-os/shared'
+import type { ContentBlock, Message } from '@zero-os/shared'
 import { CONTEXT_PARAMS } from './params'
 
 export interface QueuedMessage {
@@ -40,7 +40,7 @@ ${messages[0].content}
   }
 
   const formatted = retained
-    .map(m => {
+    .map((m) => {
       const time = m.timestamp.slice(11, 16) // HH:MM
       return `[${time}] ${m.content}`
     })
@@ -65,10 +65,7 @@ export function injectQueuedMessages(lastUserMsg: Message, queued: QueuedMessage
   if (queued.length === 0) return lastUserMsg
 
   const formattedText = formatQueuedMessages(queued)
-  const newContent: ContentBlock[] = [
-    ...lastUserMsg.content,
-    { type: 'text', text: formattedText },
-  ]
+  const newContent: ContentBlock[] = [...lastUserMsg.content, { type: 'text', text: formattedText }]
 
   // Merge images from queued messages
   for (const q of queued) {
@@ -98,14 +95,24 @@ export const CONTINUATION_PROMPT = `<system_notice>
  * and contains a completion signal word.
  */
 export function isTaskComplete(content: ContentBlock[]): boolean {
-  const hasToolUse = content.some(b => b.type === 'tool_use')
+  const hasToolUse = content.some((b) => b.type === 'tool_use')
   if (hasToolUse) return false
 
   const text = content
-    .filter(b => b.type === 'text')
-    .map(b => (b as { type: 'text'; text: string }).text)
+    .filter((b) => b.type === 'text')
+    .map((b) => (b as { type: 'text'; text: string }).text)
     .join('')
 
-  const completionSignals = ['已完成', '完成了', '任务结束', '重构完成', '修改完成', '处理完成', 'done', 'completed', 'finished']
-  return completionSignals.some(signal => text.includes(signal))
+  const completionSignals = [
+    '已完成',
+    '完成了',
+    '任务结束',
+    '重构完成',
+    '修改完成',
+    '处理完成',
+    'done',
+    'completed',
+    'finished',
+  ]
+  return completionSignals.some((signal) => text.includes(signal))
 }

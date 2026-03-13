@@ -14,8 +14,11 @@ export function resolveChannelSessionCandidate(
   preferredChannelName?: string,
 ) {
   if (preferredChannelId && preferredChannelName) {
-    const preferred = candidates.find((candidate) =>
-      candidate.channelId === preferredChannelId && candidate.channelName === preferredChannelName)
+    const preferred = candidates.find(
+      (candidate) =>
+        candidate.channelId === preferredChannelId &&
+        candidate.channelName === preferredChannelName,
+    )
     if (preferred) return preferred
   }
 

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 test.describe('Config Page Deep Interactions', () => {
   test('Fuse List tab shows blocked command patterns', async ({ page }) => {

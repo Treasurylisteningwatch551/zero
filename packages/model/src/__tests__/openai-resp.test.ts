@@ -1,7 +1,7 @@
-import { describe, test, expect } from 'bun:test'
-import { OpenAIResponsesAdapter } from '../adapters/openai-resp'
-import type { Message, CompletionRequest } from '@zero-os/shared'
+import { describe, expect, test } from 'bun:test'
+import type { CompletionRequest, Message } from '@zero-os/shared'
 import { generateId, now } from '@zero-os/shared'
+import { OpenAIResponsesAdapter } from '../adapters/openai-resp'
 
 const adapter = new OpenAIResponsesAdapter({
   baseUrl: 'https://api.example.com',
@@ -268,8 +268,6 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
     ])
   })
 
-
-
   test('buildChatGptBody falls back to default instructions for ChatGPT', () => {
     const chatgptAdapter = new OpenAIResponsesAdapter({
       providerName: 'chatgpt',
@@ -373,7 +371,6 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
     expect(result.reasoning).toBe(10)
   })
 
-
   test('parseChatGptCompletion preserves composite call_id|fc_id as tool_use id', () => {
     const result = (adapter as any).parseChatGptCompletion([
       {
@@ -445,24 +442,25 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
     })
 
     const originalFetch = globalThis.fetch
-    globalThis.fetch = (async () => new Response(
-      [
-        'data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_123","name":"read","arguments":""}}',
-        '',
-        'data: {"type":"response.function_call_arguments.delta","call_id":"call_123","delta":"chunk-1"}',
-        '',
-        'data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_1","summary_index":0,"delta":"considering"}',
-        '',
-        'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_123"}}',
-        '',
-        'data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5.4-medium","status":"completed","usage":{}}}',
-        '',
-      ].join('\n'),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      }
-    )) as unknown as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(
+        [
+          'data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_123","name":"read","arguments":""}}',
+          '',
+          'data: {"type":"response.function_call_arguments.delta","call_id":"call_123","delta":"chunk-1"}',
+          '',
+          'data: {"type":"response.reasoning_summary_text.delta","item_id":"rs_1","summary_index":0,"delta":"considering"}',
+          '',
+          'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_123"}}',
+          '',
+          'data: {"type":"response.completed","response":{"id":"resp_1","model":"gpt-5.4-medium","status":"completed","usage":{}}}',
+          '',
+        ].join('\n'),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        },
+      )) as unknown as typeof fetch
 
     try {
       const events = [] as Array<{ type: string; data: any }>
@@ -470,8 +468,14 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
         events.push(event as any)
       }
 
-      expect(events).toContainEqual({ type: 'tool_use_start', data: { id: 'call_123', name: 'read' } })
-      expect(events).toContainEqual({ type: 'tool_use_delta', data: { id: 'call_123', arguments: 'chunk-1' } })
+      expect(events).toContainEqual({
+        type: 'tool_use_start',
+        data: { id: 'call_123', name: 'read' },
+      })
+      expect(events).toContainEqual({
+        type: 'tool_use_delta',
+        data: { id: 'call_123', arguments: 'chunk-1' },
+      })
       expect(events).toContainEqual({ type: 'reasoning_delta', data: { text: 'considering' } })
       expect(events).toContainEqual({ type: 'tool_use_end', data: { id: 'call_123' } })
     } finally {

@@ -1,5 +1,5 @@
-import { describe, test, expect } from 'bun:test'
-import { allocateBudget, shouldCompress, enforceFixedBudget } from '../budget'
+import { describe, expect, test } from 'bun:test'
+import { allocateBudget, enforceFixedBudget, shouldCompress } from '../budget'
 
 describe('allocateBudget', () => {
   test('returns correct fixed limits', () => {

@@ -1,11 +1,11 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { readFileSync, existsSync } from 'node:fs'
 import type { BootstrapFile, PromptMode } from '@zero-os/shared'
 import {
   BOOTSTRAP_FILE_NAMES,
+  type BootstrapFileName,
   DEFAULT_TEMPLATES,
   MINIMAL_BOOTSTRAP_ALLOWLIST,
-  type BootstrapFileName,
 } from './templates'
 
 /** Per-file character limit to prevent token explosion */
@@ -41,14 +41,17 @@ export function loadBootstrapFiles(
 
     // Enforce per-file size limit
     if (content.length > MAX_CHARS_PER_FILE) {
-      content = content.slice(0, MAX_CHARS_PER_FILE) + `\n\n[${name} truncated: ${content.length} chars exceeded ${MAX_CHARS_PER_FILE} limit]`
+      content =
+        content.slice(0, MAX_CHARS_PER_FILE) +
+        `\n\n[${name} truncated: ${content.length} chars exceeded ${MAX_CHARS_PER_FILE} limit]`
     }
 
     // Enforce total size limit
     if (totalChars + content.length > MAX_TOTAL_CHARS) {
       const remaining = MAX_TOTAL_CHARS - totalChars
       if (remaining <= 0) break
-      content = content.slice(0, remaining) + `\n\n[${name} truncated: total bootstrap size limit reached]`
+      content =
+        content.slice(0, remaining) + `\n\n[${name} truncated: total bootstrap size limit reached]`
     }
 
     totalChars += content.length
@@ -73,5 +76,5 @@ function loadFileContent(filePath: string, name: BootstrapFileName): string {
  * When present, the prompt should instruct the agent to embody its persona.
  */
 export function hasSoulFile(files: BootstrapFile[]): boolean {
-  return files.some(f => f.name === 'SOUL.md' && f.content.trim().length > 0)
+  return files.some((f) => f.name === 'SOUL.md' && f.content.trim().length > 0)
 }

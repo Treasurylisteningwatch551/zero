@@ -1,14 +1,22 @@
 import type {
   Memory,
-  MemorySearchOptions,
   MemoryScoreBreakdown,
+  MemorySearchOptions,
   ScoredMemoryMatch,
 } from '@zero-os/shared'
 import type { EmbeddingProvider } from './embedding'
 import type { MemoryRepository } from './store'
 import type { VectorIndexLike } from './vector-index'
 
-const DEFAULT_TYPES: Memory['type'][] = ['session', 'incident', 'runbook', 'decision', 'note', 'inbox', 'preference']
+const DEFAULT_TYPES: Memory['type'][] = [
+  'session',
+  'incident',
+  'runbook',
+  'decision',
+  'note',
+  'inbox',
+  'preference',
+]
 
 export interface MemoryRetrieverConfig {
   vectorWeight?: number
@@ -33,7 +41,10 @@ export class MemoryRetriever {
     return (await this.retrieveScored(query, options)).map((entry) => entry.memory)
   }
 
-  async retrieveScored(query: string, options: MemorySearchOptions = {}): Promise<ScoredMemoryMatch[]> {
+  async retrieveScored(
+    query: string,
+    options: MemorySearchOptions = {},
+  ): Promise<ScoredMemoryMatch[]> {
     const { topN = 5, confidenceThreshold = 0.6, types, tags, status } = options
     const keywords = extractKeywords(query)
     const targetTypes = types ?? DEFAULT_TYPES
@@ -102,13 +113,11 @@ export class MemoryRetriever {
       return b.memory.confidence - a.memory.confidence
     })
 
-    return scored
-      .filter((entry) => entry.score > 0)
-      .slice(0, topN)
+    return scored.filter((entry) => entry.score > 0).slice(0, topN)
   }
 
   private get vectorWeight(): number {
-    return this.embeddingClient && this.vectorIndex ? this.config.vectorWeight ?? 0.5 : 0
+    return this.embeddingClient && this.vectorIndex ? (this.config.vectorWeight ?? 0.5) : 0
   }
 
   private get keywordWeight(): number {
