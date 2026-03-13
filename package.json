@@ -10,7 +10,7 @@
   "scripts": {
     "test": "bun test --recursive packages apps",
     "test:e2e": "bunx playwright test",
-    "check": "tsc --noEmit",
+    "check": "bunx tsc -p tsconfig.check.json",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "build:web": "cd apps/web && bun run build",
