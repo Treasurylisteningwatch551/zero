@@ -45,17 +45,8 @@ export abstract class BaseTool {
       durationMs,
     })
 
-    // Structured observability logging
+    // Tool executions still contribute to metrics, but not to operations.jsonl.
     if (ctx.observability) {
-      ctx.observability.logOperation({
-        level: result.success ? 'info' : 'error',
-        sessionId: ctx.sessionId,
-        event: 'tool_call_complete',
-        tool: this.name,
-        input: '',
-        outputSummary: result.outputSummary,
-        durationMs,
-      })
       ctx.observability.recordOperation({
         sessionId: ctx.sessionId,
         tool: this.name,

@@ -12,6 +12,8 @@ interface LogEntry {
   level?: string
 }
 
+const HIDDEN_ACTIVITY_EVENTS = new Set(['tool:call', 'tool:result', 'tool_call_complete'])
+
 const typeColors: Record<string, string> = {
   tool: 'text-[var(--color-accent)]',
   system: 'text-amber-400',
@@ -25,6 +27,10 @@ function entryType(entry: LogEntry): string {
   return 'system'
 }
 
+function shouldDisplayActivityEntry(entry: LogEntry): boolean {
+  return !HIDDEN_ACTIVITY_EVENTS.has(entry.event ?? '')
+}
+
 const MAX_ITEMS = 20
 
 export function ActivityFeed() {
@@ -33,7 +39,7 @@ export function ActivityFeed() {
   // Initial HTTP fetch
   useEffect(() => {
     apiFetch<{ entries: LogEntry[] }>('/api/logs?limit=20&type=operations')
-      .then((res) => setItems(res.entries))
+      .then((res) => setItems(res.entries.filter(shouldDisplayActivityEntry).slice(0, MAX_ITEMS)))
       .catch(() => {})
   }, [])
 
@@ -49,12 +55,14 @@ export function ActivityFeed() {
       event: entry.event ?? topic,
     }
 
+    if (!shouldDisplayActivityEntry(logEntry)) return
+
     setItems((prev) => [logEntry, ...prev].slice(0, MAX_ITEMS))
   }, [])
 
   useWebSocket({
     url: `ws://${window.location.host}/ws`,
-    topics: ['tool:*', 'session:*', 'repair:*', 'fuse:*'],
+    topics: ['session:*', 'repair:*', 'fuse:*'],
     onEvent,
   })
 

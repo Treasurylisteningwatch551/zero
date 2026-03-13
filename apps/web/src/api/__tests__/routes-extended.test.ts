@@ -123,6 +123,35 @@ describe('API Routes Extended', () => {
     expect(Array.isArray(data.notifications)).toBe(true)
   })
 
+  test('tool bus events are not written to operations.jsonl', () => {
+    const before = zero.logger.readEntries<Record<string, unknown>>('operations.jsonl').length
+
+    zero.bus.emit('tool:call', {
+      sessionId: 'sess_tool_noise',
+      tool: 'bash',
+      toolUseId: 'call_001',
+    })
+    zero.bus.emit('tool:result', {
+      sessionId: 'sess_tool_noise',
+      tool: 'bash',
+      success: true,
+      outputSummary: 'ok',
+    })
+    zero.bus.emit('session:update', {
+      sessionId: 'sess_signal',
+      event: 'message_handled',
+    })
+
+    const newEntries = zero
+      .logger
+      .readEntries<Record<string, unknown>>('operations.jsonl')
+      .slice(before)
+
+    expect(newEntries.some((entry) => entry.event === 'tool:call')).toBe(false)
+    expect(newEntries.some((entry) => entry.event === 'tool:result')).toBe(false)
+    expect(newEntries.some((entry) => entry.event === 'message_handled')).toBe(true)
+  })
+
   test('GET /api/channels/status returns channel statuses', async () => {
     const res = await app.request('/api/channels/status')
     expect(res.status).toBe(200)

@@ -933,6 +933,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
   // 16. Event bus — wildcard logging
   globalBus.on('*', (payload) => {
+    if (payload.topic === 'tool:call' || payload.topic === 'tool:result') return
     logger.log('info', payload.topic, payload.data)
   })
 
