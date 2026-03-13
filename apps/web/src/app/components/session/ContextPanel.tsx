@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import { toolColors } from '../../lib/colors'
 import { formatModelHistory, formatNumber, formatTimeAgo } from '../../lib/format'
-import { filterDuplicateTaskClosureEvents, flattenTraceSpans } from './timeline'
+import type { PersistedTaskClosureEvent } from './timeline'
 
 interface ModelHistoryEntry {
   model: string
@@ -42,22 +42,6 @@ interface LlmRequestEntry {
   cost: number
   durationMs?: number
   ts: string
-}
-
-interface PersistedTaskClosureEvent {
-  ts: string
-  event: string
-  action?: string
-  reason?: string
-  skipReason?: string
-  trimFromPreview?: string
-  userMessagePreview?: string
-  assistantTailPreview?: string
-  rawClassifierResponse?: string
-  assistantMessageId?: string
-  assistantMessageCreatedAt?: string
-  assistantMessagePreview?: string
-  error?: string
 }
 
 interface TraceSpan {
@@ -127,17 +111,9 @@ export function ContextPanel({
   }
   const totalCalls = toolCalls.length
 
-  const taskClosureSpans = useMemo(
-    () => flattenTraceSpans(traces).filter((span) => span.name === 'task_closure_decision'),
-    [traces],
-  )
-
   const persistedTaskClosureCards = useMemo(
-    () =>
-      filterDuplicateTaskClosureEvents(flattenTraceSpans(traces), taskClosureEvents).map(
-        mapPersistedTaskClosureEventToCard,
-      ),
-    [traces, taskClosureEvents],
+    () => taskClosureEvents.map(mapPersistedTaskClosureEventToCard),
+    [taskClosureEvents],
   )
 
   if (selectedTool) {
@@ -383,15 +359,12 @@ export function ContextPanel({
           <Section title="Task Closure">
             {traceLoading ? (
               <p className="text-[12px] text-[var(--color-text-disabled)]">Loading trace…</p>
-            ) : taskClosureSpans.length === 0 && persistedTaskClosureCards.length === 0 ? (
+            ) : persistedTaskClosureCards.length === 0 ? (
               <p className="text-[12px] text-[var(--color-text-disabled)]">
-                No `task_closure_decision` span yet for this session.
+                No task closure events for this session.
               </p>
             ) : (
               <div className="space-y-2">
-                {taskClosureSpans.map((span) => (
-                  <TraceSummaryCard key={span.id} span={span} />
-                ))}
                 {persistedTaskClosureCards.map((card, index) => (
                   <PersistedTaskClosureCard
                     key={`${card.createdAt}-${index}`}
@@ -427,17 +400,17 @@ export function ContextPanel({
 function mapPersistedTaskClosureEventToCard(event: PersistedTaskClosureEvent) {
   return {
     createdAt: event.ts,
-    action: event.event === 'task_closure_skipped' ? 'skipped' : event.action,
+    event: event.event,
+    action: event.event === 'task_closure_decision' ? event.action : undefined,
     reason: event.reason,
-    skipReason: event.skipReason,
-    trimFromPreview: event.trimFromPreview,
-    userMessagePreview: event.userMessagePreview,
-    assistantTailPreview: event.assistantTailPreview,
-    rawClassifierResponse: event.rawClassifierResponse,
+    failureStage: event.event === 'task_closure_failed' ? event.failureStage : undefined,
+    trimFrom: event.event === 'task_closure_decision' ? event.trimFrom : undefined,
+    classifierRequest: event.classifierRequest,
+    classifierResponseRaw:
+      event.event === 'task_closure_failed' ? event.classifierResponseRaw : undefined,
     assistantMessageId: event.assistantMessageId,
     assistantMessageCreatedAt: event.assistantMessageCreatedAt,
-    assistantMessagePreview: event.assistantMessagePreview,
-    error: event.error,
+    error: event.event === 'task_closure_failed' ? event.error : undefined,
   }
 }
 
@@ -452,7 +425,7 @@ function PersistedTaskClosureCard({
     <div className="rounded border border-white/8 bg-white/[0.02] p-3">
       <div className="flex items-center justify-between gap-3 mb-1.5">
         <div className="flex items-center gap-2">
-          <code className="text-[11px] text-cyan-300">task_closure_event</code>
+          <code className="text-[11px] text-cyan-300">{card.event}</code>
           <span className="rounded px-1.5 py-0.5 text-[10px] text-cyan-200 bg-cyan-400/10">
             persisted
           </span>
@@ -472,9 +445,10 @@ function PersistedTaskClosureCard({
             <span className="text-[var(--color-text-disabled)]">reason:</span> {card.reason}
           </p>
         )}
-        {card.skipReason && (
+        {card.failureStage && (
           <p>
-            <span className="text-[var(--color-text-disabled)]">skip:</span> {card.skipReason}
+            <span className="text-[var(--color-text-disabled)]">failure_stage:</span>{' '}
+            {card.failureStage}
           </p>
         )}
         {card.assistantMessageId && (
@@ -501,30 +475,21 @@ function PersistedTaskClosureCard({
           </p>
         )}
       </div>
-      {(card.userMessagePreview ||
-        card.assistantTailPreview ||
-        card.rawClassifierResponse ||
-        card.trimFromPreview ||
-        card.assistantMessagePreview) && (
+      {(card.classifierRequest || card.trimFrom || card.classifierResponseRaw || card.error) && (
         <details className="mt-2 rounded bg-black/15 p-2">
           <summary className="cursor-pointer text-[10px] text-[var(--color-accent)] select-none">
-            Raw Decision Details
+            Task Closure Details
           </summary>
           <div className="mt-2 space-y-2">
-            {card.assistantMessagePreview && (
-              <TracePreview label="assistant_message" value={card.assistantMessagePreview} />
+            {card.classifierRequest && (
+              <TracePreview
+                label="classifier_request"
+                value={JSON.stringify(card.classifierRequest, null, 2)}
+              />
             )}
-            {card.userMessagePreview && (
-              <TracePreview label="user_message" value={card.userMessagePreview} />
-            )}
-            {card.assistantTailPreview && (
-              <TracePreview label="assistant_tail" value={card.assistantTailPreview} />
-            )}
-            {card.rawClassifierResponse && (
-              <TracePreview label="classifier_raw" value={card.rawClassifierResponse} />
-            )}
-            {card.trimFromPreview && (
-              <TracePreview label="trim_from" value={card.trimFromPreview} />
+            {card.trimFrom && <TracePreview label="trim_from" value={card.trimFrom} />}
+            {card.classifierResponseRaw && (
+              <TracePreview label="classifier_response_raw" value={card.classifierResponseRaw} />
             )}
           </div>
         </details>
@@ -537,21 +502,16 @@ export function TraceSummaryCard({ span }: { span: TraceSpan }) {
   const metadata = span.metadata ?? {}
   const action = typeof metadata.action === 'string' ? metadata.action : undefined
   const reason = typeof metadata.reason === 'string' ? metadata.reason : undefined
-  const skipReason = typeof metadata.skipReason === 'string' ? metadata.skipReason : undefined
-  const trimFromPreview =
-    typeof metadata.trimFromPreview === 'string' ? metadata.trimFromPreview : undefined
-  const userMessagePreview =
-    typeof metadata.userMessagePreview === 'string' ? metadata.userMessagePreview : undefined
-  const assistantTailPreview =
-    typeof metadata.assistantTailPreview === 'string' ? metadata.assistantTailPreview : undefined
-  const rawClassifierResponse =
-    typeof metadata.rawClassifierResponse === 'string' ? metadata.rawClassifierResponse : undefined
+  const failureStage =
+    typeof metadata.failureStage === 'string' ? metadata.failureStage : undefined
+  const trimFrom = typeof metadata.trimFrom === 'string' ? metadata.trimFrom : undefined
+  const classifierResponseRaw =
+    typeof metadata.classifierResponseRaw === 'string' ? metadata.classifierResponseRaw : undefined
   const assistantMessageId =
     typeof metadata.assistantMessageId === 'string' ? metadata.assistantMessageId : undefined
-  const assistantMessagePreview =
-    typeof metadata.assistantMessagePreview === 'string'
-      ? metadata.assistantMessagePreview
-      : undefined
+  const classifierRequest = isClassifierRequest(metadata.classifierRequest)
+    ? metadata.classifierRequest
+    : undefined
   const error = typeof metadata.error === 'string' ? metadata.error : undefined
 
   return (
@@ -576,9 +536,10 @@ export function TraceSummaryCard({ span }: { span: TraceSpan }) {
             <span className="text-[var(--color-text-disabled)]">reason:</span> {reason}
           </p>
         )}
-        {skipReason && (
+        {failureStage && (
           <p>
-            <span className="text-[var(--color-text-disabled)]">skip:</span> {skipReason}
+            <span className="text-[var(--color-text-disabled)]">failure_stage:</span>{' '}
+            {failureStage}
           </p>
         )}
         {assistantMessageId && (
@@ -593,27 +554,22 @@ export function TraceSummaryCard({ span }: { span: TraceSpan }) {
           </p>
         )}
       </div>
-      {(assistantMessagePreview ||
-        userMessagePreview ||
-        assistantTailPreview ||
-        rawClassifierResponse ||
-        trimFromPreview) && (
+      {(classifierRequest || trimFrom || classifierResponseRaw || error) && (
         <details className="mt-2 rounded bg-black/15 p-2">
           <summary className="cursor-pointer text-[10px] text-[var(--color-accent)] select-none">
-            Raw Decision Details
+            Task Closure Details
           </summary>
           <div className="mt-2 space-y-2">
-            {assistantMessagePreview && (
-              <TracePreview label="assistant_message" value={assistantMessagePreview} />
+            {classifierRequest && (
+              <TracePreview
+                label="classifier_request"
+                value={JSON.stringify(classifierRequest, null, 2)}
+              />
             )}
-            {userMessagePreview && <TracePreview label="user_message" value={userMessagePreview} />}
-            {assistantTailPreview && (
-              <TracePreview label="assistant_tail" value={assistantTailPreview} />
+            {trimFrom && <TracePreview label="trim_from" value={trimFrom} />}
+            {classifierResponseRaw && (
+              <TracePreview label="classifier_response_raw" value={classifierResponseRaw} />
             )}
-            {rawClassifierResponse && (
-              <TracePreview label="classifier_raw" value={rawClassifierResponse} />
-            )}
-            {trimFromPreview && <TracePreview label="trim_from" value={trimFromPreview} />}
           </div>
         </details>
       )}
@@ -692,6 +648,18 @@ function formatMetadataValue(value: unknown): string {
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   if (value === null || value === undefined) return '-'
   return '…'
+}
+
+function isClassifierRequest(
+  value: unknown,
+): value is PersistedTaskClosureEvent['classifierRequest'] {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return (
+    typeof candidate.system === 'string' &&
+    typeof candidate.prompt === 'string' &&
+    typeof candidate.maxTokens === 'number'
+  )
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

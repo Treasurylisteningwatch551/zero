@@ -5,6 +5,7 @@ export type {
   RequestLogEntry,
   SnapshotEntry,
   ClosureLogEntry,
+  ClosureLogEntryInput,
   OperationLogEntry,
 } from './logger'
 export { MetricsDB } from './metrics'

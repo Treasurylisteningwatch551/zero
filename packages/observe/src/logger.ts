@@ -69,21 +69,10 @@ export interface SnapshotEntry {
   ts: string
 }
 
-export interface ClosureLogEntry {
-  ts: string
-  sessionId: string
-  event: 'task_closure_decision' | 'task_closure_skipped' | 'task_closure_trim_failed'
-  action?: string
-  reason?: string
-  skipReason?: string
-  trimFromPreview?: string
-  userMessagePreview?: string
-  assistantTailPreview?: string
-  rawClassifierResponse?: string
-  assistantMessageId?: string
-  assistantMessageCreatedAt?: string
-  assistantMessagePreview?: string
-  error?: string
+export interface TaskClosureClassifierRequest {
+  system: string
+  prompt: string
+  maxTokens: number
 }
 
 export interface OperationLogEntry {
@@ -97,6 +86,37 @@ export interface OperationLogEntry {
   durationMs: number
   model?: string
 }
+
+export interface TaskClosureDecisionLogEntry {
+  ts: string
+  sessionId: string
+  event: 'task_closure_decision'
+  action: 'finish' | 'continue' | 'block'
+  reason: string
+  assistantMessageId?: string
+  assistantMessageCreatedAt?: string
+  classifierRequest: TaskClosureClassifierRequest
+  trimFrom?: string
+}
+
+export interface TaskClosureFailedLogEntry {
+  ts: string
+  sessionId: string
+  event: 'task_closure_failed'
+  reason: 'invalid_classifier_output' | 'classifier_failed'
+  failureStage: 'parse_classifier_response' | 'request_classifier'
+  assistantMessageId?: string
+  assistantMessageCreatedAt?: string
+  classifierRequest: TaskClosureClassifierRequest
+  classifierResponseRaw?: string
+  error?: string
+}
+
+export type ClosureLogEntry = TaskClosureDecisionLogEntry | TaskClosureFailedLogEntry
+
+export type ClosureLogEntryInput =
+  | Omit<TaskClosureDecisionLogEntry, 'ts'>
+  | Omit<TaskClosureFailedLogEntry, 'ts'>
 
 /**
  * JSONL Logger — append-writes structured log entries to files.
@@ -228,11 +248,13 @@ export class JsonlLogger {
   /**
    * Log a session-scoped task closure event.
    */
-  logSessionClosure(entry: Omit<ClosureLogEntry, 'ts'>): void {
-    this.appendLine(join(getSessionLogRelativeDir(entry.sessionId), 'closure.jsonl'), {
-      ...entry,
-      ts: now(),
-    })
+  logSessionClosure(entry: ClosureLogEntryInput): void {
+    const relativePath = join(getSessionLogRelativeDir(entry.sessionId), 'closure.jsonl')
+    const existingEntries = this.readJsonlFile<ClosureLogEntry>(join(this.basePath, relativePath))
+    const nextKey = this.getClosureEntryKey(entry)
+    if (existingEntries.some((existing) => this.getClosureEntryKey(existing) === nextKey)) return
+
+    this.appendLine(relativePath, { ...entry, ts: now() })
   }
 
   /**
@@ -274,22 +296,12 @@ export class JsonlLogger {
   }
 
   /**
-   * Read task closure events for a session, falling back to legacy operations.jsonl.
+   * Read task closure events for a session.
    */
   readSessionClosures(sessionId: string): ClosureLogEntry[] {
-    const entries = this.readSessionEntries<ClosureLogEntry>(sessionId, 'closure.jsonl')
-    if (entries.length > 0) return entries
-
-    return this.readEntries<ClosureLogEntry>('operations.jsonl')
-      .filter((entry) => {
-        return (
-          entry.sessionId === sessionId &&
-          (entry.event === 'task_closure_decision' ||
-            entry.event === 'task_closure_skipped' ||
-            entry.event === 'task_closure_trim_failed')
-        )
-      })
-      .sort((left, right) => left.ts.localeCompare(right.ts))
+    return this.readSessionEntries<ClosureLogEntry>(sessionId, 'closure.jsonl').sort((left, right) =>
+      left.ts.localeCompare(right.ts),
+    )
   }
 
   /**
@@ -351,5 +363,26 @@ export class JsonlLogger {
       .split('\n')
       .filter((line) => line.length > 0)
       .map((line) => JSON.parse(line) as T)
+  }
+
+  private getClosureEntryKey(entry: ClosureLogEntryInput | ClosureLogEntry): string {
+    if (entry.event === 'task_closure_decision') {
+      return JSON.stringify({
+        event: entry.event,
+        assistantMessageId: entry.assistantMessageId ?? '',
+        action: entry.action,
+        reason: entry.reason,
+        trimFrom: entry.trimFrom ?? '',
+      })
+    }
+
+    return JSON.stringify({
+      event: entry.event,
+      assistantMessageId: entry.assistantMessageId ?? '',
+      reason: entry.reason,
+      failureStage: entry.failureStage,
+      classifierResponseRaw: entry.classifierResponseRaw ?? '',
+      error: entry.error ?? '',
+    })
   }
 }

@@ -14,18 +14,20 @@ export interface Message {
 
 export interface PersistedTaskClosureEvent {
   ts: string
-  event: string
+  event: 'task_closure_decision' | 'task_closure_failed'
   sessionId?: string
-  action?: string
-  reason?: string
-  skipReason?: string
-  trimFromPreview?: string
-  userMessagePreview?: string
-  assistantTailPreview?: string
-  rawClassifierResponse?: string
+  action?: 'finish' | 'continue' | 'block'
+  reason: string
+  classifierRequest: {
+    system: string
+    prompt: string
+    maxTokens: number
+  }
+  failureStage?: 'parse_classifier_response' | 'request_classifier'
+  trimFrom?: string
+  classifierResponseRaw?: string
   assistantMessageId?: string
   assistantMessageCreatedAt?: string
-  assistantMessagePreview?: string
   error?: string
 }
 
@@ -164,8 +166,8 @@ function buildTaskClosureEvents(
       if (span.name === 'task_closure_decision') {
         return [mapTaskClosureDecision(span)]
       }
-      if (span.name === 'task_closure_trim_failed') {
-        return [mapTaskClosureTrimFailed(span)]
+      if (span.name === 'task_closure_failed') {
+        return [mapTaskClosureFailed(span)]
       }
       return []
     })
@@ -195,20 +197,11 @@ export function filterDuplicateTaskClosureEvents(
 function mapPersistedTaskClosureEvent(event: PersistedTaskClosureEvent): TimelineItem {
   const createdAt = event.assistantMessageCreatedAt ?? event.ts
 
-  if (event.event === 'task_closure_skipped') {
-    return {
-      type: 'system-event',
-      variant: 'info',
-      text: `Task closure skipped: ${event.skipReason ?? 'unknown'}${event.assistantMessageId ? ` · ${event.assistantMessageId.slice(0, 8)}` : ''}`,
-      createdAt,
-    }
-  }
-
-  if (event.event === 'task_closure_trim_failed') {
+  if (event.event === 'task_closure_failed') {
     return {
       type: 'system-event',
       variant: 'warning',
-      text: `Task closure trim failed: ${event.reason ?? 'trim_from_not_found'}`,
+      text: `Task closure failed: ${event.reason}${event.assistantMessageId ? ` · ${event.assistantMessageId.slice(0, 8)}` : ''}`,
       createdAt,
     }
   }
@@ -217,8 +210,7 @@ function mapPersistedTaskClosureEvent(event: PersistedTaskClosureEvent): Timelin
   const text = event.reason
     ? `Task closure ${action}: ${event.reason}${event.assistantMessageId ? ` · ${event.assistantMessageId.slice(0, 8)}` : ''}`
     : `Task closure ${action}${event.assistantMessageId ? ` · ${event.assistantMessageId.slice(0, 8)}` : ''}`
-  const variant =
-    action === 'block' || action === 'error' || action === 'invalid' ? 'warning' : 'info'
+  const variant = action === 'block' ? 'warning' : 'info'
 
   return {
     type: 'system-event',
@@ -233,26 +225,17 @@ function mapTaskClosureDecision(span: TraceSpan): TimelineItem | null {
   const called = metadata.called === true
   const action = typeof metadata.action === 'string' ? metadata.action : undefined
   const reason = typeof metadata.reason === 'string' ? metadata.reason : undefined
-  const skipReason = typeof metadata.skipReason === 'string' ? metadata.skipReason : undefined
   const assistantMessageCreatedAt =
     typeof metadata.assistantMessageCreatedAt === 'string'
       ? metadata.assistantMessageCreatedAt
       : undefined
   const createdAt = assistantMessageCreatedAt ?? span.endTime ?? span.startTime
 
-  if (!called) {
-    return {
-      type: 'system-event',
-      variant: 'info',
-      text: `Task closure skipped: ${skipReason ?? 'unknown'}`,
-      createdAt,
-    }
-  }
+  if (!called) return null
 
   const label = action ?? 'unknown'
   const text = reason ? `Task closure ${label}: ${reason}` : `Task closure ${label}`
-  const variant =
-    action === 'block' || action === 'error' || action === 'invalid' ? 'warning' : 'info'
+  const variant = action === 'block' ? 'warning' : 'info'
 
   return {
     type: 'system-event',
@@ -262,9 +245,9 @@ function mapTaskClosureDecision(span: TraceSpan): TimelineItem | null {
   }
 }
 
-function mapTaskClosureTrimFailed(span: TraceSpan): TimelineItem {
+function mapTaskClosureFailed(span: TraceSpan): TimelineItem {
   const metadata = span.metadata ?? {}
-  const reason = typeof metadata.reason === 'string' ? metadata.reason : 'trim failed'
+  const reason = typeof metadata.reason === 'string' ? metadata.reason : 'task closure failed'
   const assistantMessageCreatedAt =
     typeof metadata.assistantMessageCreatedAt === 'string'
       ? metadata.assistantMessageCreatedAt
@@ -272,7 +255,7 @@ function mapTaskClosureTrimFailed(span: TraceSpan): TimelineItem {
   return {
     type: 'system-event',
     variant: 'warning',
-    text: `Task closure trim failed: ${reason}`,
+    text: `Task closure failed: ${reason}`,
     createdAt: assistantMessageCreatedAt ?? span.endTime ?? span.startTime,
   }
 }
@@ -287,19 +270,18 @@ function getTaskClosureTraceKey(span: TraceSpan): string | null {
     typeof metadata.assistantMessageId === 'string' ? metadata.assistantMessageId : ''
 
   if (span.name === 'task_closure_decision') {
-    if (metadata.called === false) {
-      const skipReason = typeof metadata.skipReason === 'string' ? metadata.skipReason : 'unknown'
-      return `decision|skipped|${skipReason}|${assistantMessageId}`
-    }
+    if (metadata.called === false) return null
 
     const action = typeof metadata.action === 'string' ? metadata.action : 'unknown'
     const reason = typeof metadata.reason === 'string' ? metadata.reason : ''
     return `decision|${action}|${reason}|${assistantMessageId}`
   }
 
-  if (span.name === 'task_closure_trim_failed') {
-    const reason = typeof metadata.reason === 'string' ? metadata.reason : 'trim_from_not_found'
-    return `trim_failed|${reason}|${assistantMessageId}`
+  if (span.name === 'task_closure_failed') {
+    const reason = typeof metadata.reason === 'string' ? metadata.reason : 'task_closure_failed'
+    const failureStage =
+      typeof metadata.failureStage === 'string' ? metadata.failureStage : 'unknown'
+    return `failed|${failureStage}|${reason}|${assistantMessageId}`
   }
 
   return null
@@ -308,16 +290,12 @@ function getTaskClosureTraceKey(span: TraceSpan): string | null {
 function getPersistedTaskClosureEventKey(event: PersistedTaskClosureEvent): string | null {
   const assistantMessageId = event.assistantMessageId ?? ''
 
-  if (event.event === 'task_closure_skipped') {
-    return `decision|skipped|${event.skipReason ?? 'unknown'}|${assistantMessageId}`
-  }
-
   if (event.event === 'task_closure_decision') {
     return `decision|${event.action ?? 'unknown'}|${event.reason ?? ''}|${assistantMessageId}`
   }
 
-  if (event.event === 'task_closure_trim_failed') {
-    return `trim_failed|${event.reason ?? 'trim_from_not_found'}|${assistantMessageId}`
+  if (event.event === 'task_closure_failed') {
+    return `failed|${event.failureStage ?? 'unknown'}|${event.reason ?? ''}|${assistantMessageId}`
   }
 
   return null

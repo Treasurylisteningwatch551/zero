@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { ContextPanel, TraceSummaryCard } from './ContextPanel'
 
 describe('TraceSummaryCard', () => {
-  test('renders assistant preview from span metadata without throwing', () => {
+  test('renders classifier request details from span metadata without throwing', () => {
     const html = renderToStaticMarkup(
       <TraceSummaryCard
         span={{
@@ -17,17 +17,20 @@ describe('TraceSummaryCard', () => {
           metadata: {
             action: 'continue',
             reason: 'still researching',
-            assistantMessagePreview: 'latest assistant message',
             assistantMessageId: 'msg_assistant_1',
-            userMessagePreview: 'research this deeply',
+            classifierRequest: {
+              system: 'strict classifier',
+              prompt: '<instruction>research this deeply</instruction>',
+              maxTokens: 200,
+            },
           },
           children: [],
         }}
       />,
     )
 
-    expect(html).toContain('assistant_message')
-    expect(html).toContain('latest assistant message')
+    expect(html).toContain('classifier_request')
+    expect(html).toContain('strict classifier')
   })
 
   test('keeps context panel height constrained', () => {

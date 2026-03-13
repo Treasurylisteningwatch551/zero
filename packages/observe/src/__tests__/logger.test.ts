@@ -191,6 +191,11 @@ describe('JsonlLogger', () => {
       action: 'finish',
       reason: 'sufficient_coverage',
       assistantMessageId: 'msg_001',
+      classifierRequest: {
+        system: 'strict classifier',
+        prompt: '<instruction>prompt</instruction>',
+        maxTokens: 200,
+      },
     })
 
     const entries = logger.readSessionClosures('sess_closure')
@@ -199,17 +204,39 @@ describe('JsonlLogger', () => {
     expect(entries[0].assistantMessageId).toBe('msg_001')
   })
 
-  test('readSessionClosures falls back to legacy operations log', () => {
+  test('logSessionClosure deduplicates repeated closure entries', () => {
     const logger = new JsonlLogger(testDir)
-    logger.log('info', 'task_closure_skipped', {
+    const entry = {
+      sessionId: 'sess_closure_dedupe',
+      event: 'task_closure_failed' as const,
+      reason: 'invalid_classifier_output' as const,
+      failureStage: 'parse_classifier_response' as const,
+      assistantMessageId: 'msg_failed',
+      classifierRequest: {
+        system: 'strict classifier',
+        prompt: '<instruction>prompt</instruction>',
+        maxTokens: 200,
+      },
+      classifierResponseRaw: 'not-json',
+    }
+
+    logger.logSessionClosure(entry)
+    logger.logSessionClosure(entry)
+
+    const entries = logger.readSessionClosures('sess_closure_dedupe')
+    expect(entries).toHaveLength(1)
+    expect(entries[0].event).toBe('task_closure_failed')
+  })
+
+  test('readSessionClosures does not fall back to operations log', () => {
+    const logger = new JsonlLogger(testDir)
+    logger.log('info', 'task_closure_failed', {
       sessionId: 'sess_closure_legacy',
-      skipReason: 'tool_use',
+      reason: 'classifier_failed',
     })
 
     const entries = logger.readSessionClosures('sess_closure_legacy')
-    expect(entries).toHaveLength(1)
-    expect(entries[0].event).toBe('task_closure_skipped')
-    expect(entries[0].skipReason).toBe('tool_use')
+    expect(entries).toHaveLength(0)
   })
 
   test('logSnapshot writes to snapshots.jsonl', () => {

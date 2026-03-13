@@ -1,6 +1,6 @@
 import type { ProviderAdapter } from '@zero-os/model'
 import { computeCost } from '@zero-os/model'
-import type { JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
+import type { ClosureLogEntryInput, JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -95,39 +95,37 @@ const EMPTY_RESPONSE_RETRY_PROMPT =
 /**
  * Agent execution engine — runs the tool use loop.
  */
-interface TaskClosureEventPayload {
-  event: 'task_closure_decision' | 'task_closure_skipped'
-  action?: string
-  reason?: string
-  skipReason?: string
-  trimFromPreview?: string
-  userMessagePreview?: string
-  assistantTailPreview?: string
-  rawClassifierResponse?: string
-  error?: string
+interface TaskClosureClassifierRequest {
+  system: string
+  prompt: string
+  maxTokens: number
 }
 
 interface TaskClosureEvaluation {
   decision: TaskClosureDecision | null
-  eventPayload: TaskClosureEventPayload | null
+  eventPayload: PersistedTaskClosureEvent | null
   traceSpanId?: string
+  trimmedContent?: ContentBlock[]
 }
 
-interface PersistedTaskClosureEvent {
-  sessionId: string
-  event: 'task_closure_decision' | 'task_closure_skipped' | 'task_closure_trim_failed'
-  action?: string
-  reason?: string
-  skipReason?: string
-  trimFromPreview?: string
-  userMessagePreview?: string
-  assistantTailPreview?: string
-  rawClassifierResponse?: string
-  assistantMessageId?: string
-  assistantMessageCreatedAt?: string
-  assistantMessagePreview?: string
-  error?: string
-}
+type PersistedTaskClosureEvent =
+  | {
+      sessionId: string
+      event: 'task_closure_decision'
+      action: 'finish' | 'continue' | 'block'
+      reason: string
+      classifierRequest: TaskClosureClassifierRequest
+      trimFrom?: string
+    }
+  | {
+      sessionId: string
+      event: 'task_closure_failed'
+      reason: 'invalid_classifier_output' | 'classifier_failed'
+      failureStage: 'parse_classifier_response' | 'request_classifier'
+      classifierRequest: TaskClosureClassifierRequest
+      classifierResponseRaw?: string
+      error?: string
+    }
 
 export class Agent {
   private config: AgentConfig
@@ -273,13 +271,9 @@ export class Agent {
         )
       }
       const taskClosureDecision = taskClosureEvaluation.decision
-      const displayContent =
-        taskClosureDecision?.action === 'continue' && taskClosureDecision.trimFrom
-          ? (stripAssistantTrimFrom(response.content, taskClosureDecision.trimFrom) ??
-            response.content)
-          : response.content
+      const displayContent = taskClosureEvaluation.trimmedContent ?? response.content
       const shouldAutoContinueTaskClosure =
-        taskClosureDecision?.action === 'continue' && displayContent !== response.content
+        taskClosureDecision?.action === 'continue' && taskClosureEvaluation.trimmedContent !== undefined
 
       // Create assistant message — filter secrets from text blocks
       const filteredContent = this.filterContent(displayContent)
@@ -297,10 +291,6 @@ export class Agent {
       newMessages.push(assistantMsg)
       onNewMessage?.(assistantMsg)
 
-      const assistantMessagePreview =
-        extractAssistantTail(filteredContent, 240) ||
-        extractAssistantText(filteredContent).slice(-240)
-
       if (taskClosureEvaluation.traceSpanId) {
         const taskClosureSpan = this.obs.tracer?.getSpan(taskClosureEvaluation.traceSpanId)
         if (taskClosureSpan) {
@@ -308,49 +298,16 @@ export class Agent {
             ...taskClosureSpan.metadata,
             assistantMessageId: assistantMsg.id,
             assistantMessageCreatedAt: assistantMsg.createdAt,
-            assistantMessagePreview,
           }
         }
       }
 
       if (taskClosureEvaluation.eventPayload) {
-        const persistedEvent = {
-          sessionId: this.toolContext.sessionId,
+        const persistedEvent: ClosureLogEntryInput = {
           ...taskClosureEvaluation.eventPayload,
           assistantMessageId: assistantMsg.id,
           assistantMessageCreatedAt: assistantMsg.createdAt,
-          assistantMessagePreview,
-        } satisfies PersistedTaskClosureEvent
-
-        this.logTaskClosureEvent(persistedEvent)
-        this.obs.bus?.emit('session:update', persistedEvent)
-      }
-
-      if (taskClosureDecision?.action === 'continue' && !shouldAutoContinueTaskClosure) {
-        const trimFailedSpan = this.obs.tracer?.startSpan(
-          this.toolContext.sessionId,
-          'task_closure_trim_failed',
-          rootSpan?.id,
-        )
-        if (trimFailedSpan) {
-          this.obs.tracer?.endSpan(trimFailedSpan.id, 'error', {
-            action: 'continue',
-            reason: 'trim_from_not_found',
-            trimFromPreview: taskClosureDecision.trimFrom.slice(0, 120),
-            assistantMessageId: assistantMsg.id,
-            assistantMessageCreatedAt: assistantMsg.createdAt,
-            assistantMessagePreview,
-          })
         }
-        const persistedEvent = {
-          sessionId: this.toolContext.sessionId,
-          event: 'task_closure_trim_failed',
-          reason: 'trim_from_not_found',
-          trimFromPreview: taskClosureDecision.trimFrom.slice(0, 120),
-          assistantMessageId: assistantMsg.id,
-          assistantMessageCreatedAt: assistantMsg.createdAt,
-          assistantMessagePreview,
-        } satisfies PersistedTaskClosureEvent
 
         this.logTaskClosureEvent(persistedEvent)
         this.obs.bus?.emit('session:update', persistedEvent)
@@ -774,10 +731,7 @@ export class Agent {
       }
       return {
         decision: null,
-        eventPayload: {
-          event: 'task_closure_skipped',
-          skipReason,
-        },
+        eventPayload: null,
         traceSpanId: taskClosureSpan?.id,
       }
     }
@@ -790,8 +744,6 @@ export class Agent {
     const assistantTail = extractAssistantTail(response.content)
     if (!assistantText || !assistantTail) return endSkipped('empty_assistant_tail')
 
-    const userMessagePreview = userMessage.slice(0, 240)
-    const assistantTailPreview = assistantTail.slice(0, 400)
     const promptContext = this.buildTaskClosurePromptContext(userMessage, messages)
     const prompt = buildTaskClosureDecisionPrompt(
       userMessage,
@@ -799,6 +751,11 @@ export class Agent {
       assistantTail,
       promptContext,
     )
+    const classifierRequest: TaskClosureClassifierRequest = {
+      system: TASK_CLOSURE_CLASSIFIER_SYSTEM_PROMPT,
+      prompt,
+      maxTokens: 200,
+    }
 
     const classifierMessage: Message = {
       id: generateId(),
@@ -812,40 +769,70 @@ export class Agent {
     try {
       const result = await this.adapter.complete({
         messages: [classifierMessage],
-        system: TASK_CLOSURE_CLASSIFIER_SYSTEM_PROMPT,
+        system: classifierRequest.system,
         stream: false,
-        maxTokens: 200,
+        maxTokens: classifierRequest.maxTokens,
       })
 
       const text = extractAssistantText(result.content)
-      const decision = parseTaskClosureDecision(text)
+      const parsedDecision = parseTaskClosureDecision(text)
+      const trimmedContent =
+        parsedDecision?.action === 'continue'
+          ? (stripAssistantTrimFrom(response.content, parsedDecision.trimFrom) ?? undefined)
+          : undefined
+      const validDecision =
+        parsedDecision && (parsedDecision.action !== 'continue' || trimmedContent)
+          ? parsedDecision
+          : null
 
-      const rawClassifierResponse = text.slice(0, 400)
-      const trimFromPreview = decision?.trimFrom ? decision.trimFrom.slice(0, 120) : ''
+      if (validDecision) {
+        if (taskClosureSpan) {
+          this.obs.tracer?.endSpan(taskClosureSpan.id, 'success', {
+            called: true,
+            classifierModel: result.model,
+            action: validDecision.action,
+            reason: validDecision.reason,
+            classifierRequest,
+            ...(validDecision.action === 'continue' ? { trimFrom: validDecision.trimFrom } : {}),
+          })
+        }
+
+        return {
+          decision: validDecision,
+          eventPayload: {
+          event: 'task_closure_decision',
+          sessionId: this.toolContext.sessionId,
+          action: validDecision.action,
+          reason: validDecision.reason,
+          classifierRequest,
+            ...(validDecision.action === 'continue' ? { trimFrom: validDecision.trimFrom } : {}),
+          },
+          traceSpanId: taskClosureSpan?.id,
+          trimmedContent,
+        }
+      }
 
       if (taskClosureSpan) {
-        this.obs.tracer?.endSpan(taskClosureSpan.id, decision ? 'success' : 'error', {
+        taskClosureSpan.name = 'task_closure_failed'
+        this.obs.tracer?.endSpan(taskClosureSpan.id, 'error', {
           called: true,
           classifierModel: result.model,
-          action: decision?.action ?? 'invalid',
-          reason: decision?.reason ?? 'invalid_classifier_output',
-          userMessagePreview,
-          assistantTailPreview,
-          rawClassifierResponse,
-          trimFromPreview,
+          reason: 'invalid_classifier_output',
+          failureStage: 'parse_classifier_response',
+          classifierRequest,
+          classifierResponseRaw: text,
         })
       }
 
       return {
-        decision,
+        decision: null,
         eventPayload: {
-          event: 'task_closure_decision',
-          action: decision?.action ?? 'invalid',
-          reason: decision?.reason ?? 'invalid_classifier_output',
-          userMessagePreview,
-          assistantTailPreview,
-          rawClassifierResponse,
-          trimFromPreview,
+          event: 'task_closure_failed',
+          sessionId: this.toolContext.sessionId,
+          reason: 'invalid_classifier_output',
+          failureStage: 'parse_classifier_response',
+          classifierRequest,
+          classifierResponseRaw: text,
         },
         traceSpanId: taskClosureSpan?.id,
       }
@@ -856,23 +843,23 @@ export class Agent {
       })
       const errorMessage = error instanceof Error ? error.message : String(error)
       if (taskClosureSpan) {
+        taskClosureSpan.name = 'task_closure_failed'
         this.obs.tracer?.endSpan(taskClosureSpan.id, 'error', {
           called: true,
-          action: 'error',
           reason: 'classifier_failed',
-          userMessagePreview,
-          assistantTailPreview,
+          failureStage: 'request_classifier',
+          classifierRequest,
           error: errorMessage,
         })
       }
       return {
         decision: null,
         eventPayload: {
-          event: 'task_closure_decision',
-          action: 'error',
+          event: 'task_closure_failed',
+          sessionId: this.toolContext.sessionId,
           reason: 'classifier_failed',
-          userMessagePreview,
-          assistantTailPreview,
+          failureStage: 'request_classifier',
+          classifierRequest,
           error: errorMessage,
         },
         traceSpanId: taskClosureSpan?.id,
@@ -1141,7 +1128,7 @@ export class Agent {
     })
   }
 
-  private logTaskClosureEvent(entry: PersistedTaskClosureEvent): void {
+  private logTaskClosureEvent(entry: ClosureLogEntryInput): void {
     this.obs.logger?.logSessionClosure(entry)
   }
 

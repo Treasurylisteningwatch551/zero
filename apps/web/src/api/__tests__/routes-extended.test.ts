@@ -198,6 +198,11 @@ describe('API Routes Extended', () => {
       action: 'finish',
       reason: 'coverage_complete',
       assistantMessageId: 'msg_closure_001',
+      classifierRequest: {
+        system: 'strict classifier',
+        prompt: '<instruction>prompt</instruction>',
+        maxTokens: 200,
+      },
     })
 
     const res = await app.request(`/api/sessions/${session.data.id}/task-closure-events`)
@@ -208,19 +213,17 @@ describe('API Routes Extended', () => {
     expect(data.events[0].assistantMessageId).toBe('msg_closure_001')
   })
 
-  test('GET /api/sessions/:id/task-closure-events falls back to legacy operations log', async () => {
+  test('GET /api/sessions/:id/task-closure-events ignores operations log task closure events', async () => {
     const session = zero.sessionManager.create('web')
-    zero.logger.log('info', 'task_closure_trim_failed', {
+    zero.logger.log('info', 'task_closure_failed', {
       sessionId: session.data.id,
-      reason: 'trim_from_not_found',
+      reason: 'classifier_failed',
     })
 
     const res = await app.request(`/api/sessions/${session.data.id}/task-closure-events`)
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(
-      data.events.some((entry: { event: string }) => entry.event === 'task_closure_trim_failed'),
-    ).toBe(true)
+    expect(data.events).toEqual([])
   })
 
   test('GET /api/sessions/:id/requests returns session-scoped LLM requests', async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { ProviderAdapter } from '@zero-os/model'
+import type { ClosureLogEntryInput } from '@zero-os/observe'
 import { Tracer } from '@zero-os/observe'
 import type {
   CompletionRequest,
@@ -154,6 +155,19 @@ function createContext(registry: ToolRegistry): AgentContext {
   }
 }
 
+function createClosureCapture() {
+  const entries: ClosureLogEntryInput[] = []
+  return {
+    entries,
+    logger: {
+      logSessionRequest() {},
+      logSessionClosure(entry: ClosureLogEntryInput) {
+        entries.push(entry)
+      },
+    },
+  }
+}
+
 describe('Agent task closure gate', () => {
   test('continues automatically when classifier marks optional tail as required work', async () => {
     const registry = new ToolRegistry()
@@ -256,9 +270,12 @@ describe('Agent task closure gate', () => {
     expect(taskClosureSpan).toBeDefined()
     expect(taskClosureSpan?.metadata?.called).toBe(true)
     expect(taskClosureSpan?.metadata?.action).toBe('continue')
-    expect(taskClosureSpan?.metadata?.userMessagePreview).toBe('帮我看看这帖值不值得信')
-    expect(taskClosureSpan?.metadata?.assistantTailPreview).toContain('如果你愿意')
-    expect(taskClosureSpan?.metadata?.rawClassifierResponse).toContain('"action":"continue"')
+    expect(taskClosureSpan?.metadata?.classifierRequest).toEqual({
+      system: expect.stringContaining('严格的任务收尾判定器'),
+      prompt: expect.stringContaining('帮我看看这帖值不值得信'),
+      maxTokens: 200,
+    })
+    expect(taskClosureSpan?.metadata?.trimFrom).toContain('如果你愿意')
   })
 
   test('passes explicit system prompt into the classifier request', async () => {
@@ -312,5 +329,64 @@ describe('Agent task closure gate', () => {
     expect(getTextFromMessage(assistantMessages[0])).toContain('如果你愿意')
     expect(adapter.normalCalls).toBe(1)
     expect(adapter.classifierCalls).toBe(1)
+  })
+
+  test('persists the new task closure decision schema', async () => {
+    const registry = new ToolRegistry()
+    const adapter = new TaskClosureAdapter('continue')
+    const closureCapture = createClosureCapture()
+    const agent = new Agent(
+      { name: 'test-agent', agentInstruction: 'Test prompt' },
+      adapter,
+      registry,
+      createToolContext(),
+      { logger: closureCapture.logger as never },
+    )
+
+    await agent.run(createContext(registry), '帮我看看这帖值不值得信')
+
+    const closureEvent = closureCapture.entries.find((entry) => entry.event === 'task_closure_decision')
+    expect(closureEvent).toBeDefined()
+    expect(closureEvent).toMatchObject({
+      event: 'task_closure_decision',
+      action: 'continue',
+      reason: '后续核验仍属于当前任务',
+      trimFrom: OPTIONAL_TAIL,
+      classifierRequest: {
+        system: expect.stringContaining('严格的任务收尾判定器'),
+        prompt: expect.stringContaining('<assistant_tail>'),
+        maxTokens: 200,
+      },
+    })
+  })
+
+  test('persists invalid classifier output as task_closure_failed', async () => {
+    const registry = new ToolRegistry()
+    const adapter = new TaskClosureAdapter('malformed')
+    const closureCapture = createClosureCapture()
+    const agent = new Agent(
+      { name: 'test-agent', agentInstruction: 'Test prompt' },
+      adapter,
+      registry,
+      createToolContext(),
+      { logger: closureCapture.logger as never },
+    )
+
+    await agent.run(createContext(registry), '帮我继续核验')
+
+    expect(closureCapture.entries).toContainEqual({
+      event: 'task_closure_failed',
+      reason: 'invalid_classifier_output',
+      failureStage: 'parse_classifier_response',
+      assistantMessageId: expect.any(String),
+      assistantMessageCreatedAt: expect.any(String),
+      classifierRequest: {
+        system: expect.stringContaining('严格的任务收尾判定器'),
+        prompt: expect.stringContaining('<assistant_tail>'),
+        maxTokens: 200,
+      },
+      classifierResponseRaw: 'not-json',
+      sessionId: 'test-session',
+    })
   })
 })

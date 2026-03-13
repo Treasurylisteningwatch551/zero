@@ -62,19 +62,19 @@ describe('buildTimeline', () => {
     expect(systemEvent?.text).toContain('Task closure continue')
   })
 
-  test('adds trim failed span as warning event', () => {
+  test('adds failed span as warning event', () => {
     const items = buildTimeline(
       [],
       [
         {
           id: 'span_trim',
           sessionId: 'sess_1',
-          name: 'task_closure_trim_failed',
+          name: 'task_closure_failed',
           startTime: '2026-03-08T00:00:01.000Z',
           endTime: '2026-03-08T00:00:01.100Z',
           durationMs: 100,
           status: 'error',
-          metadata: { reason: 'trim_from_not_found' },
+          metadata: { reason: 'invalid_classifier_output', failureStage: 'parse_classifier_response' },
           children: [],
         },
       ],
@@ -84,7 +84,7 @@ describe('buildTimeline', () => {
     expect(items[0].type).toBe('system-event')
     if (items[0].type === 'system-event') {
       expect(items[0].variant).toBe('warning')
-      expect(items[0].text).toContain('trim failed')
+      expect(items[0].text).toContain('Task closure failed')
     }
   })
 })
@@ -96,6 +96,11 @@ test('adds persisted task closure event when traces are unavailable', () => {
       event: 'task_closure_decision',
       action: 'continue',
       reason: 'remaining work is required',
+      classifierRequest: {
+        system: 'strict classifier',
+        prompt: '<instruction>prompt</instruction>',
+        maxTokens: 200,
+      },
     },
   ]
 
@@ -149,14 +154,14 @@ test('deduplicates persisted task closure events when matching trace spans exist
     {
       id: 'span_1',
       sessionId: 'sess_1',
-      name: 'task_closure_decision',
+      name: 'task_closure_failed',
       startTime: '2026-03-08T00:00:01.000Z',
       endTime: '2026-03-08T00:00:01.100Z',
       durationMs: 100,
       status: 'success',
       metadata: {
-        called: false,
-        skipReason: 'tool_use',
+        reason: 'invalid_classifier_output',
+        failureStage: 'parse_classifier_response',
         assistantMessageId: 'msg_1',
       },
       children: [],
@@ -166,8 +171,14 @@ test('deduplicates persisted task closure events when matching trace spans exist
   const persisted: PersistedTaskClosureEvent[] = [
     {
       ts: '2026-03-08T00:00:01.200Z',
-      event: 'task_closure_skipped',
-      skipReason: 'tool_use',
+      event: 'task_closure_failed',
+      reason: 'invalid_classifier_output',
+      failureStage: 'parse_classifier_response',
+      classifierRequest: {
+        system: 'strict classifier',
+        prompt: '<instruction>prompt</instruction>',
+        maxTokens: 200,
+      },
       assistantMessageId: 'msg_1',
     },
   ]
@@ -176,6 +187,6 @@ test('deduplicates persisted task closure events when matching trace spans exist
   expect(items).toHaveLength(1)
   expect(items[0].type).toBe('system-event')
   if (items[0].type === 'system-event') {
-    expect(items[0].text).toBe('Task closure skipped: tool_use')
+    expect(items[0].text).toBe('Task closure failed: invalid_classifier_output')
   }
 })
