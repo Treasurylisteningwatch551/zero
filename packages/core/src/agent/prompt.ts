@@ -134,7 +134,7 @@ export function buildToolRulesBlock(tools: ToolDefinition[]): string {
     edit: 'Edit：修改文件前先 Read 确认当前内容，避免基于过期认知做编辑。',
     bash: 'Bash：命令在工作目录中执行，操作项目源码时使用绝对路径。命令执行前检查是否命中熔断名单。长时间运行的命令加 timeout。',
     fetch:
-      'Fetch：用于读取网页内容、调用 API、下载文件。HTML 自动通过 readability 提取正文转为 Markdown。需要 JavaScript 渲染或交互操作时，通过 Bash 调用 agent-browser。',
+      'Fetch：用于读取网页内容、调用 API、下载文件。HTML 自动通过 readability 提取正文转为 Markdown。(适用于无 JavaScript 渲染以及登录状态的网页)',
     memory_search:
       'Memory Search：回答过往工作、决策、偏好前，先搜索 `.zero/memory/**`。查询要具体（项目名/技术名/日期），支持语义搜索。搜索无结果时明确告知用户。',
     memory_get:
