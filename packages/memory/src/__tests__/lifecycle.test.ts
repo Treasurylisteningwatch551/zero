@@ -5,6 +5,14 @@ import { join } from 'node:path'
 import { MemoryLifecycle } from '../lifecycle'
 import { MemoryStore } from '../store'
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 describe('MemoryLifecycle', () => {
   let tmpDir: string
   let store: MemoryStore
@@ -51,18 +59,16 @@ describe('MemoryLifecycle', () => {
     expect(mem.status).toBe('draft')
 
     const verified = await lifecycle.verify('incident', mem.id, 0.95)
-    expect(verified).toBeDefined()
-    expect(verified!.status).toBe('verified')
-    expect(verified!.confidence).toBe(0.95)
+    expect(expectDefined(verified).status).toBe('verified')
+    expect(expectDefined(verified).confidence).toBe(0.95)
   })
 
   test('verify uses default confidence 0.9 when not specified', async () => {
     const mem = await lifecycle.createIncident('Issue', 'An issue', 'sess-004', ['issue'])
 
     const verified = await lifecycle.verify('incident', mem.id)
-    expect(verified).toBeDefined()
-    expect(verified!.status).toBe('verified')
-    expect(verified!.confidence).toBe(0.9)
+    expect(expectDefined(verified).status).toBe('verified')
+    expect(expectDefined(verified).confidence).toBe(0.9)
   })
 
   test('archiveOld archives memories older than N days', async () => {
@@ -117,13 +123,12 @@ describe('MemoryLifecycle', () => {
     })
 
     const winner = await lifecycle.resolveConflict('note', m1.id, m2.id)
-    expect(winner).toBeDefined()
-    expect(winner!.id).toBe(m1.id)
-    expect(winner!.related).toContain(m2.id)
+    const winningMemory = expectDefined(winner)
+    expect(winningMemory.id).toBe(m1.id)
+    expect(winningMemory.related).toContain(m2.id)
 
     const loser = store.get('note', m2.id)
-    expect(loser).toBeDefined()
-    expect(loser!.status).toBe('archived')
+    expect(expectDefined(loser).status).toBe('archived')
   })
 
   test('resolveConflict with same confidence picks more recently updated', async () => {
@@ -141,12 +146,11 @@ describe('MemoryLifecycle', () => {
     })
 
     const winner = await lifecycle.resolveConflict('note', m1.id, m2.id)
-    expect(winner).toBeDefined()
-    expect(winner!.id).toBe(m2.id)
-    expect(winner!.related).toContain(m1.id)
+    const winningMemory = expectDefined(winner)
+    expect(winningMemory.id).toBe(m2.id)
+    expect(winningMemory.related).toContain(m1.id)
 
     const loser = store.get('note', m1.id)
-    expect(loser).toBeDefined()
-    expect(loser!.status).toBe('archived')
+    expect(expectDefined(loser).status).toBe('archived')
   })
 })

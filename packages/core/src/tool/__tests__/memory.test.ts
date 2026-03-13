@@ -8,6 +8,14 @@ const testDir = join(import.meta.dir, '__fixtures__', 'memory-tool-test')
 
 let store: MemoryStore
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 const makeCtx = (memoryStore?: MemoryStore) => ({
   sessionId: 'test_session',
   workDir: process.cwd(),
@@ -89,7 +97,7 @@ describe('MemoryTool', () => {
     const result = await tool.run(makeCtx(store), {
       action: 'update',
       type: 'note',
-      id: idMatch![0],
+      id: expectDefined(idMatch)[0],
       updates: { content: 'Updated content', tags: ['updated'] },
     })
     expect(result.success).toBe(true)
@@ -110,7 +118,7 @@ describe('MemoryTool', () => {
     const result = await tool.run(makeCtx(store), {
       action: 'delete',
       type: 'note',
-      id: idMatch![0],
+      id: expectDefined(idMatch)[0],
     })
     expect(result.success).toBe(true)
     expect(result.output).toContain('Memory deleted')

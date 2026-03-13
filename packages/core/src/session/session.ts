@@ -480,7 +480,12 @@ export class Session {
       this.messageQueue.length = 0
       return msgs
     }
-    const newMessages = await this.agent!.run(
+    const agent = this.agent
+    if (!agent) {
+      throw new Error('Agent not initialized. Call initAgent() first.')
+    }
+
+    const newMessages = await agent.run(
       context,
       content,
       options?.images,
@@ -648,27 +653,29 @@ export class Session {
     const activeModel = modelRouter.resolveModel(normalizedCurrentModel)
 
     const session = Object.create(Session.prototype) as Session
-    ;(session as any).data = {
-      ...data,
-      currentModel: normalizedCurrentModel,
-      modelHistory: normalizedHistory,
-    }
-    ;(session as any).messages = messages
-    ;(session as any).modelRouter = modelRouter
-    ;(session as any).toolRegistry = toolRegistry
-    ;(session as any).activeModel = activeModel
-    ;(session as any).deps = deps
-    ;(session as any).mutex = new Mutex()
-    ;(session as any).interruptFlag = false
-    ;(session as any).messageQueue = []
-    ;(session as any).agent = null
-    ;(session as any).lastAgentConfig = null
-    ;(session as any).lastSystemPrompt = systemPrompt ?? ''
-    ;(session as any).cachedSystemPrompt = null
-    ;(session as any).cachedToolNames = []
-    ;(session as any).knownSkillNames = new Set<string>()
-    ;(session as any).currentSnapshotId = undefined
-    ;(session as any).lastSnapshotContext = null
+    Object.assign(session, {
+      data: {
+        ...data,
+        currentModel: normalizedCurrentModel,
+        modelHistory: normalizedHistory,
+      },
+      messages,
+      modelRouter,
+      toolRegistry,
+      activeModel,
+      deps,
+      mutex: new Mutex(),
+      interruptFlag: false,
+      messageQueue: [],
+      agent: null,
+      lastAgentConfig: null,
+      lastSystemPrompt: systemPrompt ?? '',
+      cachedSystemPrompt: null,
+      cachedToolNames: [],
+      knownSkillNames: new Set<string>(),
+      currentSnapshotId: undefined,
+      lastSnapshotContext: null,
+    })
     session.restoreSnapshotStateFromLogger()
     return session
   }

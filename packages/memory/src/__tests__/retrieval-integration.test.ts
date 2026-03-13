@@ -6,6 +6,14 @@ import { MemoryLifecycle } from '../lifecycle'
 import { MemoryRetriever } from '../retrieval'
 import { MemoryStore } from '../store'
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 let tmpDir: string
 let store: MemoryStore
 let lifecycle: MemoryLifecycle
@@ -47,9 +55,8 @@ describe('Memory Pipeline: Store → Lifecycle → Retrieval', () => {
 
     const results = await retriever.retrieve('database', { tags: ['incident'] })
     expect(results.length).toBeGreaterThan(0)
-    const incident = results.find((m) => m.title === 'Database timeout')
-    expect(incident).toBeDefined()
-    expect(incident!.tags).toContain('incident')
+    const incident = expectDefined(results.find((m) => m.title === 'Database timeout'))
+    expect(incident.tags).toContain('incident')
   })
 
   test('lifecycle archives → retriever excludes by default', async () => {

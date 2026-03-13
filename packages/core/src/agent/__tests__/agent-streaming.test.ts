@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { ProviderAdapter } from '@zero-os/model'
+import { JsonlLogger } from '@zero-os/observe'
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -149,6 +150,14 @@ function createContext(): AgentContext {
   }
 }
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 describe('Agent streaming callback', () => {
   test('run emits text deltas and returns assistant text', async () => {
     const adapter = new StreamingOnlyAdapter()
@@ -162,9 +171,8 @@ describe('Agent streaming callback', () => {
     expect(deltas).toEqual(['hello', ' world'])
 
     const assistant = messages.find((m) => m.role === 'assistant')
-    expect(assistant).toBeDefined()
-    const text = assistant!.content
-      .filter((b) => b.type === 'text')
+    const text = expectDefined(assistant)
+      .content.filter((b) => b.type === 'text')
       .map((b) => (b as { type: 'text'; text: string }).text)
       .join('')
     expect(text).toBe('hello world')
@@ -274,6 +282,12 @@ describe('Agent streaming callback', () => {
   test('reasoning deltas are aggregated and logged to session requests', async () => {
     const entries: Array<Record<string, unknown>> = []
     const adapter = new ReasoningStreamingAdapter()
+    const logger = Object.assign(Object.create(JsonlLogger.prototype), {
+      logSessionRequest(entry: Record<string, unknown>) {
+        entries.push(entry)
+      },
+      logSessionClosure() {},
+    }) as JsonlLogger
     const agent = new Agent(
       {
         name: 'stream-agent',
@@ -287,10 +301,7 @@ describe('Agent streaming callback', () => {
         logger: { info: () => {}, warn: () => {}, error: () => {} },
       },
       {
-        logger: {
-          logSessionRequest: (entry: Record<string, unknown>) => entries.push(entry),
-          logSessionClosure: () => {},
-        } as any,
+        logger,
       },
     )
 

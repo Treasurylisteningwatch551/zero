@@ -93,7 +93,7 @@ export class CronScheduler {
    * Stop all schedules.
    */
   stop(): void {
-    for (const [name, timer] of this.timers) {
+    for (const timer of this.timers.values()) {
       clearTimeout(timer)
     }
     this.timers.clear()
@@ -173,14 +173,17 @@ export class CronScheduler {
           // Skip this execution
           this.scheduleFollowingRun(entry)
           return
-        case 'queue':
+        case 'queue': {
           // Queue for later execution
-          if (!this.queued.has(name)) {
-            this.queued.set(name, [])
+          const queuedRuns = this.queued.get(name)
+          if (queuedRuns) {
+            queuedRuns.push(entry.config)
+          } else {
+            this.queued.set(name, [entry.config])
           }
-          this.queued.get(name)!.push(entry.config)
           this.scheduleFollowingRun(entry)
           return
+        }
         case 'replace':
           // Coalesce overlapping replace events into a single immediate rerun.
           this.pendingReplace.add(name)

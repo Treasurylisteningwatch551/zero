@@ -1,7 +1,20 @@
 import { describe, expect, test } from 'bun:test'
-import { CronScheduler } from '../cron'
+import { CronScheduler, type ScheduleEntry } from '../cron'
 
 const waitForTick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+type TestableCronScheduler = {
+  fire(name: string, entry: ScheduleEntry): Promise<void>
+  launchFire(name: string, entry: ScheduleEntry): void
+}
+
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
 
 describe('CronScheduler — new methods', () => {
   test('remove() deletes a schedule and returns true', () => {
@@ -37,10 +50,9 @@ describe('CronScheduler — new methods', () => {
     const scheduler = new CronScheduler()
     scheduler.add({ name: 'entry_test', cron: '0 8 * * *', instruction: 'check' })
 
-    const entry = scheduler.getEntry('entry_test')
-    expect(entry).toBeDefined()
-    expect(entry!.config.name).toBe('entry_test')
-    expect(entry!.running).toBe(false)
+    const entry = expectDefined(scheduler.getEntry('entry_test'))
+    expect(entry.config.name).toBe('entry_test')
+    expect(entry.running).toBe(false)
   })
 
   test('getEntry() returns undefined for unknown schedule', () => {
@@ -55,7 +67,7 @@ describe('CronScheduler — new methods', () => {
       cron: '0 9 * * *',
       instruction: 'remind user',
       channel: {
-        source: 'feishu' as any,
+        source: 'feishu',
         channelName: 'feishu',
         channelId: 'oc_abc123',
       },
@@ -63,15 +75,14 @@ describe('CronScheduler — new methods', () => {
       createdBy: 'runtime',
     })
 
-    const entry = scheduler.getEntry('bound_job')
-    expect(entry).toBeDefined()
-    expect(entry!.config.channel).toEqual({
+    const entry = expectDefined(scheduler.getEntry('bound_job'))
+    expect(entry.config.channel).toEqual({
       source: 'feishu',
       channelName: 'feishu',
       channelId: 'oc_abc123',
     })
-    expect(entry!.config.oneShot).toBe(true)
-    expect(entry!.config.createdBy).toBe('runtime')
+    expect(entry.config.oneShot).toBe(true)
+    expect(entry.config.createdBy).toBe('runtime')
   })
 
   test('oneShot schedule fires once and auto-removes', async () => {
@@ -94,9 +105,8 @@ describe('CronScheduler — new methods', () => {
       misfirePolicy: 'run_once',
     })
 
-    const entry = scheduler.getEntry('oneshot_test')
-    expect(entry).toBeDefined()
-    entry!.nextRun = new Date(Date.now() - 1_000)
+    const entry = expectDefined(scheduler.getEntry('oneshot_test'))
+    entry.nextRun = new Date(Date.now() - 1_000)
 
     // Starting the scheduler should treat the past-due nextRun as a misfire.
     scheduler.start()
@@ -173,14 +183,14 @@ describe('CronScheduler — new methods', () => {
       }
     })
 
-    const entry = scheduler.getEntry('queue_job')
-    expect(entry).toBeDefined()
+    const entry = expectDefined(scheduler.getEntry('queue_job'))
+    const testableScheduler = scheduler as unknown as TestableCronScheduler
 
-    const firstRun = (scheduler as any).fire('queue_job', entry!)
+    const firstRun = testableScheduler.fire('queue_job', entry)
     await waitForTick()
     expect(callCount).toBe(1)
 
-    await (scheduler as any).fire('queue_job', entry!)
+    await testableScheduler.fire('queue_job', entry)
     expect(callCount).toBe(1)
 
     resolveFirst?.()
@@ -212,15 +222,15 @@ describe('CronScheduler — new methods', () => {
       }
     })
 
-    const entry = scheduler.getEntry('replace_job')
-    expect(entry).toBeDefined()
+    const entry = expectDefined(scheduler.getEntry('replace_job'))
+    const testableScheduler = scheduler as unknown as TestableCronScheduler
 
-    const firstRun = (scheduler as any).fire('replace_job', entry!)
+    const firstRun = testableScheduler.fire('replace_job', entry)
     await waitForTick()
     expect(callCount).toBe(1)
 
-    await (scheduler as any).fire('replace_job', entry!)
-    await (scheduler as any).fire('replace_job', entry!)
+    await testableScheduler.fire('replace_job', entry)
+    await testableScheduler.fire('replace_job', entry)
     expect(callCount).toBe(1)
 
     resolveFirst?.()
@@ -251,9 +261,9 @@ describe('CronScheduler — new methods', () => {
     }
 
     try {
-      const entry = scheduler.getEntry('error_job')
-      expect(entry).toBeDefined()
-      ;(scheduler as any).launchFire('error_job', entry!)
+      const entry = expectDefined(scheduler.getEntry('error_job'))
+      const testableScheduler = scheduler as unknown as TestableCronScheduler
+      testableScheduler.launchFire('error_job', entry)
       await waitForTick()
 
       expect(errors).toHaveLength(1)

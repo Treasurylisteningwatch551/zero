@@ -7,6 +7,14 @@ import { MemoryRetriever, extractKeywords } from '../retrieval'
 import { MemoryStore } from '../store'
 import type { VectorIndexLike } from '../vector-index'
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 describe('MemoryRetriever', () => {
   let tmpDir: string
   let store: MemoryStore
@@ -134,13 +142,15 @@ describe('MemoryRetriever', () => {
       async ensureIndex() {},
       async upsert() {},
       async query() {
-        const deploy = store.list('session').find((memory) => memory.title === 'Deploy API gateway')
-        const database = store
-          .list('incident')
-          .find((memory) => memory.title === 'Database timeout error')
+        const deploy = expectDefined(
+          store.list('session').find((memory) => memory.title === 'Deploy API gateway'),
+        )
+        const database = expectDefined(
+          store.list('incident').find((memory) => memory.title === 'Database timeout error'),
+        )
         return [
-          { memoryId: deploy!.id, score: 0.95 },
-          { memoryId: database!.id, score: 0.2 },
+          { memoryId: deploy.id, score: 0.95 },
+          { memoryId: database.id, score: 0.2 },
         ]
       },
       async delete() {},

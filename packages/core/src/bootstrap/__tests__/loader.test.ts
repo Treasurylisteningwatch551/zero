@@ -7,6 +7,14 @@ import { BOOTSTRAP_FILE_NAMES, DEFAULT_TEMPLATES } from '../templates'
 const TEST_DIR = join(import.meta.dir, '__test_workspace__')
 const WORKSPACE_DIR = join(TEST_DIR, 'workspace')
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 beforeAll(() => {
   mkdirSync(WORKSPACE_DIR, { recursive: true })
 })
@@ -36,13 +44,13 @@ describe('loadBootstrapFiles', () => {
     writeFileSync(join(WORKSPACE_DIR, 'SOUL.md'), customContent)
 
     const files = loadBootstrapFiles(WORKSPACE_DIR)
-    const soul = files.find((f) => f.name === 'SOUL.md')!
+    const soul = expectDefined(files.find((f) => f.name === 'SOUL.md'))
 
     expect(soul.content).toBe(customContent)
     expect(soul.path).toBe(join(WORKSPACE_DIR, 'SOUL.md'))
 
     // Other files should still get defaults
-    const user = files.find((f) => f.name === 'USER.md')!
+    const user = expectDefined(files.find((f) => f.name === 'USER.md'))
     expect(user.content).toContain('User Profile')
   })
 
@@ -51,7 +59,7 @@ describe('loadBootstrapFiles', () => {
     writeFileSync(join(WORKSPACE_DIR, 'TOOLS.md'), largeContent)
 
     const files = loadBootstrapFiles(WORKSPACE_DIR)
-    const tools = files.find((f) => f.name === 'TOOLS.md')!
+    const tools = expectDefined(files.find((f) => f.name === 'TOOLS.md'))
 
     expect(tools.content.length).toBeLessThan(largeContent.length)
     expect(tools.content).toContain('truncated')

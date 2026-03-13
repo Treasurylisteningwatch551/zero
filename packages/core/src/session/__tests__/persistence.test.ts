@@ -11,6 +11,14 @@ import { Session } from '../session'
 const config = loadConfig(join(process.cwd(), '.zero', 'config.yaml'))
 const secrets = new Map<string, string>([['openai_codex_api_key', 'sk-test-placeholder']])
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 describe('Session Persistence', () => {
   let sessionDb: SessionDB
   let modelRouter: ModelRouter
@@ -29,18 +37,17 @@ describe('Session Persistence', () => {
 
   test('Session constructor persists to DB when sessionDb provided', () => {
     const session = new Session('web', modelRouter, toolRegistry, { sessionDb })
-    const row = sessionDb.getSession(session.data.id)
-    expect(row).not.toBeNull()
-    expect(row!.id).toBe(session.data.id)
-    expect(row!.source).toBe('web')
-    expect(row!.status).toBe('active')
+    const row = expectDefined(sessionDb.getSession(session.data.id))
+    expect(row.id).toBe(session.data.id)
+    expect(row.source).toBe('web')
+    expect(row.status).toBe('active')
   })
 
   test('setStatus persists status change', () => {
     const session = new Session('web', modelRouter, toolRegistry, { sessionDb })
     session.setStatus('completed')
 
-    const row = sessionDb.getSession(session.data.id)!
+    const row = expectDefined(sessionDb.getSession(session.data.id))
     expect(row.status).toBe('completed')
   })
 
@@ -48,9 +55,9 @@ describe('Session Persistence', () => {
     const session = new Session('web', modelRouter, toolRegistry, { sessionDb })
     session.initAgent({ name: 'test-agent', agentInstruction: 'You are a test.' })
 
-    const row = sessionDb.getSession(session.data.id)!
+    const row = expectDefined(sessionDb.getSession(session.data.id))
     expect(row.agentConfigJson).toBeDefined()
-    const config = JSON.parse(row.agentConfigJson!)
+    const config = JSON.parse(expectDefined(row.agentConfigJson))
     expect(config.name).toBe('test-agent')
     expect(config.agentInstruction).toBe('You are a test.')
     expect(row.systemPrompt).toBeUndefined()
@@ -145,7 +152,7 @@ describe('Session Persistence', () => {
     expect(manager.get('sess_mgr_1')).toBeDefined()
     expect(manager.get('sess_mgr_2')).toBeDefined()
 
-    expect(manager.get('sess_mgr_1')!.getMessages()).toHaveLength(1)
+    expect(expectDefined(manager.get('sess_mgr_1')).getMessages()).toHaveLength(1)
 
     const { session, isNew } = manager.getOrCreateForChannel(
       'feishu',
@@ -178,8 +185,7 @@ describe('Session Persistence', () => {
     manager.restoreFromDB()
 
     const session = manager.get('sess_mgr_legacy')
-    expect(session).toBeDefined()
-    expect(session!.getAgentConfig()).toEqual({
+    expect(expectDefined(session).getAgentConfig()).toEqual({
       name: 'legacy-agent',
       agentInstruction: 'legacy prompt',
     })
@@ -198,7 +204,7 @@ describe('Session Persistence', () => {
     const row2 = sessionDb.getSession(s2.data.id)
     expect(row1).not.toBeNull()
     expect(row2).not.toBeNull()
-    expect(row2!.channelId).toBe('tg_flush')
+    expect(expectDefined(row2).channelId).toBe('tg_flush')
   })
 
   test('SessionManager DB query proxies work', () => {

@@ -1,6 +1,14 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { MetricsDB } from '../metrics'
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 describe('MetricsDB', () => {
   let db: MetricsDB
 
@@ -96,26 +104,29 @@ describe('MetricsDB', () => {
 
     const rates = db.cacheHitRate('1d')
     expect(rates.length).toBeGreaterThanOrEqual(1)
-    const todayRate = rates.find((r) => r.period === new Date().toISOString().slice(0, 10))
-    expect(todayRate).toBeDefined()
-    expect(todayRate!.hitRate).toBeCloseTo(400 / 5700, 3)
+    const todayRate = expectDefined(
+      rates.find((r) => r.period === new Date().toISOString().slice(0, 10)),
+    )
+    expect(todayRate.hitRate).toBeCloseTo(400 / 5700, 3)
   })
 
   test('taskSuccessRate returns daily success rate', () => {
     const rates = db.taskSuccessRate('1d')
     expect(rates.length).toBeGreaterThanOrEqual(1)
-    const today = rates.find((r) => r.period === new Date().toISOString().slice(0, 10))
-    expect(today).toBeDefined()
-    expect(today!.successRate).toBe(0.5)
-    expect(today!.total).toBe(2)
+    const today = expectDefined(
+      rates.find((r) => r.period === new Date().toISOString().slice(0, 10)),
+    )
+    expect(today.successRate).toBe(0.5)
+    expect(today.total).toBe(2)
   })
 
   test('avgDurationByDay returns average operation duration', () => {
     const durations = db.avgDurationByDay('1d')
     expect(durations.length).toBeGreaterThanOrEqual(1)
-    const today = durations.find((d) => d.period === new Date().toISOString().slice(0, 10))
-    expect(today).toBeDefined()
-    expect(today!.avgMs).toBeCloseTo(72.5, 0)
+    const today = expectDefined(
+      durations.find((d) => d.period === new Date().toISOString().slice(0, 10)),
+    )
+    expect(today.avgMs).toBeCloseTo(72.5, 0)
   })
 
   test('costByDayModel returns per-model daily cost', () => {
@@ -152,10 +163,11 @@ describe('MetricsDB', () => {
   test('repairByDay returns daily repair trend', () => {
     const trend = db.repairByDay('1d')
     expect(trend.length).toBeGreaterThanOrEqual(1)
-    const today = trend.find((t) => t.period === new Date().toISOString().slice(0, 10))
-    expect(today).toBeDefined()
-    expect(today!.total).toBe(2)
-    expect(today!.success).toBe(1)
+    const today = expectDefined(
+      trend.find((t) => t.period === new Date().toISOString().slice(0, 10)),
+    )
+    expect(today.total).toBe(2)
+    expect(today.success).toBe(1)
   })
 
   test('costDetailRecords returns per-model daily breakdown', () => {
@@ -185,9 +197,7 @@ describe('MetricsDB', () => {
     const tools = new Set(errors.map((e) => e.tool))
     expect(tools.has('bash')).toBe(true)
     expect(tools.has('read')).toBe(true)
-    const bashEntry = errors.find((e) => e.tool === 'bash')
-    expect(bashEntry!.errors).toBe(1)
-    const readEntry = errors.find((e) => e.tool === 'read')
-    expect(readEntry!.errors).toBe(1)
+    expect(expectDefined(errors.find((e) => e.tool === 'bash')).errors).toBe(1)
+    expect(expectDefined(errors.find((e) => e.tool === 'read')).errors).toBe(1)
   })
 })

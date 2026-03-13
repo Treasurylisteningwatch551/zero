@@ -86,7 +86,18 @@ function makeMessage(sessionId: string, role: 'user' | 'assistant', text: string
 }
 
 function installFakeAgent(session: Session): void {
-  ;(session as any).agent = {
+  const mutableSession = session as unknown as {
+    agent: {
+      run: (
+        context: unknown,
+        userMessage: string,
+        images: unknown,
+        onNewMessage?: (message: Message) => void,
+      ) => Promise<Message[]>
+    }
+  }
+
+  mutableSession.agent = {
     run: async (
       _context: unknown,
       userMessage: string,
@@ -213,6 +224,7 @@ describe('Session snapshot lifecycle', () => {
 
     const snapshots = logger.readSessionSnapshots(session.data.id)
     expect(snapshots).toHaveLength(1)
-    expect((restored as any).currentSnapshotId).toBe(existingSnapshotId)
+    const restoredSession = restored as unknown as { currentSnapshotId?: string }
+    expect(restoredSession.currentSnapshotId).toBe(existingSnapshotId)
   })
 })

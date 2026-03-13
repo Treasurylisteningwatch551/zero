@@ -1,4 +1,4 @@
-import type { ScheduleConfig, ToolContext, ToolResult } from '@zero-os/shared'
+import type { ScheduleConfig, SessionSource, ToolContext, ToolResult } from '@zero-os/shared'
 import { generateId } from '@zero-os/shared'
 import { BaseTool } from './base'
 
@@ -62,14 +62,15 @@ export class ScheduleTool extends BaseTool {
         outputSummary: 'Scheduler unavailable',
       }
     }
+    const schedulerHandle = ctx.schedulerHandle
 
     switch (action) {
       case 'create':
-        return this.handleCreate(ctx, { name, cron, instruction, oneShot })
+        return this.handleCreate(ctx, schedulerHandle, { name, cron, instruction, oneShot })
       case 'list':
-        return this.handleList(ctx)
+        return this.handleList(schedulerHandle)
       case 'cancel':
-        return this.handleCancel(ctx, name)
+        return this.handleCancel(schedulerHandle, ctx, name)
       default:
         return {
           success: false,
@@ -81,6 +82,7 @@ export class ScheduleTool extends BaseTool {
 
   private handleCreate(
     ctx: ToolContext,
+    schedulerHandle: NonNullable<ToolContext['schedulerHandle']>,
     opts: { name?: string; cron?: string; instruction?: string; oneShot?: boolean },
   ): ToolResult {
     const { cron, instruction, oneShot } = opts
@@ -112,14 +114,14 @@ export class ScheduleTool extends BaseTool {
     // Bind to the current channel if available
     if (ctx.channelBinding) {
       config.channel = {
-        source: ctx.channelBinding.source as any,
+        source: ctx.channelBinding.source as SessionSource,
         channelName: ctx.channelBinding.channelName,
         channelId: ctx.channelBinding.channelId,
       }
     }
 
     try {
-      ctx.schedulerHandle!.addAndStart(config)
+      schedulerHandle.addAndStart(config)
       ctx.scheduleStore?.save(config)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -141,8 +143,8 @@ export class ScheduleTool extends BaseTool {
     }
   }
 
-  private handleList(ctx: ToolContext): ToolResult {
-    const statuses = ctx.schedulerHandle!.getStatus()
+  private handleList(schedulerHandle: NonNullable<ToolContext['schedulerHandle']>): ToolResult {
+    const statuses = schedulerHandle.getStatus()
     if (statuses.length === 0) {
       return { success: true, output: 'No active schedules.', outputSummary: '0 schedules' }
     }
@@ -161,7 +163,11 @@ export class ScheduleTool extends BaseTool {
     }
   }
 
-  private handleCancel(ctx: ToolContext, name?: string): ToolResult {
+  private handleCancel(
+    schedulerHandle: NonNullable<ToolContext['schedulerHandle']>,
+    ctx: ToolContext,
+    name?: string,
+  ): ToolResult {
     if (!name) {
       return {
         success: false,
@@ -170,7 +176,7 @@ export class ScheduleTool extends BaseTool {
       }
     }
 
-    const removed = ctx.schedulerHandle!.remove(name)
+    const removed = schedulerHandle.remove(name)
     if (removed) {
       ctx.scheduleStore?.delete(name)
       return {

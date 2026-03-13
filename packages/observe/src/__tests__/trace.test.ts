@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { Tracer } from '../trace'
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 describe('Tracer', () => {
   test('start and end a root span', () => {
     const tracer = new Tracer()
@@ -9,7 +17,7 @@ describe('Tracer', () => {
     expect(span.sessionId).toBe('sess_001')
 
     tracer.endSpan(span.id, 'success', { tokensUsed: 500 })
-    const ended = tracer.getSpan(span.id)!
+    const ended = expectDefined(tracer.getSpan(span.id))
     expect(ended.status).toBe('success')
     expect(ended.durationMs).toBeGreaterThanOrEqual(0)
     expect(ended.metadata?.tokensUsed).toBe(500)

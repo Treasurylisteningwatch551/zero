@@ -16,6 +16,14 @@ function successResult(nodeId: string, output = 'done', durationMs = 0): TaskRes
   return { nodeId, success: true, output, durationMs }
 }
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 describe('TaskOrchestrator', () => {
   const orch = new TaskOrchestrator()
 
@@ -26,8 +34,9 @@ describe('TaskOrchestrator', () => {
     const results = await orch.execute(nodes, executor)
 
     expect(results.size).toBe(1)
-    expect(results.get('A')!.success).toBe(true)
-    expect(results.get('A')!.output).toBe('done')
+    const result = expectDefined(results.get('A'))
+    expect(result.success).toBe(true)
+    expect(result.output).toBe('done')
   })
 
   test('independent tasks run in parallel', async () => {
@@ -42,8 +51,8 @@ describe('TaskOrchestrator', () => {
     const elapsed = Date.now() - start
 
     expect(results.size).toBe(2)
-    expect(results.get('A')!.success).toBe(true)
-    expect(results.get('B')!.success).toBe(true)
+    expect(expectDefined(results.get('A')).success).toBe(true)
+    expect(expectDefined(results.get('B')).success).toBe(true)
     // Both run concurrently so total should be ~50ms, not ~100ms
     expect(elapsed).toBeLessThan(90)
   })
@@ -60,8 +69,8 @@ describe('TaskOrchestrator', () => {
     const results = await orch.execute(nodes, executor)
 
     expect(order).toEqual(['A', 'B'])
-    expect(results.get('A')!.success).toBe(true)
-    expect(results.get('B')!.success).toBe(true)
+    expect(expectDefined(results.get('A')).success).toBe(true)
+    expect(expectDefined(results.get('B')).success).toBe(true)
   })
 
   test('upstream results are passed to downstream executor', async () => {
@@ -77,9 +86,9 @@ describe('TaskOrchestrator', () => {
 
     await orch.execute(nodes, executor)
 
-    expect(capturedUpstream).toBeDefined()
-    expect(capturedUpstream!.has('A')).toBe(true)
-    expect(capturedUpstream!.get('A')!.output).toBe('output-A')
+    const upstream = expectDefined(capturedUpstream)
+    expect(upstream.has('A')).toBe(true)
+    expect(expectDefined(upstream.get('A')).output).toBe('output-A')
   })
 
   test('upstream failure cancels downstream tasks', async () => {
@@ -90,9 +99,9 @@ describe('TaskOrchestrator', () => {
 
     const results = await orch.execute(nodes, executor)
 
-    expect(results.get('A')!.success).toBe(false)
-    expect(results.get('B')!.success).toBe(false)
-    expect(results.get('B')!.output).toBe('Cancelled: upstream task failed')
+    expect(expectDefined(results.get('A')).success).toBe(false)
+    expect(expectDefined(results.get('B')).success).toBe(false)
+    expect(expectDefined(results.get('B')).output).toBe('Cancelled: upstream task failed')
   })
 
   test('circular dependency throws deadlock error', async () => {
@@ -111,8 +120,9 @@ describe('TaskOrchestrator', () => {
 
     const results = await orch.execute(nodes, executor)
 
-    expect(results.get('A')!.success).toBe(false)
-    expect(results.get('A')!.output).toBe('Task timeout')
+    const result = expectDefined(results.get('A'))
+    expect(result.success).toBe(false)
+    expect(result.output).toBe('Task timeout')
   })
 
   test('executor throwing exception is caught', async () => {
@@ -123,7 +133,8 @@ describe('TaskOrchestrator', () => {
 
     const results = await orch.execute(nodes, executor)
 
-    expect(results.get('A')!.success).toBe(false)
-    expect(results.get('A')!.output).toBe('executor crashed')
+    const result = expectDefined(results.get('A'))
+    expect(result.success).toBe(false)
+    expect(result.output).toBe('executor crashed')
   })
 })

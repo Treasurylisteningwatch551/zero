@@ -77,6 +77,14 @@ function createContext(tools: ToolRegistry): AgentContext {
   }
 }
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 describe('Agent', () => {
   test('run: simple question returns user + assistant messages', async () => {
     const { agent, registry } = createAgent()
@@ -117,11 +125,12 @@ describe('Agent', () => {
       'Use the Read tool to read "/Users/v1ki/Desktop/test4_zero/package.json". Report the name field.',
     )
 
-    const toolResultMsg = messages.find((m) => m.content.some((b) => b.type === 'tool_result'))
-    expect(toolResultMsg).toBeDefined()
-    expect(toolResultMsg!.role).toBe('user')
+    const toolResultMsg = expectDefined(
+      messages.find((m) => m.content.some((b) => b.type === 'tool_result')),
+    )
+    expect(toolResultMsg.role).toBe('user')
 
-    const toolResultBlock = toolResultMsg!.content.find((b) => b.type === 'tool_result')
+    const toolResultBlock = toolResultMsg.content.find((b) => b.type === 'tool_result')
     expect(toolResultBlock).toBeDefined()
   }, 30000)
 
@@ -162,7 +171,7 @@ describe('Agent', () => {
       m.content.some((b) => b.type === 'tool_result' && b.isError === true),
     )
     expect(toolResultMsg).toBeDefined()
-    const errorBlock = toolResultMsg!.content.find(
+    const errorBlock = expectDefined(toolResultMsg).content.find(
       (b) => b.type === 'tool_result' && b.isError === true,
     )
     expect(errorBlock).toBeDefined()
@@ -203,10 +212,10 @@ describe('Agent', () => {
     const messages = await agent.run(context, 'Say exactly the word "hello" and nothing else.')
 
     const assistantMsg = messages.find((m) => m.role === 'assistant')
-    expect(assistantMsg).toBeDefined()
+    const assistant = expectDefined(assistantMsg)
 
     // The secret filter should have replaced "hello" with "***" in text blocks
-    const textBlocks = assistantMsg!.content.filter((b) => b.type === 'text')
+    const textBlocks = assistant.content.filter((b) => b.type === 'text')
     if (textBlocks.length > 0) {
       const allText = textBlocks.map((b) => (b as { text: string }).text).join('')
       // The word "hello" (case insensitive) should be filtered out
@@ -232,8 +241,7 @@ describe('Agent', () => {
     const assistantResponse = sessionUpdates.find(
       (event) => event.data.event === 'assistant_response',
     )
-    expect(assistantResponse).toBeDefined()
-    expect(assistantResponse!.data.sessionId).toBe('test-session')
+    expect(expectDefined(assistantResponse).data.sessionId).toBe('test-session')
   }, 30000)
 
   test('run: bus emits tool:call event', async () => {

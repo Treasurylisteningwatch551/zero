@@ -111,6 +111,14 @@ class EmptyResponseRecoveryAdapter implements ProviderAdapter {
   }
 }
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 describe('Agent tool recovery', () => {
   test('run: tool exceptions are converted into tool_result errors', async () => {
     const adapter = new FakeAdapter()
@@ -144,10 +152,11 @@ describe('Agent tool recovery', () => {
     }
 
     const messages = await agent.run(context, 'Trigger explode tool')
-    const toolResultMsg = messages.find((m) => m.content.some((b) => b.type === 'tool_result'))
-    expect(toolResultMsg).toBeDefined()
+    const toolResultMsg = expectDefined(
+      messages.find((m) => m.content.some((b) => b.type === 'tool_result')),
+    )
 
-    const toolResult = toolResultMsg!.content.find((b) => b.type === 'tool_result')
+    const toolResult = toolResultMsg.content.find((b) => b.type === 'tool_result')
     expect(toolResult).toBeDefined()
     if (toolResult && toolResult.type === 'tool_result') {
       expect(toolResult.isError).toBe(true)

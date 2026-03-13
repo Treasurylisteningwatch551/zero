@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { ProviderAdapter } from '@zero-os/model'
+import { JsonlLogger } from '@zero-os/observe'
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -102,6 +103,12 @@ describe('Agent snapshot linking', () => {
     const requests: Array<Record<string, unknown>> = []
     const compressionEvents: Array<{ summary: string; stats: { compressedRange?: string } }> = []
     let currentSnapshotId = 'snap_initial'
+    const logger = Object.assign(Object.create(JsonlLogger.prototype), {
+      logSessionRequest(entry: Record<string, unknown>) {
+        requests.push(entry)
+      },
+      logSessionClosure() {},
+    }) as JsonlLogger
 
     const toolContext: ToolContext = {
       sessionId: 'test-session',
@@ -119,12 +126,7 @@ describe('Agent snapshot linking', () => {
       registry,
       toolContext,
       {
-        logger: {
-          logSessionRequest(entry: Record<string, unknown>) {
-            requests.push(entry)
-          },
-          logSessionClosure() {},
-        } as any,
+        logger,
         getCurrentSnapshotId: () => currentSnapshotId,
         onContextCompressed: (event) => {
           compressionEvents.push(event)

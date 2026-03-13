@@ -6,6 +6,14 @@ import { loadSkills } from '../loader'
 
 const TEST_DIR = join(import.meta.dir, '__fixtures__', 'skills')
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 beforeAll(() => {
   if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true })
   mkdirSync(join(TEST_DIR, 'browser'), { recursive: true })
@@ -81,10 +89,9 @@ This skill has no name in frontmatter.
 `,
     )
     const skills = loadSkills(TEST_DIR)
-    const noname = skills.find((s) => s.name === 'noname')
-    expect(noname).toBeDefined()
-    expect(noname!.allowedTools).toEqual(['read'])
-    expect(noname!.sourcePath).toBe(join(TEST_DIR, 'noname', 'SKILL.md'))
+    const noname = expectDefined(skills.find((s) => s.name === 'noname'))
+    expect(noname.allowedTools).toEqual(['read'])
+    expect(noname.sourcePath).toBe(join(TEST_DIR, 'noname', 'SKILL.md'))
 
     rmSync(join(TEST_DIR, 'noname'), { recursive: true })
   })
@@ -101,10 +108,9 @@ Minimal skill.
 `,
     )
     const skills = loadSkills(TEST_DIR)
-    const minimal = skills.find((s) => s.name === 'minimal')
-    expect(minimal).toBeDefined()
-    expect(minimal!.allowedTools).toEqual([])
-    expect(minimal!.description).toBe('')
+    const minimal = expectDefined(skills.find((s) => s.name === 'minimal'))
+    expect(minimal.allowedTools).toEqual([])
+    expect(minimal.description).toBe('')
 
     rmSync(join(TEST_DIR, 'minimal'), { recursive: true })
   })

@@ -25,7 +25,12 @@ export class Mutex {
       throw new Error(`Mutex release denied: owned by "${this.owner}", caller is "${ownerId}"`)
     }
     if (this.queue.length > 0) {
-      const next = this.queue.shift()!
+      const next = this.queue.shift()
+      if (!next) {
+        this.locked = false
+        this.owner = null
+        return
+      }
       next.resolve()
     } else {
       this.locked = false

@@ -39,7 +39,7 @@ describe('SessionDB — schedule persistence', () => {
       oneShot: true,
       createdBy: 'runtime',
       channel: {
-        source: 'feishu' as any,
+        source: 'feishu',
         channelName: 'feishu',
         channelId: 'oc_abc123',
       },

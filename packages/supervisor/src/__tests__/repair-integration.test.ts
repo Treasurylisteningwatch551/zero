@@ -8,6 +8,14 @@ import { RepairEngine } from '../repair'
 const tmpDir = mkdtempSync(join(tmpdir(), 'zero-repair-int-'))
 const heartbeatPath = join(tmpDir, 'heartbeat.json')
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 afterAll(() => {
   rmSync(tmpDir, { recursive: true, force: true })
 })
@@ -22,7 +30,7 @@ describe('Heartbeat + Repair Integration', () => {
     expect(result.alive).toBe(true)
     expect(result.lastBeat).toBeDefined()
     expect(result.elapsedMs).toBeDefined()
-    expect(result.elapsedMs!).toBeLessThan(5000)
+    expect(expectDefined(result.elapsedMs)).toBeLessThan(5000)
     expect(result.pid).toBe(process.pid)
   })
 

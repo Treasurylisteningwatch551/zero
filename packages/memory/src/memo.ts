@@ -44,7 +44,7 @@ export class MemoManager {
       if (content.includes(sectionHeader)) {
         content = content.replace(sectionRegex, newSection)
       } else {
-        content = content.trimEnd() + '\n\n' + newSection
+        content = `${content.trimEnd()}\n\n${newSection}`
       }
 
       writeFileSync(this.filePath, content, 'utf-8')

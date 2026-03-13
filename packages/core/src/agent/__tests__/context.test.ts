@@ -33,6 +33,14 @@ function makeAssistantToolUse(name: string, toolUseId: string): Message {
   ])
 }
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 /**
  * Build a conversation with N turns.
  * Each turn consists of:
@@ -84,7 +92,7 @@ describe('prepareConversationHistory', () => {
         for (const block of msg.content) {
           if (block.type === 'tool_result') {
             expect(block.content).toBe(
-              messages[i].content.find((b) => b.type === 'tool_result')!.content,
+              expectDefined(messages[i].content.find((b) => b.type === 'tool_result')).content,
             )
           }
         }
@@ -109,7 +117,7 @@ describe('prepareConversationHistory', () => {
     // Each turn = 4 messages. Turn 5 tool_result is at index 5*4+2 = 22
     const midToolResult = result[22]
     expect(midToolResult.role).toBe('user')
-    const midBlock = midToolResult.content.find((b) => b.type === 'tool_result')!
+    const midBlock = expectDefined(midToolResult.content.find((b) => b.type === 'tool_result'))
     // The original content is long (~800 chars), truncated should be ~200 + "..."
     expect(midBlock.content.length).toBeLessThanOrEqual(210)
     expect(midBlock.content).toEndWith('...')
@@ -123,7 +131,7 @@ describe('prepareConversationHistory', () => {
     // Turn 0 tool_result is at index 0*4+2 = 2
     const oldToolResult = result[2]
     expect(oldToolResult.role).toBe('user')
-    const oldBlock = oldToolResult.content.find((b) => b.type === 'tool_result')!
+    const oldBlock = expectDefined(oldToolResult.content.find((b) => b.type === 'tool_result'))
     expect(oldBlock.content).toBe('\u2713 success')
   })
 
@@ -143,7 +151,7 @@ describe('prepareConversationHistory', () => {
 
     // Turn 0 (chronological) has age 11 => status only, with error
     const errorResult = result[2]
-    const errorBlock = errorResult.content.find((b) => b.type === 'tool_result')!
+    const errorBlock = expectDefined(errorResult.content.find((b) => b.type === 'tool_result'))
     expect(errorBlock.content).toContain('\u2717 failed:')
     expect(errorBlock.content).toContain('Error: command not found')
   })
@@ -155,7 +163,7 @@ describe('prepareConversationHistory', () => {
     // Chronological turn 1 has age 10 => status only, success
     // Turn 1 tool_result at index 1*4+2 = 6
     const successResult = result[6]
-    const successBlock = successResult.content.find((b) => b.type === 'tool_result')!
+    const successBlock = expectDefined(successResult.content.find((b) => b.type === 'tool_result'))
     expect(successBlock.content).toBe('\u2713 success')
   })
 
@@ -199,7 +207,7 @@ describe('prepareConversationHistory', () => {
     const result = prepareConversationHistory(messages)
 
     // Turn 0 (chronological) has age 5 => mid-range truncation
-    const block = result[2].content.find((b) => b.type === 'tool_result')!
+    const block = expectDefined(result[2].content.find((b) => b.type === 'tool_result'))
     expect(block.content).toContain('Custom summary of output')
   })
 
@@ -211,7 +219,7 @@ describe('prepareConversationHistory', () => {
     for (let i = 0; i < 12; i++) {
       const textMsg = result[i * 4]
       expect(textMsg.role).toBe('user')
-      const textBlock = textMsg.content.find((b) => b.type === 'text')!
+      const textBlock = expectDefined(textMsg.content.find((b) => b.type === 'text'))
       expect(textBlock.text).toContain(`turn ${i}`)
     }
   })

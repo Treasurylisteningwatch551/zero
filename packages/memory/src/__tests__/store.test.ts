@@ -5,6 +5,14 @@ import { MemoryStore } from '../store'
 
 const testDir = join(import.meta.dir, '__fixtures__/memory')
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 describe('MemoryStore', () => {
   afterAll(() => {
     rmSync(join(import.meta.dir, '__fixtures__'), { recursive: true, force: true })
@@ -27,9 +35,8 @@ describe('MemoryStore', () => {
 
     // Read it back
     const retrieved = store.get('note', mem.id)
-    expect(retrieved).toBeDefined()
-    expect(retrieved!.title).toBe('Test Note')
-    expect(retrieved!.content).toBe('This is a test note.')
+    expect(expectDefined(retrieved).title).toBe('Test Note')
+    expect(expectDefined(retrieved).content).toBe('This is a test note.')
   })
 
   test('list memories by type', async () => {
@@ -56,10 +63,10 @@ describe('MemoryStore', () => {
       confidence: 0.95,
     })
 
-    expect(updated).toBeDefined()
-    expect(updated!.content).toBe('Updated content')
-    expect(updated!.status).toBe('verified')
-    expect(updated!.confidence).toBe(0.95)
+    const updatedMemory = expectDefined(updated)
+    expect(updatedMemory.content).toBe('Updated content')
+    expect(updatedMemory.status).toBe('verified')
+    expect(updatedMemory.confidence).toBe(0.95)
   })
 
   test('delete memory', async () => {

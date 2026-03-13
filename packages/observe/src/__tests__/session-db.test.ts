@@ -2,6 +2,14 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import type { Message, Session as SessionData } from '@zero-os/shared'
 import { SessionDB } from '../session-db'
 
+function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
+  expect(value).toBeDefined()
+  if (value == null) {
+    throw new Error('Expected value to be defined')
+  }
+  return value
+}
+
 function makeSessionData(overrides: Partial<SessionData> = {}): SessionData {
   return {
     id: `sess_${Date.now()}`,
@@ -48,26 +56,26 @@ describe('SessionDB', () => {
     db.saveSession(data, '{"name":"zero"}')
 
     const row = db.getSession('sess_roundtrip')
-    expect(row).not.toBeNull()
-    expect(row!.id).toBe('sess_roundtrip')
-    expect(row!.source).toBe('web')
-    expect(row!.status).toBe('active')
-    expect(row!.currentModel).toBe('gpt-5.3-codex-medium')
-    expect(row!.tags).toEqual(['test', 'unit'])
-    expect(row!.modelHistory).toHaveLength(1)
-    expect(row!.modelHistory[0].model).toBe('gpt-5.3-codex-medium')
-    expect(row!.agentConfigJson).toBe('{"name":"zero"}')
+    const savedRow = expectDefined(row)
+    expect(savedRow.id).toBe('sess_roundtrip')
+    expect(savedRow.source).toBe('web')
+    expect(savedRow.status).toBe('active')
+    expect(savedRow.currentModel).toBe('gpt-5.3-codex-medium')
+    expect(savedRow.tags).toEqual(['test', 'unit'])
+    expect(savedRow.modelHistory).toHaveLength(1)
+    expect(savedRow.modelHistory[0].model).toBe('gpt-5.3-codex-medium')
+    expect(savedRow.agentConfigJson).toBe('{"name":"zero"}')
   })
 
   test('saveSession upserts on duplicate ID', () => {
     const data = makeSessionData({ id: 'sess_upsert', summary: 'v1' })
     db.saveSession(data)
-    expect(db.getSession('sess_upsert')!.summary).toBe('v1')
+    expect(expectDefined(db.getSession('sess_upsert')).summary).toBe('v1')
 
     data.summary = 'v2'
     data.updatedAt = new Date().toISOString()
     db.saveSession(data)
-    expect(db.getSession('sess_upsert')!.summary).toBe('v2')
+    expect(expectDefined(db.getSession('sess_upsert')).summary).toBe('v2')
   })
 
   test('saveMessages + loadSessionMessages round-trip', () => {
@@ -123,12 +131,12 @@ describe('SessionDB', () => {
   test('updateStatus changes status and updatedAt', () => {
     const data = makeSessionData({ id: 'sess_status' })
     db.saveSession(data)
-    expect(db.getSession('sess_status')!.status).toBe('active')
+    expect(expectDefined(db.getSession('sess_status')).status).toBe('active')
 
     const newTime = new Date().toISOString()
     db.updateStatus('sess_status', 'completed', newTime)
 
-    const row = db.getSession('sess_status')!
+    const row = expectDefined(db.getSession('sess_status'))
     expect(row.status).toBe('completed')
     expect(row.updatedAt).toBe(newTime)
   })
@@ -186,7 +194,7 @@ describe('SessionDB', () => {
     expect(ids).toContain('sess_ch2')
     expect(ids).not.toContain('sess_ch3')
 
-    const feishuMapping = mappings.find((m) => m.id === 'sess_ch1')!
+    const feishuMapping = expectDefined(mappings.find((m) => m.id === 'sess_ch1'))
     expect(feishuMapping.source).toBe('feishu')
     expect(feishuMapping.channelName).toBe('feishu:ops')
     expect(feishuMapping.channelId).toBe('chat_001')
