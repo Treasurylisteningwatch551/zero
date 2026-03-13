@@ -1,7 +1,109 @@
 import { describe, expect, test } from 'bun:test'
 import { Readable } from 'node:stream'
+import type { IncomingMessage } from '../base'
 import { FeishuChannel } from '../feishu/index'
 import { TelegramChannel } from '../telegram/index'
+
+type RecordedArgs = unknown[]
+
+interface TelegramIncomingPayload {
+  from?: { id?: number; username?: string; first_name?: string }
+  chat?: { id?: number; type?: string }
+  message?: {
+    date?: number
+    message_id?: number
+    caption?: string
+    photo?: Array<{ file_id?: string; width?: number; height?: number }>
+    video?: { file_id?: string }
+    document?: { file_id?: string; mime_type?: string }
+  }
+}
+
+interface TelegramTestHarness {
+  bot: {
+    telegram: {
+      sendMessage?: (...args: unknown[]) => Promise<unknown>
+      editMessageText?: (...args: unknown[]) => Promise<unknown>
+      sendChatAction?: (...args: unknown[]) => Promise<unknown>
+      setMessageReaction?: (...args: unknown[]) => Promise<unknown>
+      setMyCommands?: (...args: unknown[]) => Promise<unknown>
+      getMyCommands?: () => Promise<Array<{ command?: string; description?: string }>>
+      setChatMenuButton?: (...args: unknown[]) => Promise<unknown>
+      getChatMenuButton?: () => Promise<{
+        type?: string
+        text?: string
+        web_app?: { url?: string }
+      }>
+      getFile?: (fileId: string) => Promise<{ file_id?: string; file_path?: string }>
+      getFileLink?: (file: unknown) => Promise<URL>
+    }
+  } | null
+  buildIncomingMessage(payload: TelegramIncomingPayload): Promise<IncomingMessage>
+}
+
+interface FeishuBinaryResponseLike {
+  headers?: Record<string, string>
+  getReadableStream: () => Readable
+}
+
+interface FeishuIncomingPayload {
+  sender?: { sender_id?: { open_id?: string } }
+  message?: {
+    message_id?: string
+    chat_id?: string
+    chat_type?: string
+    message_type?: string
+    create_time?: string
+    content?: string
+  }
+}
+
+interface FeishuMessageResourcePayload {
+  path: { message_id: string; file_key: string }
+  params: { type: 'image' }
+}
+
+interface FeishuMessageCreatePayload {
+  data: {
+    receive_id?: string
+    msg_type?: string
+    content?: string
+  }
+  params?: {
+    receive_id_type?: string
+  }
+}
+
+interface FeishuMessageReplyPayload {
+  path: { message_id: string }
+  data: {
+    content: string
+    msg_type: string
+  }
+}
+
+interface FeishuTestHarness {
+  client: {
+    im: {
+      messageResource?: {
+        get?: (payload: FeishuMessageResourcePayload) => Promise<FeishuBinaryResponseLike>
+      }
+      message?: {
+        create?: (payload: FeishuMessageCreatePayload) => Promise<void>
+        reply?: (payload: FeishuMessageReplyPayload) => Promise<void>
+      }
+    }
+  } | null
+  buildIncomingMessage(payload: FeishuIncomingPayload): Promise<IncomingMessage | null>
+}
+
+function getTelegramHarness(channel: TelegramChannel): TelegramTestHarness {
+  return channel as unknown as TelegramTestHarness
+}
+
+function getFeishuHarness(channel: FeishuChannel): FeishuTestHarness {
+  return channel as unknown as FeishuTestHarness
+}
 
 describe('TelegramChannel contract', () => {
   test('name is telegram and type is telegram', () => {
@@ -17,10 +119,10 @@ describe('TelegramChannel contract', () => {
 
   test('reply sends message with reply_parameters', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-    const calls: any[] = []
-    ;(channel as any).bot = {
+    const calls: RecordedArgs[] = []
+    getTelegramHarness(channel).bot = {
       telegram: {
-        sendMessage: async (...args: any[]) => {
+        sendMessage: async (...args: unknown[]) => {
           calls.push(args)
         },
       },
@@ -43,10 +145,10 @@ describe('TelegramChannel contract', () => {
 
   test('editRich edits existing message with entities', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-    const calls: any[] = []
-    ;(channel as any).bot = {
+    const calls: RecordedArgs[] = []
+    getTelegramHarness(channel).bot = {
       telegram: {
-        editMessageText: async (...args: any[]) => {
+        editMessageText: async (...args: unknown[]) => {
           calls.push(args)
           return true
         },
@@ -69,10 +171,10 @@ describe('TelegramChannel contract', () => {
 
   test('sendTyping sends typing chat action', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-    const calls: any[] = []
-    ;(channel as any).bot = {
+    const calls: RecordedArgs[] = []
+    getTelegramHarness(channel).bot = {
       telegram: {
-        sendChatAction: async (...args: any[]) => {
+        sendChatAction: async (...args: unknown[]) => {
           calls.push(args)
           return true
         },
@@ -87,10 +189,10 @@ describe('TelegramChannel contract', () => {
 
   test('react sends message reaction', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-    const calls: any[] = []
-    ;(channel as any).bot = {
+    const calls: RecordedArgs[] = []
+    getTelegramHarness(channel).bot = {
       telegram: {
-        setMessageReaction: async (...args: any[]) => {
+        setMessageReaction: async (...args: unknown[]) => {
           calls.push(args)
           return true
         },
@@ -105,10 +207,10 @@ describe('TelegramChannel contract', () => {
 
   test('setMyCommands maps scope and language_code', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-    const calls: any[] = []
-    ;(channel as any).bot = {
+    const calls: RecordedArgs[] = []
+    getTelegramHarness(channel).bot = {
       telegram: {
-        setMyCommands: async (...args: any[]) => {
+        setMyCommands: async (...args: unknown[]) => {
           calls.push(args)
           return true
         },
@@ -140,7 +242,7 @@ describe('TelegramChannel contract', () => {
 
   test('getMyCommands returns normalized commands', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-    ;(channel as any).bot = {
+    getTelegramHarness(channel).bot = {
       telegram: {
         getMyCommands: async () => [
           { command: 'new', description: 'Start new chat', ignored: true },
@@ -158,10 +260,10 @@ describe('TelegramChannel contract', () => {
 
   test('setChatMenuButton maps web_app url payload', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-    const calls: any[] = []
-    ;(channel as any).bot = {
+    const calls: RecordedArgs[] = []
+    getTelegramHarness(channel).bot = {
       telegram: {
-        setChatMenuButton: async (...args: any[]) => {
+        setChatMenuButton: async (...args: unknown[]) => {
           calls.push(args)
           return true
         },
@@ -194,7 +296,7 @@ describe('TelegramChannel contract', () => {
 
   test('getChatMenuButton maps web_app response', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-    ;(channel as any).bot = {
+    getTelegramHarness(channel).bot = {
       telegram: {
         getChatMenuButton: async () => ({
           type: 'web_app',
@@ -220,11 +322,14 @@ describe('TelegramChannel contract', () => {
     const requestedFileIds: string[] = []
     const requestedUrls: string[] = []
     const originalFetch = globalThis.fetch
-    ;(globalThis as any).fetch = async (input: RequestInfo | URL) => {
-      requestedUrls.push(String(input))
-      return new Response(Buffer.from('img-binary'), { status: 200 })
-    }
-    ;(channel as any).bot = {
+    globalThis.fetch = Object.assign(
+      async (input: RequestInfo | URL) => {
+        requestedUrls.push(String(input))
+        return new Response(Buffer.from('img-binary'), { status: 200 })
+      },
+      { preconnect: originalFetch.preconnect },
+    )
+    getTelegramHarness(channel).bot = {
       telegram: {
         getFile: async (fileId: string) => {
           requestedFileIds.push(fileId)
@@ -238,7 +343,7 @@ describe('TelegramChannel contract', () => {
     }
 
     try {
-      const msg = await (channel as any).buildIncomingMessage({
+      const msg = await getTelegramHarness(channel).buildIncomingMessage({
         from: { id: 1, username: 'u', first_name: 'n' },
         chat: { id: 123, type: 'private' },
         message: {
@@ -259,20 +364,20 @@ describe('TelegramChannel contract', () => {
       expect(msg.images?.[0].mediaType).toBe('image/jpeg')
       expect(typeof msg.images?.[0].data).toBe('string')
     } finally {
-      ;(globalThis as any).fetch = originalFetch
+      globalThis.fetch = originalFetch
     }
   })
 
   test('message handler sets media hint for non-image media', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-    ;(channel as any).bot = {
+    getTelegramHarness(channel).bot = {
       telegram: {
         getFile: async () => ({ file_path: '' }),
         getFileLink: async () => new URL('https://api.telegram.org/file/bot-token/unused'),
       },
     }
 
-    const msg = await (channel as any).buildIncomingMessage({
+    const msg = await getTelegramHarness(channel).buildIncomingMessage({
       from: { id: 2, username: 'u2', first_name: 'n2' },
       chat: { id: 456, type: 'private' },
       message: {
@@ -291,9 +396,10 @@ describe('TelegramChannel contract', () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
 
     const originalFetch = globalThis.fetch
-    ;(globalThis as any).fetch = async () =>
-      new Response(Buffer.from('png-binary'), { status: 200 })
-    ;(channel as any).bot = {
+    globalThis.fetch = Object.assign(async () => new Response(Buffer.from('png-binary'), { status: 200 }), {
+      preconnect: originalFetch.preconnect,
+    })
+    getTelegramHarness(channel).bot = {
       telegram: {
         getFile: async () => ({ file_path: 'docs/pic.png' }),
         getFileLink: async () => new URL('https://api.telegram.org/file/bot-token/docs/pic.png'),
@@ -301,7 +407,7 @@ describe('TelegramChannel contract', () => {
     }
 
     try {
-      const msg = await (channel as any).buildIncomingMessage({
+      const msg = await getTelegramHarness(channel).buildIncomingMessage({
         from: { id: 3 },
         chat: { id: 789, type: 'private' },
         message: {
@@ -314,20 +420,20 @@ describe('TelegramChannel contract', () => {
       expect(msg.images?.length).toBe(1)
       expect(msg.images?.[0].mediaType).toBe('image/png')
     } finally {
-      ;(globalThis as any).fetch = originalFetch
+      globalThis.fetch = originalFetch
     }
   })
 
   test('buildIncomingMessage is robust when from/chat/date are missing', async () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
-    ;(channel as any).bot = {
+    getTelegramHarness(channel).bot = {
       telegram: {
         getFile: async () => ({ file_path: '' }),
         getFileLink: async () => new URL('https://api.telegram.org/file/bot-token/unused'),
       },
     }
 
-    const msg = await (channel as any).buildIncomingMessage({
+    const msg = await getTelegramHarness(channel).buildIncomingMessage({
       message: {
         message_id: 13,
         caption: 'fallback',
@@ -354,11 +460,11 @@ describe('FeishuChannel contract', () => {
 
   test('buildIncomingMessage downloads standalone image via messageResource', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
-    const calls: any[] = []
-    ;(channel as any).client = {
+    const calls: FeishuMessageResourcePayload[] = []
+    getFeishuHarness(channel).client = {
       im: {
         messageResource: {
-          get: async (payload: any) => {
+          get: async (payload: FeishuMessageResourcePayload) => {
             calls.push(payload)
             return {
               headers: { 'content-type': 'image/jpeg' },
@@ -369,7 +475,7 @@ describe('FeishuChannel contract', () => {
       },
     }
 
-    const msg = await (channel as any).buildIncomingMessage({
+    const msg = await getFeishuHarness(channel).buildIncomingMessage({
       sender: { sender_id: { open_id: 'ou_test' } },
       message: {
         message_id: 'om_test',
@@ -380,6 +486,9 @@ describe('FeishuChannel contract', () => {
         content: JSON.stringify({ image_key: 'img_v3_test' }),
       },
     })
+    if (!msg) {
+      throw new Error('expected Feishu message')
+    }
 
     expect(calls).toEqual([
       {
@@ -413,7 +522,7 @@ describe('FeishuChannel contract', () => {
     console.error = (...args: unknown[]) => {
       errors.push(args)
     }
-    ;(channel as any).client = {
+    getFeishuHarness(channel).client = {
       im: {
         messageResource: {
           get: async () => {
@@ -436,7 +545,7 @@ describe('FeishuChannel contract', () => {
     }
 
     try {
-      const msg = await (channel as any).buildIncomingMessage({
+      const msg = await getFeishuHarness(channel).buildIncomingMessage({
         sender: { sender_id: { open_id: 'ou_test' } },
         message: {
           message_id: 'om_test',
@@ -447,6 +556,9 @@ describe('FeishuChannel contract', () => {
           content: JSON.stringify({ image_key: 'img_v3_test' }),
         },
       })
+      if (!msg) {
+        throw new Error('expected Feishu message')
+      }
 
       expect(msg.images).toBeUndefined()
       expect(msg.content).toBe('[图片下载失败]')
@@ -463,7 +575,7 @@ describe('FeishuChannel contract', () => {
 
   test('buildIncomingMessage strips image placeholder text when post image download succeeds', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
-    ;(channel as any).client = {
+    getFeishuHarness(channel).client = {
       im: {
         messageResource: {
           get: async () => ({
@@ -474,7 +586,7 @@ describe('FeishuChannel contract', () => {
       },
     }
 
-    const msg = await (channel as any).buildIncomingMessage({
+    const msg = await getFeishuHarness(channel).buildIncomingMessage({
       sender: { sender_id: { open_id: 'ou_test' } },
       message: {
         message_id: 'om_post',
@@ -492,6 +604,9 @@ describe('FeishuChannel contract', () => {
         }),
       },
     })
+    if (!msg) {
+      throw new Error('expected Feishu message')
+    }
 
     expect(msg.content).toBe('分析下这个页面')
     expect(msg.images).toEqual([
@@ -504,11 +619,11 @@ describe('FeishuChannel contract', () => {
 
   test('send uses interactive JSON 2.0 card first', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
-    const calls: any[] = []
-    ;(channel as any).client = {
+    const calls: FeishuMessageCreatePayload[] = []
+    getFeishuHarness(channel).client = {
       im: {
         message: {
-          create: async (payload: any) => {
+          create: async (payload: FeishuMessageCreatePayload) => {
             calls.push(payload)
           },
         },
@@ -518,10 +633,14 @@ describe('FeishuChannel contract', () => {
     await channel.send('chat-1', 'hello')
 
     expect(calls).toHaveLength(1)
+    const interactiveContent = calls[0].data.content
+    if (!interactiveContent) {
+      throw new Error('expected interactive content')
+    }
     expect(calls[0].params).toEqual({ receive_id_type: 'chat_id' })
     expect(calls[0].data.receive_id).toBe('chat-1')
     expect(calls[0].data.msg_type).toBe('interactive')
-    expect(JSON.parse(calls[0].data.content)).toEqual({
+    expect(JSON.parse(interactiveContent)).toEqual({
       schema: '2.0',
       body: {
         direction: 'vertical',
@@ -532,11 +651,11 @@ describe('FeishuChannel contract', () => {
 
   test('send falls back to text when interactive and post sends fail', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
-    const calls: any[] = []
-    ;(channel as any).client = {
+    const calls: FeishuMessageCreatePayload[] = []
+    getFeishuHarness(channel).client = {
       im: {
         message: {
-          create: async (payload: any) => {
+          create: async (payload: FeishuMessageCreatePayload) => {
             calls.push(payload)
             if (payload?.data?.msg_type === 'interactive' || payload?.data?.msg_type === 'post') {
               throw new Error('rich failed')
@@ -556,11 +675,11 @@ describe('FeishuChannel contract', () => {
 
   test('reply sends interactive markdown first', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
-    const calls: any[] = []
-    ;(channel as any).client = {
+    const calls: FeishuMessageReplyPayload[] = []
+    getFeishuHarness(channel).client = {
       im: {
         message: {
-          reply: async (payload: any) => {
+          reply: async (payload: FeishuMessageReplyPayload) => {
             calls.push(payload)
           },
         },
@@ -570,9 +689,13 @@ describe('FeishuChannel contract', () => {
     await channel.reply('msg-1', 'hello')
 
     expect(calls).toHaveLength(1)
+    const interactiveContent = calls[0].data.content
+    if (!interactiveContent) {
+      throw new Error('expected interactive reply content')
+    }
     expect(calls[0].path).toEqual({ message_id: 'msg-1' })
     expect(calls[0].data.msg_type).toBe('interactive')
-    expect(JSON.parse(calls[0].data.content)).toEqual({
+    expect(JSON.parse(interactiveContent)).toEqual({
       schema: '2.0',
       body: {
         direction: 'vertical',
@@ -583,11 +706,11 @@ describe('FeishuChannel contract', () => {
 
   test('reply falls back to post when interactive reply fails', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
-    const calls: any[] = []
-    ;(channel as any).client = {
+    const calls: FeishuMessageReplyPayload[] = []
+    getFeishuHarness(channel).client = {
       im: {
         message: {
-          reply: async (payload: any) => {
+          reply: async (payload: FeishuMessageReplyPayload) => {
             calls.push(payload)
             if (payload?.data?.msg_type === 'interactive') {
               throw new Error('interactive failed')
@@ -616,11 +739,11 @@ describe('FeishuChannel contract', () => {
 
   test('reply falls back to text when interactive and post replies fail', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
-    const calls: any[] = []
-    ;(channel as any).client = {
+    const calls: FeishuMessageReplyPayload[] = []
+    getFeishuHarness(channel).client = {
       im: {
         message: {
-          reply: async (payload: any) => {
+          reply: async (payload: FeishuMessageReplyPayload) => {
             calls.push(payload)
             if (payload?.data?.msg_type === 'interactive' || payload?.data?.msg_type === 'post') {
               throw new Error('interactive failed')
@@ -639,11 +762,11 @@ describe('FeishuChannel contract', () => {
 
   test('reply throws when interactive, post and text replies all fail', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
-    const calls: any[] = []
-    ;(channel as any).client = {
+    const calls: FeishuMessageReplyPayload[] = []
+    getFeishuHarness(channel).client = {
       im: {
         message: {
-          reply: async (payload: any) => {
+          reply: async (payload: FeishuMessageReplyPayload) => {
             calls.push(payload)
             if (payload?.data?.msg_type === 'text') {
               throw new Error('text failed')

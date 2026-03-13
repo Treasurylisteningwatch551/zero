@@ -39,7 +39,15 @@ export function ConfirmDialog({
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center overlay-enter"
       style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(4px)' }}
-      onClick={onCancel}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCancel()
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onCancel()
+        }
+      }}
     >
       <div
         className="card p-6 max-w-[400px] w-full mx-4 dialog-enter"
@@ -47,7 +55,6 @@ export function ConfirmDialog({
           background: 'var(--color-float)',
           boxShadow: '0 8px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06)',
         }}
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3 mb-4">
           {danger && <Warning size={22} weight="fill" className="text-red-400 shrink-0 mt-0.5" />}

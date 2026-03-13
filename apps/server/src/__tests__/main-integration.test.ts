@@ -70,7 +70,10 @@ describe('startZeroOS Integration', () => {
   test('modelRouter has initialized adapters', () => {
     const current = zero.modelRouter.getCurrentModel()
     expect(current).toBeDefined()
-    expect(current!.modelName).toBe('gpt-5.4-medium')
+    if (!current) {
+      throw new Error('expected current model')
+    }
+    expect(current.modelName).toBe('gpt-5.4-medium')
   })
 
   test('toolRegistry has 10 registered tools', () => {
@@ -94,7 +97,10 @@ describe('startZeroOS Integration', () => {
     expect(zero.channels.has('feishu')).toBe(true)
     expect(zero.channels.has('telegram')).toBe(true)
     // Web should be connected
-    const webChannel = zero.channels.get('web')!
+    const webChannel = zero.channels.get('web')
+    if (!webChannel) {
+      throw new Error('expected web channel')
+    }
     expect(webChannel.isConnected()).toBe(true)
   })
 

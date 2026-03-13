@@ -24,11 +24,6 @@ import { formatCost, formatNumber } from '../lib/format'
 type Tab = 'cost' | 'operations' | 'health'
 type TimeRange = '7d' | '30d' | '90d' | 'custom'
 
-interface CostByDay {
-  period: string
-  totalCost: number
-  totalTokens: number
-}
 interface CostByModel {
   model: string
   provider: string
@@ -183,8 +178,12 @@ function pivotBy<T extends object>(
     const group = String(row[groupKey])
     const value = row[valueKey] as unknown
     keySet.add(group)
-    if (!grouped.has(period)) grouped.set(period, { period })
-    grouped.get(period)![group] = value
+    let periodGroup = grouped.get(period)
+    if (!periodGroup) {
+      periodGroup = { period }
+      grouped.set(period, periodGroup)
+    }
+    periodGroup[group] = value
   }
 
   return { data: Array.from(grouped.values()), keys: Array.from(keySet) }
@@ -336,8 +335,11 @@ function CostTab({ range }: { range: TimeRange }) {
                   }
                   labelLine={{ stroke: CHART_TEXT }}
                 >
-                  {costByModel.map((_, i) => (
-                    <Cell key={i} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
+                  {costByModel.map((model, index) => (
+                    <Cell
+                      key={`${model.provider}-${model.model}`}
+                      fill={MODEL_COLORS[index % MODEL_COLORS.length]}
+                    />
                   ))}
                 </Pie>
                 <Tooltip
@@ -404,9 +406,9 @@ function CostTab({ range }: { range: TimeRange }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {costDetail.map((d, i) => (
+                  {costDetail.map((d) => (
                     <tr
-                      key={i}
+                      key={`${d.date}-${d.model}-${d.input}-${d.output}-${d.cacheRead}-${d.cost}`}
                       className="border-b border-[var(--color-border)] last:border-0 hover:bg-white/[0.03] transition-colors"
                     >
                       <td className="py-1.5 pr-4 text-[var(--color-text-muted)]">{d.date}</td>
@@ -742,9 +744,9 @@ function HealthTab({ range }: { range: TimeRange }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {fuseEvents.map((e, i) => (
+                  {fuseEvents.map((e) => (
                     <tr
-                      key={i}
+                      key={`${e.ts}-${String(e.event ?? '')}`}
                       className="border-b border-[var(--color-border)] last:border-0 hover:bg-white/[0.03] transition-colors"
                     >
                       <td className="py-1.5 pr-4 text-[var(--color-text-muted)] whitespace-nowrap">

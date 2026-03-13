@@ -67,7 +67,7 @@ export class WebMessageHandler {
         return { type: 'pong' }
 
       default:
-        return { type: 'error', error: `Unknown message type` }
+        return { type: 'error', error: 'Unknown message type' }
     }
   }
 

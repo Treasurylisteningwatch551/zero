@@ -21,6 +21,45 @@ interface FeishuBinaryResponse {
   headers?: unknown
 }
 
+interface FeishuIncomingEvent {
+  sender?: {
+    sender_id?: {
+      open_id?: string
+    }
+  }
+  message?: FeishuMessagePayload
+}
+
+interface FeishuMessagePayload {
+  message_id?: string
+  chat_id?: string
+  chat_type?: string
+  message_type?: string
+  create_time?: string | number
+  content?: string
+}
+
+interface FeishuReactionCreateResponse {
+  reaction_id?: string
+}
+
+interface FeishuPostElement {
+  tag?: string
+  text?: string
+  style?: string[]
+  href?: string
+  image_key?: string
+  user_name?: string
+  user_id?: string
+  file_name?: string
+  emoji_type?: string
+}
+
+interface FeishuPostDocument {
+  title?: string
+  content?: FeishuPostElement[][]
+}
+
 /**
  * Feishu (Lark) channel — sends and receives messages via Feishu bot.
  */
@@ -62,11 +101,23 @@ export class FeishuChannel implements Channel {
 
     // Listen for incoming messages
     this.eventDispatcher.register({
-      'im.message.receive_v1': async (data: any) => {
+      'im.message.receive_v1': async (data: unknown) => {
         try {
           if (!this.messageHandler) return
 
-          const msg = data?.message
+          const event =
+            typeof data === 'object' && data !== null
+              ? (data as {
+                  sender?: {
+                    sender_id?: {
+                      open_id?: string
+                    }
+                  }
+                  message?: FeishuMessagePayload
+                })
+              : undefined
+
+          const msg = event?.message
           if (!msg) {
             console.warn('[FeishuChannel] Received event with no message payload')
             return
@@ -82,14 +133,16 @@ export class FeishuChannel implements Channel {
             this.processedMessageIds.add(messageId)
             // Prevent unbounded growth — trim oldest entry when exceeding 1000
             if (this.processedMessageIds.size > 1000) {
-              const first = this.processedMessageIds.values().next().value!
-              this.processedMessageIds.delete(first)
+              const first = this.processedMessageIds.values().next().value
+              if (first !== undefined) {
+                this.processedMessageIds.delete(first)
+              }
             }
           }
 
           console.log(
             '[FeishuChannel] im.message.receive_v1 from',
-            data.sender?.sender_id?.open_id ?? 'unknown',
+            event?.sender?.sender_id?.open_id ?? 'unknown',
           )
           const incoming = await this.buildIncomingMessage(data)
           if (!incoming) return
@@ -154,8 +207,19 @@ export class FeishuChannel implements Channel {
     this.messageHandler = handler
   }
 
-  private async buildIncomingMessage(data: any): Promise<IncomingMessage | null> {
-    const msg = data?.message
+  private async buildIncomingMessage(data: unknown): Promise<IncomingMessage | null> {
+    const event =
+      typeof data === 'object' && data !== null
+        ? (data as {
+            sender?: {
+              sender_id?: {
+                open_id?: string
+              }
+            }
+            message?: FeishuMessagePayload
+          })
+        : undefined
+    const msg = event?.message
     if (!msg) {
       console.warn('[FeishuChannel] Received event with no message payload')
       return null
@@ -240,7 +304,7 @@ export class FeishuChannel implements Channel {
 
     return {
       channelType: 'feishu',
-      senderId: data.sender?.sender_id?.open_id ?? 'unknown',
+      senderId: event?.sender?.sender_id?.open_id ?? 'unknown',
       content,
       timestamp: new Date(Number(msg.create_time) * 1000).toISOString(),
       metadata: {
@@ -262,7 +326,7 @@ export class FeishuChannel implements Channel {
         path: { message_id: messageId },
         data: { reaction_type: { emoji_type: emojiType } },
       })
-      return (resp as any)?.reaction_id ?? null
+      return (resp as { reaction_id?: string }).reaction_id ?? null
     } catch {
       return null
     }
@@ -764,40 +828,68 @@ export class FeishuChannel implements Channel {
     return `${value.slice(0, Math.max(0, maxLength - 1))}…`
   }
 
+  private isPostDocument(value: unknown): value is {
+    title?: string
+    content?: FeishuPostElement[][]
+  } {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      Array.isArray((value as { content?: unknown }).content)
+    )
+  }
+
   /**
    * Parse Feishu post (rich text) message into Markdown text + image attachments.
    *
    * Standard format: { "zh_cn": { "title": "...", "content": [[elements]] } }
    * Also handles: top-level { "title", "content" } without locale wrapper.
    */
-  private parsePostContent(parsed: any, images: ImageAttachment[]): string {
+  private parsePostContent(parsed: unknown, images: ImageAttachment[]): string {
+    if (!parsed || typeof parsed !== 'object') {
+      return this.extractTextFromJson(parsed)
+    }
+
+    const payload = parsed as {
+      zh_cn?: { title?: string; content?: FeishuPostElement[][] }
+      en_us?: { title?: string; content?: FeishuPostElement[][] }
+      content?: FeishuPostElement[][]
+      title?: string
+      [key: string]: unknown
+    }
+
     // Resolve locale wrapper: zh_cn > en_us > first locale-shaped value > top-level
-    let doc: { title?: string; content?: any[][] } | undefined
-    if (parsed.zh_cn?.content) {
-      doc = parsed.zh_cn
-    } else if (parsed.en_us?.content) {
-      doc = parsed.en_us
+    let doc:
+      | {
+          title?: string
+          content?: FeishuPostElement[][]
+        }
+      | undefined
+    if (this.isPostDocument(payload.zh_cn)) {
+      doc = payload.zh_cn
+    } else if (this.isPostDocument(payload.en_us)) {
+      doc = payload.en_us
     } else {
       // Try each top-level value for a locale-shaped object { content: [[...]] }
-      for (const val of Object.values(parsed)) {
-        if (val && typeof val === 'object' && Array.isArray((val as any).content)) {
-          doc = val as any
+      for (const val of Object.values(payload)) {
+        if (this.isPostDocument(val)) {
+          doc = val
           break
         }
       }
       // Fallback: top-level { content: [[...]] } without locale key
-      if (!doc && Array.isArray(parsed.content)) {
-        doc = parsed
+      if (!doc && Array.isArray(payload.content)) {
+        doc = payload
       }
     }
 
     if (!doc?.content || !Array.isArray(doc.content)) {
       console.warn(
         '[FeishuChannel] Unrecognized post structure:',
-        JSON.stringify(parsed).slice(0, 200),
+        JSON.stringify(payload).slice(0, 200),
       )
       // Last resort: recursively extract all text values from the JSON
-      return this.extractTextFromJson(parsed)
+      return this.extractTextFromJson(payload)
     }
 
     const parts: string[] = []
@@ -819,20 +911,22 @@ export class FeishuChannel implements Channel {
     // Parsing succeeded structurally but no text extracted — extract from raw JSON
     console.warn(
       '[FeishuChannel] Post parsed but empty, extracting raw text:',
-      JSON.stringify(parsed).slice(0, 200),
+      JSON.stringify(payload).slice(0, 200),
     )
-    return this.extractTextFromJson(parsed)
+    return this.extractTextFromJson(payload)
   }
 
   /**
    * Convert a single post element to Markdown.
    */
-  private parsePostElement(el: any, images: ImageAttachment[]): string {
+  private parsePostElement(el: unknown, images: ImageAttachment[]): string {
     if (!el || typeof el !== 'object') return ''
-    switch (el.tag) {
+    const element = el as FeishuPostElement
+
+    switch (element.tag) {
       case 'text': {
-        let t = el.text ?? ''
-        const s = el.style as string[] | undefined
+        let t = element.text ?? ''
+        const s = element.style
         if (s?.includes('bold')) t = `**${t}**`
         if (s?.includes('italic')) t = `*${t}*`
         if (s?.includes('lineThrough')) t = `~~${t}~~`
@@ -840,23 +934,23 @@ export class FeishuChannel implements Channel {
         return t
       }
       case 'a':
-        return el.href ? `[${el.text ?? ''}](${el.href})` : (el.text ?? '')
+        return element.href ? `[${element.text ?? ''}](${element.href})` : (element.text ?? '')
       case 'img':
         // Image download is async — handled separately by caller if client is available
-        if (el.image_key) {
+        if (element.image_key) {
           // Queue image for download (caller handles async download)
-          images.push({ mediaType: '__pending__', data: el.image_key })
+          images.push({ mediaType: '__pending__', data: element.image_key })
         }
         return '[图片]'
       case 'at':
-        return `@${el.user_name ?? el.user_id ?? 'user'}`
+        return `@${element.user_name ?? element.user_id ?? 'user'}`
       case 'media':
-        return `[${el.file_name ?? 'media'}]`
+        return `[${element.file_name ?? 'media'}]`
       case 'emotion':
-        return el.emoji_type ? `:${el.emoji_type}:` : ''
+        return element.emoji_type ? `:${element.emoji_type}:` : ''
       default:
         // Unknown tag — extract text if present
-        return el.text ?? ''
+        return element.text ?? ''
     }
   }
 

@@ -40,18 +40,19 @@ export function ActiveSessions() {
   // WebSocket: live tool call streaming
   const onEvent = useCallback((topic: string, data: unknown) => {
     const ev = data as ToolEvent
-    if (!ev?.sessionId) return
+    const sessionId = ev?.sessionId
+    if (!sessionId) return
 
     if (topic.startsWith('tool:call')) {
       setLiveTools((prev) => {
         const next = new Map(prev)
-        next.set(ev.sessionId!, ev.tool ?? 'unknown')
+        next.set(sessionId, ev.tool ?? 'unknown')
         return next
       })
     } else if (topic.startsWith('tool:result')) {
       setLiveTools((prev) => {
         const next = new Map(prev)
-        next.delete(ev.sessionId!)
+        next.delete(sessionId)
         return next
       })
     }

@@ -109,7 +109,7 @@ export class AnthropicAdapter implements ProviderAdapter {
           yield { type: 'tool_use_end', data: { id: toolId } }
         }
       } else if (event.type === 'message_start') {
-        const msg = (event as any).message
+        const msg = event.message
         if (msg?.model) {
           streamModel = msg.model
         }
@@ -117,20 +117,19 @@ export class AnthropicAdapter implements ProviderAdapter {
           streamUsage = {
             input: msg.usage.input_tokens ?? 0,
             output: msg.usage.output_tokens ?? 0,
-            cacheWrite: msg.usage.cache_creation_input_tokens,
-            cacheRead: msg.usage.cache_read_input_tokens,
+            cacheWrite: msg.usage.cache_creation_input_tokens ?? undefined,
+            cacheRead: msg.usage.cache_read_input_tokens ?? undefined,
           }
         }
       } else if (event.type === 'message_delta') {
-        const delta = event as any
-        if (delta.delta?.stop_reason) {
-          streamStopReason = delta.delta.stop_reason
+        if (event.delta?.stop_reason) {
+          streamStopReason = event.delta.stop_reason
         }
-        if (delta.usage?.output_tokens) {
+        if (event.usage?.output_tokens) {
           streamUsage = {
             ...streamUsage,
             input: streamUsage?.input ?? 0,
-            output: delta.usage.output_tokens,
+            output: event.usage.output_tokens,
           }
         }
       } else if (event.type === 'message_stop') {
@@ -167,7 +166,11 @@ export class AnthropicAdapter implements ProviderAdapter {
           } else if (block.type === 'image') {
             parts.push({
               type: 'image',
-              source: { type: 'base64', media_type: block.mediaType as any, data: block.data },
+              source: {
+                type: 'base64',
+                media_type: block.mediaType as Anthropic.Base64ImageSource['media_type'],
+                data: block.data,
+              },
             })
           } else if (block.type === 'tool_result') {
             parts.push({

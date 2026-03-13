@@ -74,7 +74,6 @@ interface TraceSpan {
 }
 
 interface Props {
-  sessionId: string
   summary?: string
   systemPrompt?: string
   modelHistory: ModelHistoryEntry[]
@@ -92,7 +91,6 @@ interface Props {
 }
 
 export function ContextPanel({
-  sessionId,
   summary,
   systemPrompt,
   modelHistory,
@@ -489,7 +487,10 @@ function PersistedTaskClosureCard({
           <button
             type="button"
             className="text-[10px] text-[var(--color-accent)] hover:underline"
-            onClick={() => onJumpToAssistantMessage(card.assistantMessageId!)}
+            onClick={() => {
+              const assistantMessageId = card.assistantMessageId
+              if (assistantMessageId) onJumpToAssistantMessage(assistantMessageId)
+            }}
           >
             Jump to assistant
           </button>

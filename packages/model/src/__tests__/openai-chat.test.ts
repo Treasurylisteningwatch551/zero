@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { CompletionRequest, Message } from '@zero-os/shared'
 import { generateId, now } from '@zero-os/shared'
+import type OpenAI from 'openai'
 import { OpenAIChatAdapter } from '../adapters/openai-chat'
 import { collectStream } from '../stream'
 
@@ -20,6 +21,33 @@ const adapter = new OpenAIChatAdapter({
   },
   apiKey: API_KEY,
 })
+
+type ConvertedChatMessage = {
+  role: string
+  content?: string | null
+  tool_call_id?: string
+  tool_calls?: Array<{ id: string }>
+}
+
+interface OpenAIChatAdapterTestHarness {
+  convertMessages(req: CompletionRequest): OpenAI.ChatCompletionMessageParam[]
+}
+
+function getConvertedMessages(
+  instance: OpenAIChatAdapter,
+  messages: Message[],
+): ConvertedChatMessage[] {
+  return (instance as unknown as OpenAIChatAdapterTestHarness).convertMessages({
+    messages,
+  } as CompletionRequest) as ConvertedChatMessage[]
+}
+
+function expectDefined<T>(value: T | undefined, message: string): T {
+  if (value === undefined) {
+    throw new Error(message)
+  }
+  return value
+}
 
 function makeMessage(role: 'user' | 'assistant', text: string): Message {
   return {
@@ -117,20 +145,23 @@ describe('OpenAI Chat Completions Adapter (Real API)', () => {
     ]
 
     // Access private convertMessages via bracket notation
-    const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
+    const converted = getConvertedMessages(adapter, messages)
 
     // Should be: user, assistant (with tool_calls), tool — NO empty user message
-    const roles = converted.map((m: any) => m.role)
+    const roles = converted.map((m) => m.role)
     expect(roles).toEqual(['user', 'assistant', 'tool'])
 
     // Verify no empty content user messages
-    const userMsgs = converted.filter((m: any) => m.role === 'user')
+    const userMsgs = converted.filter((m) => m.role === 'user')
     for (const u of userMsgs) {
       expect(u.content).not.toBe('')
     }
 
     // Verify tool message has correct tool_call_id
-    const toolMsg = converted.find((m: any) => m.role === 'tool')
+    const toolMsg = expectDefined(
+      converted.find((m) => m.role === 'tool'),
+      'expected tool message',
+    )
     expect(toolMsg.tool_call_id).toBe(toolCallId)
     expect(toolMsg.content).toBe('4')
   })
@@ -241,8 +272,11 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
       },
     ]
 
-    const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
-    const toolMsg = converted.find((m: any) => m.role === 'tool')
+    const converted = getConvertedMessages(adapter, messages)
+    const toolMsg = expectDefined(
+      converted.find((m) => m.role === 'tool'),
+      'expected tool message',
+    )
 
     expect(toolMsg).toBeDefined()
     expect(toolMsg.content).toBe('Executed: find . -name AGENTS.md')
@@ -272,8 +306,11 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
       },
     ]
 
-    const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
-    const toolMsg = converted.find((m: any) => m.role === 'tool')
+    const converted = getConvertedMessages(adapter, messages)
+    const toolMsg = expectDefined(
+      converted.find((m) => m.role === 'tool'),
+      'expected tool message',
+    )
 
     expect(toolMsg).toBeDefined()
     expect(toolMsg.content).toBe('[tool completed with empty output]')
@@ -308,8 +345,11 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
       },
     ]
 
-    const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
-    const toolMsg = converted.find((m: any) => m.role === 'tool')
+    const converted = getConvertedMessages(adapter, messages)
+    const toolMsg = expectDefined(
+      converted.find((m) => m.role === 'tool'),
+      'expected tool message',
+    )
 
     expect(toolMsg).toBeDefined()
     expect(toolMsg.content).toBe('Ran echo')
@@ -361,17 +401,17 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
       makeMessage('user', 'Continue'),
     ]
 
-    const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
+    const converted = getConvertedMessages(adapter, messages)
 
     // Only the paired tool call should be serialized
-    const toolMsgs = converted.filter((m: any) => m.role === 'tool')
+    const toolMsgs = converted.filter((m) => m.role === 'tool')
     expect(toolMsgs.length).toBe(1)
     expect(toolMsgs[0].tool_call_id).toBe(pairedId)
     expect(toolMsgs[0].content).toBe('ok')
 
     // Dangling tool_use should be excluded from assistant tool_calls
-    const assistantMsgs = converted.filter((m: any) => m.role === 'assistant')
-    const allToolCalls = assistantMsgs.flatMap((m: any) => m.tool_calls ?? [])
+    const assistantMsgs = converted.filter((m) => m.role === 'assistant')
+    const allToolCalls = assistantMsgs.flatMap((m) => m.tool_calls ?? [])
     expect(allToolCalls.length).toBe(1)
     expect(allToolCalls[0].id).toBe(pairedId)
   })
@@ -400,8 +440,11 @@ describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
       },
     ]
 
-    const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
-    const toolMsg = converted.find((m: any) => m.role === 'tool')
+    const converted = getConvertedMessages(adapter, messages)
+    const toolMsg = expectDefined(
+      converted.find((m) => m.role === 'tool'),
+      'expected tool message',
+    )
 
     expect(toolMsg.content).toBe('file contents here')
   })

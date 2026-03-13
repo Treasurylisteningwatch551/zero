@@ -154,16 +154,17 @@ export class OAuth2Client {
    * Get a valid access token, refreshing if necessary.
    */
   async getAccessToken(): Promise<string> {
-    if (!this.tokens) {
+    let tokens = this.tokens
+    if (!tokens) {
       throw new Error('Not authenticated. Complete the OAuth flow first.')
     }
 
     // Refresh if expired or expiring within 60 seconds
-    if (Date.now() >= this.tokens.expiresAt - 60_000) {
-      await this.refreshAccessToken()
+    if (Date.now() >= tokens.expiresAt - 60_000) {
+      tokens = await this.refreshAccessToken()
     }
 
-    return this.tokens!.accessToken
+    return tokens.accessToken
   }
 
   /**

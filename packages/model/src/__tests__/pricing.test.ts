@@ -20,10 +20,13 @@ describe('convertPricing', () => {
       cache_read_input_token_cost: 0.0000003,
     })
     expect(result).not.toBeNull()
-    expect(result!.input).toBe(3)
-    expect(result!.output).toBe(15)
-    expect(result!.cacheWrite).toBe(3.75)
-    expect(result!.cacheRead).toBe(0.3)
+    if (!result) {
+      throw new Error('expected pricing result')
+    }
+    expect(result.input).toBe(3)
+    expect(result.output).toBe(15)
+    expect(result.cacheWrite).toBe(3.75)
+    expect(result.cacheRead).toBe(0.3)
   })
 
   test('returns null when input_cost_per_token is missing', () => {
@@ -100,8 +103,12 @@ describe('LiteLLMPricing', () => {
 
   test('dispose clears instance', () => {
     LiteLLMPricing.init('/tmp/test-litellm-dispose')
-    expect(LiteLLMPricing.getInstance()).not.toBeNull()
-    LiteLLMPricing.getInstance()!.dispose()
+    const instance = LiteLLMPricing.getInstance()
+    expect(instance).not.toBeNull()
+    if (!instance) {
+      throw new Error('expected LiteLLMPricing instance')
+    }
+    instance.dispose()
     expect(LiteLLMPricing.getInstance()).toBeNull()
   })
 })

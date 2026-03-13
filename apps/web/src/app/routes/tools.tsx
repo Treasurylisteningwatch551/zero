@@ -175,8 +175,8 @@ export function ToolsPage() {
 
       {loading ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="card p-5">
+          {Array.from({ length: 6 }, (_, index) => `tool-loading-${index}`).map((key) => (
+            <div key={key} className="card p-5">
               <div className="flex items-center gap-2 mb-3">
                 <Skeleton className="h-4 w-24" />
                 <Skeleton className="h-4 w-14 rounded" />

@@ -4,16 +4,15 @@ import { EventBus } from '../bus'
 describe('EventBus', () => {
   test('emit and receive events', () => {
     const bus = new EventBus()
-    let received: Record<string, unknown> | null = null
+    let receivedTool: unknown
 
     bus.on('tool:call', (payload) => {
-      received = payload.data
+      receivedTool = payload.data.tool
     })
 
     bus.emit('tool:call', { tool: 'bash', input: 'ls' })
 
-    expect(received).toBeDefined()
-    expect(received!.tool).toBe('bash')
+    expect(receivedTool).toBe('bash')
   })
 
   test('wildcard listener receives all events', () => {
@@ -70,6 +69,9 @@ describe('EventBus', () => {
 
     bus.emit('session:update', {})
     expect(ts).toBeDefined()
-    expect(new Date(ts!).getTime()).toBeGreaterThan(0)
+    if (!ts) {
+      throw new Error('expected timestamp')
+    }
+    expect(new Date(ts).getTime()).toBeGreaterThan(0)
   })
 })

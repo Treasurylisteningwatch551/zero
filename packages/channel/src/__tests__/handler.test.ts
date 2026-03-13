@@ -2,6 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import type { IncomingMessage } from '../base'
 import { WebMessageHandler } from '../web/handler'
 
+function expectIncomingMessage(message: IncomingMessage | null): IncomingMessage {
+  if (!message) {
+    throw new Error('expected message to be received')
+  }
+  return message
+}
+
 describe('WebMessageHandler', () => {
   test('invalid JSON returns error response', async () => {
     const handler = new WebMessageHandler()
@@ -57,11 +64,12 @@ describe('WebMessageHandler', () => {
     )
 
     expect(received).not.toBeNull()
-    expect(received!.channelType).toBe('web')
-    expect(received!.senderId).toBe('client-42')
-    expect(received!.content).toBe('hello world')
-    expect(typeof received!.timestamp).toBe('string')
-    expect(received!.metadata).toEqual({ sessionId: 'sess-1' })
+    const message = expectIncomingMessage(received)
+    expect(message.channelType).toBe('web')
+    expect(message.senderId).toBe('client-42')
+    expect(message.content).toBe('hello world')
+    expect(typeof message.timestamp).toBe('string')
+    expect(message.metadata).toEqual({ sessionId: 'sess-1' })
   })
 
   test('IncomingMessage has valid ISO timestamp', async () => {
@@ -76,8 +84,9 @@ describe('WebMessageHandler', () => {
     const after = new Date().toISOString()
 
     expect(received).not.toBeNull()
-    expect(received!.timestamp >= before).toBe(true)
-    expect(received!.timestamp <= after).toBe(true)
+    const message = expectIncomingMessage(received)
+    expect(message.timestamp >= before).toBe(true)
+    expect(message.timestamp <= after).toBe(true)
   })
 
   test('isSubscribed returns true for exact topic match', async () => {

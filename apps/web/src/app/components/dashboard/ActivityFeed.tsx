@@ -80,9 +80,10 @@ export function ActivityFeed() {
         {items.map((item, i) => {
           const type = entryType(item)
           const sid = item.sessionId ?? item.session_id ?? ''
+          const itemKey = `${item.ts}-${sid}-${item.event ?? item.tool ?? type}`
           return (
             <div
-              key={i}
+              key={itemKey}
               className={`flex items-center gap-3 py-1.5 text-[12px] font-mono${
                 i === 0 ? ' animate-slide-down' : ''
               }`}

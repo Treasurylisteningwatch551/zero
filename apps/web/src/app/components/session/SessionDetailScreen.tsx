@@ -103,6 +103,7 @@ export function SessionDetailScreen({
   const lastKeyRef = useRef<string>('')
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const wasAtBottomRef = useRef(true)
+  const previousSessionIdRef = useRef<string | null | undefined>(undefined)
 
   const fetchSession = useCallback(
     (showLoading = false) => {
@@ -145,6 +146,8 @@ export function SessionDetailScreen({
   )
 
   useEffect(() => {
+    if (previousSessionIdRef.current === sessionId) return
+    previousSessionIdRef.current = sessionId
     setSelectedToolId(null)
     setHighlightedAssistantMessageId(null)
   }, [sessionId])
@@ -155,6 +158,7 @@ export function SessionDetailScreen({
   }, [sessionId, fetchSession])
 
   useEffect(() => {
+    if (!session?.id) return
     const el = timelineRef.current
     if (!el) return
     function onScroll() {
@@ -163,7 +167,7 @@ export function SessionDetailScreen({
     }
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => el.removeEventListener('scroll', onScroll)
-  }, [session])
+  }, [session?.id])
 
   useEffect(() => () => clearTimeout(debounceRef.current), [])
 
@@ -284,8 +288,8 @@ export function SessionDetailScreen({
         <Skeleton className="h-3 w-48 mb-3" />
         <div className="card p-4 mb-4">
           <div className="flex gap-4">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="flex-1">
+            {Array.from({ length: 6 }, (_, index) => `session-metadata-${index}`).map((key) => (
+              <div key={key} className="flex-1">
                 <Skeleton className="h-2.5 w-16 mb-2" />
                 <Skeleton className="h-4 w-24" />
               </div>
@@ -294,8 +298,8 @@ export function SessionDetailScreen({
         </div>
         <div className="grid grid-cols-[65fr_35fr] gap-4">
           <div className="space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="card p-4">
+            {Array.from({ length: 4 }, (_, index) => `session-message-${index}`).map((key) => (
+              <div key={key} className="card p-4">
                 <Skeleton className="h-3 w-20 mb-2" />
                 <SkeletonText lines={2} />
               </div>
@@ -382,7 +386,6 @@ export function SessionDetailScreen({
         </div>
 
         <ContextPanel
-          sessionId={session.id}
           summary={session.summary}
           systemPrompt={session.systemPrompt}
           modelHistory={session.modelHistory}

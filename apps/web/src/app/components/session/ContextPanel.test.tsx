@@ -33,7 +33,6 @@ describe('TraceSummaryCard', () => {
   test('keeps context panel height constrained', () => {
     const html = renderToStaticMarkup(
       <ContextPanel
-        sessionId="sess_1"
         modelHistory={[]}
         toolCalls={[]}
         filesTouched={[]}
@@ -48,7 +47,6 @@ describe('TraceSummaryCard', () => {
   test('keeps selected tool detail scrollable', () => {
     const html = renderToStaticMarkup(
       <ContextPanel
-        sessionId="sess_1"
         modelHistory={[]}
         toolCalls={[
           {

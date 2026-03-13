@@ -159,9 +159,7 @@ export class OpenAIChatAdapter implements ProviderAdapter {
         if (textParts || imageParts.length > 0) {
           if (imageParts.length > 0) {
             // Multimodal: text + images
-            const parts: Array<
-              { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
-            > = []
+            const parts: OpenAI.ChatCompletionContentPart[] = []
             if (textParts) parts.push({ type: 'text', text: textParts })
             for (const img of imageParts) {
               const { mediaType, data } = img as { mediaType: string; data: string }
@@ -170,7 +168,7 @@ export class OpenAIChatAdapter implements ProviderAdapter {
                 image_url: { url: `data:${mediaType};base64,${data}` },
               })
             }
-            messages.push({ role: 'user', content: parts as any })
+            messages.push({ role: 'user', content: parts })
           } else {
             messages.push({ role: 'user', content: textParts })
           }

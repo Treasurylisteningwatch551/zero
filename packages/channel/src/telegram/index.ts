@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import type { MenuButton } from '@telegraf/types/settings'
+import type { BotCommand, File, MenuButton, MessageEntity, ReactionType } from '@telegraf/types'
 import { Telegraf } from 'telegraf'
 import type { Channel, ImageAttachment, IncomingMessage, MessageHandler } from '../base'
 import {
@@ -56,6 +56,53 @@ export interface TelegramGetChatMenuButtonOptions {
 
 interface TelegramSentMessage {
   message_id: number
+}
+
+interface TelegramPhotoSize {
+  file_id?: string
+  width?: number
+  height?: number
+  file_size?: number
+}
+
+interface TelegramDocument {
+  file_id?: string
+  mime_type?: string
+}
+
+interface TelegramIncomingContext {
+  from?: {
+    id?: number
+    username?: string
+    first_name?: string
+  }
+  chat?: {
+    id?: number
+    type?: string
+  }
+  message?: {
+    date?: number
+    message_id?: number
+    text?: string
+    caption?: string
+    photo?: TelegramPhotoSize[]
+    document?: TelegramDocument
+    video?: unknown
+    animation?: unknown
+    audio?: unknown
+    voice?: unknown
+    sticker?: unknown
+    location?: unknown
+    contact?: unknown
+  }
+}
+
+type TelegramEntities = MessageEntity[]
+type TelegramMenuButton = MenuButton & {
+  text?: string
+  web_app?: {
+    url?: string
+  }
 }
 
 /**
@@ -159,7 +206,7 @@ export class TelegramChannel implements Channel {
 
     try {
       await this.bot.telegram.editMessageText(chatId, messageId, undefined, first.text || ' ', {
-        entities: first.entities as any,
+        entities: first.entities as TelegramEntities,
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -171,7 +218,7 @@ export class TelegramChannel implements Channel {
 
     for (let i = 1; i < chunks.length; i++) {
       await this.bot.telegram.sendMessage(chatId, chunks[i].text || ' ', {
-        entities: chunks[i].entities as any,
+        entities: chunks[i].entities as TelegramEntities,
       })
     }
   }
@@ -191,7 +238,9 @@ export class TelegramChannel implements Channel {
     const chatId = this.parseChatId(sessionId)
     if (chatId === null) return
 
-    await this.bot.telegram.setMessageReaction(chatId, messageId, [{ type: 'emoji', emoji } as any])
+    await this.bot.telegram.setMessageReaction(chatId, messageId, [
+      { type: 'emoji', emoji } as ReactionType,
+    ])
   }
 
   async setMyCommands(
@@ -205,7 +254,7 @@ export class TelegramChannel implements Channel {
   async getMyCommands(options: TelegramSetMyCommandsOptions = {}): Promise<TelegramBotCommand[]> {
     if (!this.bot) return []
     const commands = await this.bot.telegram.getMyCommands(this.toApiSetMyCommandsOptions(options))
-    return commands.map((cmd: any) => ({
+    return commands.map((cmd: BotCommand) => ({
       command: String(cmd?.command ?? ''),
       description: String(cmd?.description ?? ''),
     }))
@@ -297,7 +346,9 @@ export class TelegramChannel implements Channel {
     return { type: menuButton.type }
   }
 
-  private fromApiMenuButton(menuButton: any): TelegramMenuButtonConfig | null {
+  private fromApiMenuButton(
+    menuButton: TelegramMenuButton | null | undefined,
+  ): TelegramMenuButtonConfig | null {
     if (!menuButton || typeof menuButton !== 'object') return null
 
     if (menuButton.type === 'web_app') {
@@ -334,7 +385,7 @@ export class TelegramChannel implements Channel {
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i]
       const sent = await this.bot.telegram.sendMessage(chatId, chunk.text || ' ', {
-        entities: chunk.entities as any,
+        entities: chunk.entities as TelegramEntities,
         ...(i === 0 && replyToMessageId
           ? {
               reply_parameters: {
@@ -352,7 +403,7 @@ export class TelegramChannel implements Channel {
     return firstMessage
   }
 
-  private async buildIncomingMessage(ctx: any): Promise<IncomingMessage> {
+  private async buildIncomingMessage(ctx: TelegramIncomingContext): Promise<IncomingMessage> {
     const message = ctx.message ?? {}
     const images = await this.extractImages(message)
     const mediaHints = this.collectMediaHints(message)
@@ -407,14 +458,16 @@ export class TelegramChannel implements Channel {
     return hints
   }
 
-  private async extractImages(message: any): Promise<ImageAttachment[]> {
+  private async extractImages(
+    message: TelegramIncomingContext['message'],
+  ): Promise<ImageAttachment[]> {
     if (!this.bot) return []
 
     const fileIds = new Set<string>()
 
-    const photoSizes = Array.isArray(message.photo) ? message.photo : []
+    const photoSizes = Array.isArray(message?.photo) ? message.photo : []
     if (photoSizes.length > 0) {
-      const best = photoSizes.slice().sort((a: any, b: any) => {
+      const best = photoSizes.slice().sort((a, b) => {
         const areaA = (a?.width ?? 0) * (a?.height ?? 0)
         const areaB = (b?.width ?? 0) * (b?.height ?? 0)
         if (areaA !== areaB) return areaB - areaA
@@ -423,7 +476,7 @@ export class TelegramChannel implements Channel {
       if (best?.file_id) fileIds.add(best.file_id)
     }
 
-    if (message.document?.mime_type?.startsWith?.('image/') && message.document?.file_id) {
+    if (message?.document?.mime_type?.startsWith?.('image/') && message.document?.file_id) {
       fileIds.add(message.document.file_id)
     }
 
@@ -431,13 +484,13 @@ export class TelegramChannel implements Channel {
     for (const fileId of fileIds) {
       try {
         const info = await this.bot.telegram.getFile(fileId)
-        const filePath = (info as any)?.file_path
+        const filePath = info.file_path
         if (!filePath) continue
 
-        const fileUrl = await this.bot.telegram.getFileLink(info as any)
+        const fileUrl = await this.bot.telegram.getFileLink(info as File)
         const buf = await this.downloadTelegramFile(fileUrl)
 
-        const mediaType = this.inferImageMediaType(filePath, message.document?.mime_type)
+        const mediaType = this.inferImageMediaType(filePath, message?.document?.mime_type)
         downloaded.push({ mediaType, data: buf.toString('base64') })
       } catch (err) {
         console.error('[TelegramChannel] Failed to download image file:', fileId, err)

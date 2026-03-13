@@ -3,6 +3,13 @@ import type { IncomingMessage } from '../base'
 import { WebChannel } from '../web/channel'
 import { WebMessageHandler } from '../web/handler'
 
+function expectIncomingMessage(message: IncomingMessage | null): IncomingMessage {
+  if (!message) {
+    throw new Error('expected message to be received')
+  }
+  return message
+}
+
 describe('WebChannel', () => {
   test('name is web', () => {
     const channel = new WebChannel()
@@ -49,7 +56,7 @@ describe('WebChannel', () => {
     )
 
     expect(received).not.toBeNull()
-    expect(received!.content).toBe('delegated')
+    expect(expectIncomingMessage(received).content).toBe('delegated')
   })
 
   test('getHandler returns WebMessageHandler instance', () => {

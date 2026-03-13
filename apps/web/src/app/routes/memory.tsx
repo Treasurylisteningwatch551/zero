@@ -1,5 +1,5 @@
 import { Check, MagnifyingGlass, PencilSimple, X } from '@phosphor-icons/react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Skeleton } from '../components/shared/Skeleton'
 import { apiFetch, apiPut } from '../lib/api'
 import { typeBgColors, typeColors } from '../lib/colors'
@@ -37,12 +37,13 @@ interface MemoryItem {
 
 function ConfidenceDots({ value }: { value: number }) {
   const filled = Math.round(value * 5)
+  const dotKeys = Array.from({ length: 5 }, (_, index) => `confidence-dot-${index}`)
   return (
     <div className="flex gap-0.5">
-      {Array.from({ length: 5 }).map((_, i) => (
+      {dotKeys.map((dotKey, index) => (
         <span
-          key={i}
-          className={`w-1.5 h-1.5 rounded-full ${i < filled ? 'bg-cyan-400' : 'bg-white/10'}`}
+          key={dotKey}
+          className={`w-1.5 h-1.5 rounded-full ${index < filled ? 'bg-cyan-400' : 'bg-white/10'}`}
         />
       ))}
     </div>
@@ -117,30 +118,33 @@ export function MemoryPage() {
   const [editSaving, setEditSaving] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
-  function fetchMemories(type: string) {
+  const fetchMemories = useCallback((type: string) => {
     setLoading(true)
     const params = type !== 'all' ? `?type=${type}` : ''
     apiFetch<{ memories: MemoryItem[] }>(`/api/memory${params}`)
       .then((res) => setMemories(res.memories))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }
+  }, [])
 
-  function searchMemories(q: string) {
-    if (!q.trim()) {
-      fetchMemories(selectedType)
-      return
-    }
-    setLoading(true)
-    apiFetch<{ results: MemoryItem[] }>(`/api/memory/search?q=${encodeURIComponent(q)}`)
-      .then((res) => setMemories(res.results))
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }
+  const searchMemories = useCallback(
+    (q: string) => {
+      if (!q.trim()) {
+        fetchMemories(selectedType)
+        return
+      }
+      setLoading(true)
+      apiFetch<{ results: MemoryItem[] }>(`/api/memory/search?q=${encodeURIComponent(q)}`)
+        .then((res) => setMemories(res.results))
+        .catch(() => {})
+        .finally(() => setLoading(false))
+    },
+    [fetchMemories, selectedType],
+  )
 
   useEffect(() => {
     if (!search) fetchMemories(selectedType)
-  }, [selectedType])
+  }, [selectedType, search, fetchMemories])
 
   function handleSearch(value: string) {
     setSearch(value)
@@ -271,8 +275,8 @@ export function MemoryPage() {
           {/* Memory list */}
           {loading ? (
             <div className="space-y-1.5">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="card p-3">
+              {Array.from({ length: 5 }, (_, index) => `memory-loading-${index}`).map((key) => (
+                <div key={key} className="card p-3">
                   <div className="flex items-center gap-2 mb-2">
                     <Skeleton className="h-3 w-14 rounded" />
                     <Skeleton className="h-2.5 w-16" />

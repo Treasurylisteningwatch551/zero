@@ -6,6 +6,7 @@ import { UserMessageBlock } from './UserMessageBlock'
 import {
   type Message,
   type PersistedTaskClosureEvent,
+  type TimelineItem,
   type TraceSpan,
   buildTimeline,
 } from './timeline'
@@ -39,7 +40,7 @@ export function TimelineView({
           case 'user-message':
             return (
               <UserMessageBlock
-                key={i}
+                key={getTimelineItemKey(item)}
                 text={item.text}
                 images={item.images}
                 createdAt={item.createdAt}
@@ -69,13 +70,32 @@ export function TimelineView({
               />
             )
           case 'system-event':
-            return <SystemEventBanner key={i} variant={item.variant} text={item.text} />
+            return (
+              <SystemEventBanner
+                key={getTimelineItemKey(item)}
+                variant={item.variant}
+                text={item.text}
+              />
+            )
           default:
             return null
         }
       })}
     </div>
   )
+}
+
+function getTimelineItemKey(item: TimelineItem): string {
+  switch (item.type) {
+    case 'user-message':
+      return `user-${item.createdAt}-${item.text.slice(0, 32)}`
+    case 'agent-text':
+      return `assistant-${item.messageId}`
+    case 'tool-call':
+      return `tool-${item.id}`
+    case 'system-event':
+      return `event-${item.createdAt}-${item.variant}-${item.text.slice(0, 32)}`
+  }
 }
 
 function SystemEventBanner({ variant, text }: { variant: 'warning' | 'info'; text: string }) {

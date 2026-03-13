@@ -1,5 +1,5 @@
 import { Eye, EyeSlash, Plus, Trash } from '@phosphor-icons/react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { SkeletonCard } from '../components/shared/Skeleton'
 import { apiFetch, apiPost } from '../lib/api'
@@ -78,7 +78,7 @@ export function ConfigPage() {
   const [showRollbackConfirm, setShowRollbackConfirm] = useState(false)
   const { addToast } = useUIStore()
 
-  function loadConfig() {
+  const loadConfig = useCallback(() => {
     const p1 = apiFetch<ConfigData>('/api/config')
       .then(setConfig)
       .catch(() => {})
@@ -86,14 +86,14 @@ export function ConfigPage() {
       .then((res) => setChannels(res.channels))
       .catch(() => {})
     return Promise.all([p1, p2])
-  }
+  }, [])
 
   useEffect(() => {
     loadConfig().finally(() => setLoading(false))
     apiFetch<{ tag: string | null }>('/api/config/last-stable-tag')
       .then((res) => setLastStableTag(res.tag))
       .catch(() => {})
-  }, [])
+  }, [loadConfig])
 
   async function handleAddSecret() {
     if (!newSecretKey.trim() || !newSecretValue.trim()) return
@@ -237,8 +237,8 @@ export function ConfigPage() {
 
       {loading ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <SkeletonCard key={i} />
+          {Array.from({ length: 4 }, (_, index) => `config-skeleton-${index}`).map((key) => (
+            <SkeletonCard key={key} />
           ))}
         </div>
       ) : (
@@ -377,9 +377,9 @@ export function ConfigPage() {
               </h3>
               {config?.schedules && config.schedules.length > 0 ? (
                 <div className="space-y-2">
-                  {config.schedules.map((s, i) => (
+                  {config.schedules.map((s) => (
                     <div
-                      key={i}
+                      key={`${s.name}-${s.cron}-${s.task}`}
                       className="flex items-center justify-between py-2 border-b border-[var(--color-border)]"
                     >
                       <div>
@@ -410,8 +410,11 @@ export function ConfigPage() {
               </p>
               {config?.fuseList && config.fuseList.length > 0 ? (
                 <div className="space-y-1">
-                  {config.fuseList.map((rule, i) => (
-                    <div key={i} className="flex items-center gap-2 py-1">
+                  {config.fuseList.map((rule) => (
+                    <div
+                      key={`${rule.pattern}-${rule.description ?? ''}`}
+                      className="flex items-center gap-2 py-1"
+                    >
                       <span className="text-[12px] font-mono text-red-400">{rule.pattern}</span>
                       {rule.description && (
                         <span className="text-[11px] text-[var(--color-text-disabled)]">
@@ -503,7 +506,7 @@ export function ConfigPage() {
                         <span className="text-[12px] font-mono text-[var(--color-text-disabled)]">
                           {revealedKeys.has(s.key)
                             ? s.masked
-                            : s.masked.replace(/[^.]/g, '*').slice(0, 12) + '****'}
+                            : `${s.masked.replace(/[^.]/g, '*').slice(0, 12)}****`}
                         </span>
                       </div>
                       <div className="flex items-center gap-2">

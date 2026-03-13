@@ -9,10 +9,16 @@ export function SkeletonText({
   lines = 3,
   className = '',
 }: { lines?: number; className?: string }) {
+  const lineKeys = Array.from({ length: lines }, (_, index) => `skeleton-line-${index}`)
+
   return (
     <div className={`space-y-2 ${className}`}>
-      {Array.from({ length: lines }).map((_, i) => (
-        <Skeleton key={i} className="h-3" style={{ width: i === lines - 1 ? '60%' : '100%' }} />
+      {lineKeys.map((lineKey, index) => (
+        <Skeleton
+          key={lineKey}
+          className="h-3"
+          style={{ width: index === lines - 1 ? '60%' : '100%' }}
+        />
       ))}
     </div>
   )

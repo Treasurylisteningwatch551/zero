@@ -68,6 +68,8 @@ export function MemoPage() {
   const viewRef = useRef<EditorView | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const contentRef = useRef(content)
+  const saveMemoRef = useRef<(text?: string) => Promise<void>>(async () => {})
+  const debouncedSaveRef = useRef<(text: string) => void>(() => {})
 
   // Keep contentRef in sync
   contentRef.current = content
@@ -96,6 +98,8 @@ export function MemoPage() {
     },
     [saveMemo],
   )
+  saveMemoRef.current = saveMemo
+  debouncedSaveRef.current = debouncedSave
 
   useEffect(() => {
     apiFetch<{ content: string }>('/api/memo')
@@ -116,7 +120,7 @@ export function MemoPage() {
         const text = update.state.doc.toString()
         setContent(text)
         setWordCount(text.trim().split(/\s+/).filter(Boolean).length)
-        debouncedSave(text)
+        debouncedSaveRef.current(text)
       }
     })
 
@@ -124,14 +128,14 @@ export function MemoPage() {
       {
         key: 'Mod-s',
         run: (view) => {
-          saveMemo(view.state.doc.toString())
+          void saveMemoRef.current(view.state.doc.toString())
           return true
         },
       },
     ])
 
     const state = EditorState.create({
-      doc: content,
+      doc: contentRef.current,
       extensions: [
         lineNumbers(),
         drawSelection(),
@@ -155,7 +159,7 @@ export function MemoPage() {
       view.destroy()
       viewRef.current = null
     }
-  }, [loaded, viewMode]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loaded, viewMode])
 
   // Cleanup debounce on unmount
   useEffect(() => {

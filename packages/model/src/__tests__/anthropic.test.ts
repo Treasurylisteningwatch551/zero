@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { CompletionRequest, Message } from '@zero-os/shared'
+import type Anthropic from '@anthropic-ai/sdk'
+import type { CompletionRequest, ContentBlock, Message } from '@zero-os/shared'
 import { generateId, now } from '@zero-os/shared'
 import { AnthropicAdapter } from '../adapters/anthropic'
 
@@ -29,6 +30,44 @@ function createAdapter(): AnthropicAdapter {
 
 const adapter = createAdapter()
 
+type ConvertedAnthropicMessage = {
+  role: string
+  content: Array<Record<string, unknown>>
+}
+
+type ParsedAnthropicContent = Array<{
+  type: string
+  text?: string
+  id?: string
+  name?: string
+  input?: Record<string, unknown>
+}>
+
+interface AnthropicAdapterTestHarness {
+  client: {
+    messages: {
+      create: (params: Record<string, unknown>) => Promise<unknown>
+      stream?: () => never
+    }
+  }
+  convertMessages(req: CompletionRequest): Anthropic.MessageParam[]
+  convertTools(tools: CompletionRequest['tools']): Anthropic.Tool[] | undefined
+  mapStopReason(reason: string | null): string
+  parseContent(content: Array<Record<string, unknown>>): ContentBlock[]
+  extractReasoningContent(content: Array<Record<string, unknown>>): string | undefined
+}
+
+function getAnthropicHarness(instance: AnthropicAdapter): AnthropicAdapterTestHarness {
+  return instance as unknown as AnthropicAdapterTestHarness
+}
+
+function expectDefined<T>(value: T | undefined, message: string): T {
+  if (value === undefined) {
+    throw new Error(message)
+  }
+  return value
+}
+
 function makeMessage(role: 'user' | 'assistant', text: string): Message {
   return {
     id: generateId(),
@@ -44,7 +83,9 @@ describe('Anthropic Adapter (Pure Logic)', () => {
   test('convertMessages correctly handles text messages', () => {
     const messages: Message[] = [makeMessage('user', 'Hello'), makeMessage('assistant', 'Hi there')]
 
-    const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
+    const converted = getAnthropicHarness(adapter).convertMessages({
+      messages,
+    } as CompletionRequest) as unknown as ConvertedAnthropicMessage[]
     expect(converted).toHaveLength(2)
     expect(converted[0].role).toBe('user')
     expect(converted[0].content[0].type).toBe('text')
@@ -88,14 +129,19 @@ describe('Anthropic Adapter (Pure Logic)', () => {
       },
     ]
 
-    const converted = (adapter as any).convertMessages({ messages } as CompletionRequest)
+    const converted = getAnthropicHarness(adapter).convertMessages({
+      messages,
+    } as CompletionRequest) as unknown as ConvertedAnthropicMessage[]
 
     // Should be: user, assistant (with tool_use), user (with tool_result)
-    const roles = converted.map((m: any) => m.role)
+    const roles = converted.map((m) => m.role)
     expect(roles).toEqual(['user', 'assistant', 'user'])
 
     // Verify assistant message has tool_use block
-    const assistantMsg = converted.find((m: any) => m.role === 'assistant')
+    const assistantMsg = expectDefined(
+      converted.find((m) => m.role === 'assistant'),
+      'expected assistant message',
+    )
     expect(assistantMsg.content[0].type).toBe('tool_use')
     expect(assistantMsg.content[0].id).toBe(toolCallId)
     expect(assistantMsg.content[0].name).toBe('calculator')
@@ -108,36 +154,42 @@ describe('Anthropic Adapter (Pure Logic)', () => {
   })
 
   test('convertTools maps to Anthropic format', () => {
-    const tools = [
+    const tools: CompletionRequest['tools'] = [
       {
         name: 'calculator',
         description: 'Calculate math',
         parameters: { type: 'object', properties: { expr: { type: 'string' } } },
       },
     ]
-    const converted = (adapter as any).convertTools(tools)
+    const converted = expectDefined(
+      getAnthropicHarness(adapter).convertTools(tools),
+      'expected converted tools',
+    )
     expect(converted).toHaveLength(1)
     expect(converted[0].name).toBe('calculator')
     expect(converted[0].description).toBe('Calculate math')
-    expect(converted[0].input_schema).toEqual(tools[0].parameters)
+    expect(converted[0].input_schema).toMatchObject({
+      type: 'object',
+      properties: { expr: { type: 'string' } },
+    })
   })
 
   test('convertTools returns undefined for empty array', () => {
-    expect((adapter as any).convertTools([])).toBeUndefined()
-    expect((adapter as any).convertTools(undefined)).toBeUndefined()
+    expect(getAnthropicHarness(adapter).convertTools([])).toBeUndefined()
+    expect(getAnthropicHarness(adapter).convertTools(undefined)).toBeUndefined()
   })
 
   test('mapStopReason maps Anthropic stop reasons correctly', () => {
-    expect((adapter as any).mapStopReason('end_turn')).toBe('end_turn')
-    expect((adapter as any).mapStopReason('tool_use')).toBe('tool_use')
-    expect((adapter as any).mapStopReason('max_tokens')).toBe('max_tokens')
-    expect((adapter as any).mapStopReason(null)).toBe('end_turn')
-    expect((adapter as any).mapStopReason('unknown')).toBe('end_turn')
+    expect(getAnthropicHarness(adapter).mapStopReason('end_turn')).toBe('end_turn')
+    expect(getAnthropicHarness(adapter).mapStopReason('tool_use')).toBe('tool_use')
+    expect(getAnthropicHarness(adapter).mapStopReason('max_tokens')).toBe('max_tokens')
+    expect(getAnthropicHarness(adapter).mapStopReason(null)).toBe('end_turn')
+    expect(getAnthropicHarness(adapter).mapStopReason('unknown')).toBe('end_turn')
   })
 
   test('parseContent handles text blocks', () => {
     const content = [{ type: 'text', text: 'Hello world' }]
-    const parsed = (adapter as any).parseContent(content)
+    const parsed = getAnthropicHarness(adapter).parseContent(content) as ParsedAnthropicContent
     expect(parsed).toHaveLength(1)
     expect(parsed[0].type).toBe('text')
     expect(parsed[0].text).toBe('Hello world')
@@ -145,7 +197,7 @@ describe('Anthropic Adapter (Pure Logic)', () => {
 
   test('parseContent handles tool_use blocks', () => {
     const content = [{ type: 'tool_use', id: 'toolu_123', name: 'calc', input: { expr: '1+1' } }]
-    const parsed = (adapter as any).parseContent(content)
+    const parsed = getAnthropicHarness(adapter).parseContent(content) as ParsedAnthropicContent
     expect(parsed).toHaveLength(1)
     expect(parsed[0].type).toBe('tool_use')
     expect(parsed[0].id).toBe('toolu_123')
@@ -159,13 +211,13 @@ describe('Anthropic Adapter (Pure Logic)', () => {
       { type: 'text', text: 'Visible answer' },
     ]
 
-    const parsed = (adapter as any).parseContent(content)
+    const parsed = getAnthropicHarness(adapter).parseContent(content) as ParsedAnthropicContent
 
     expect(parsed).toEqual([{ type: 'text', text: 'Visible answer' }])
   })
 
   test('extractReasoningContent reads thinking blocks only', () => {
-    const reasoning = (adapter as any).extractReasoningContent([
+    const reasoning = getAnthropicHarness(adapter).extractReasoningContent([
       { type: 'thinking', thinking: 'step one', signature: 'sig_1' },
       { type: 'redacted_thinking' },
       { type: 'thinking', thinking: 'step two', signature: 'sig_2' },
@@ -182,7 +234,7 @@ describe('Anthropic Adapter (Pure Logic)', () => {
     const streamAdapter = createAdapter()
     const calls: Array<Record<string, unknown>> = []
     let helperCalled = false
-    ;(streamAdapter as any).client = {
+    getAnthropicHarness(streamAdapter).client = {
       messages: {
         create: async (params: Record<string, unknown>) => {
           calls.push(params)
@@ -299,7 +351,7 @@ describe('Anthropic Adapter (Pure Logic)', () => {
     })
 
     const calls: Array<Record<string, unknown>> = []
-    ;(thinkingAdapter as any).client = {
+    getAnthropicHarness(thinkingAdapter).client = {
       messages: {
         create: async (params: Record<string, unknown>) => {
           calls.push(params)
@@ -344,7 +396,7 @@ describe('Anthropic Adapter (Pure Logic)', () => {
     })
 
     const calls: Array<Record<string, unknown>> = []
-    ;(thinkingAdapter as any).client = {
+    getAnthropicHarness(thinkingAdapter).client = {
       messages: {
         create: async (params: Record<string, unknown>) => {
           calls.push(params)

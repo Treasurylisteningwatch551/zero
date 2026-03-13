@@ -41,6 +41,7 @@ interface WaterfallSpan {
   durationMs: number
   status: string
   depth: number
+  startTime: string
 }
 
 const levelColors: Record<string, string> = {
@@ -200,6 +201,7 @@ function flattenSpans(spans: TraceSpan[], depth: number, sessionStart: number): 
       durationMs: span.durationMs,
       status: span.status,
       depth,
+      startTime: span.startTime,
     })
     if (span.children && span.children.length > 0) {
       result.push(...flattenSpans(span.children, depth + 1, sessionStart))
@@ -263,10 +265,11 @@ function WaterfallChart({ spans }: { spans: TraceSpan[] }) {
         const leftPct = (span.startOffset / totalDuration) * 100
         const widthPct = Math.max((span.durationMs / totalDuration) * 100, 2)
         const barColor = spanBarColors[span.name.toLowerCase()] ?? 'bg-slate-500'
+        const spanKey = `${span.startTime}-${span.name}-${span.depth}-${idx}`
 
         return (
           <div
-            key={idx}
+            key={spanKey}
             className="flex items-center h-6"
             style={{ paddingLeft: `${span.depth * 16}px` }}
           >
@@ -303,7 +306,7 @@ export function LogsPage() {
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
   const [filterText, setFilterText] = useState('')
-  const [expandedRow, setExpandedRow] = useState<number | null>(null)
+  const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null)
   const [isLive, setIsLive] = useState(false)
   const [traceData, setTraceData] = useState<TraceSpan[] | null>(null)
   const [userScrolledUp, setUserScrolledUp] = useState(false)
@@ -386,6 +389,12 @@ export function LogsPage() {
 
   // Scroll detection: pause auto-scroll when user scrolls up
   useEffect(() => {
+    const visibleEntries = filterText
+      ? entries.filter((entry) =>
+          JSON.stringify(entry).toLowerCase().includes(filterText.toLowerCase()),
+        )
+      : entries
+    if (loading || visibleEntries.length === 0) return
     const el = scrollRef.current
     if (!el) return
     function handleScroll() {
@@ -395,16 +404,16 @@ export function LogsPage() {
     }
     el.addEventListener('scroll', handleScroll, { passive: true })
     return () => el.removeEventListener('scroll', handleScroll)
-  }, [entries.length])
+  }, [entries, filterText, loading])
 
   // Fetch trace data when a trace row is expanded
   useEffect(() => {
-    if (logType !== 'trace' || expandedRow === null) {
+    if (logType !== 'trace' || expandedRowKey === null) {
       setTraceData(null)
       return
     }
 
-    const entry = entries[expandedRow]
+    const entry = entries.find((candidate) => getLogEntryKey(candidate) === expandedRowKey)
     if (!entry) {
       setTraceData(null)
       return
@@ -420,7 +429,7 @@ export function LogsPage() {
     apiFetch<{ traces: TraceSpan[] }>(`/api/sessions/${sessionId}/traces`)
       .then((res) => setTraceData(res.traces))
       .catch(() => setTraceData([]))
-  }, [expandedRow, logType, entries])
+  }, [expandedRowKey, logType, entries])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -430,7 +439,7 @@ export function LogsPage() {
         filterRef.current?.focus()
       }
       if (e.key === 'Escape') {
-        setExpandedRow(null)
+        setExpandedRowKey(null)
       }
     }
     document.addEventListener('keydown', handleKeyDown)
@@ -470,7 +479,7 @@ export function LogsPage() {
                 type="button"
                 onClick={() => {
                   setLogType(t)
-                  setExpandedRow(null)
+                  setExpandedRowKey(null)
                 }}
                 className={`px-3 py-1 rounded-md text-[12px] transition-colors ${
                   logType === t
@@ -608,8 +617,8 @@ export function LogsPage() {
         {/* Body */}
         {loading ? (
           <div className="p-3 space-y-0.5">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-3 h-8">
+            {Array.from({ length: 8 }, (_, index) => `log-loading-${index}`).map((key) => (
+              <div key={key} className="flex items-center gap-3 h-8">
                 <Skeleton className="h-2.5 w-16" />
                 <Skeleton className="h-2.5 w-10" />
                 <Skeleton className="h-2.5 w-16" />
@@ -627,12 +636,19 @@ export function LogsPage() {
             className="overflow-y-auto"
             style={{ maxHeight: 'calc(100vh - 340px)' }}
           >
-            {filtered.map((entry, i) => {
+            {filtered.map((entry) => {
+              const rowKey = getLogEntryKey(entry)
               const rowBgClass = levelRowBg[entry.level ?? ''] ?? ''
               return (
-                <div key={i}>
+                <div key={rowKey}>
                   <div
-                    onClick={() => setExpandedRow(expandedRow === i ? null : i)}
+                    onClick={() => setExpandedRowKey(expandedRowKey === rowKey ? null : rowKey)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setExpandedRowKey(expandedRowKey === rowKey ? null : rowKey)
+                      }
+                    }}
                     className={`px-3 border-b border-[var(--color-border)] last:border-0 hover:bg-white/[0.03] cursor-pointer transition-colors ${rowBgClass}`}
                     style={{ height: '32px', display: 'flex', alignItems: 'center' }}
                   >
@@ -642,7 +658,7 @@ export function LogsPage() {
                   </div>
 
                   {/* Expanded detail drawer */}
-                  {expandedRow === i &&
+                  {expandedRowKey === rowKey &&
                     (logType === 'trace' ? (
                       <div className="px-4 py-3 bg-black/20 border-b border-[var(--color-border)]">
                         {traceData ? (
@@ -668,4 +684,14 @@ export function LogsPage() {
       </div>
     </div>
   )
+}
+
+function getLogEntryKey(entry: LogEntry): string {
+  return [
+    entry.ts,
+    entry.sessionId ?? entry.session_id ?? '',
+    entry.name ?? '',
+    entry.tool ?? '',
+    entry.event ?? '',
+  ].join(':')
 }

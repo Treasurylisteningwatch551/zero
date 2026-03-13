@@ -90,7 +90,7 @@ describe('ModelRouter (Real API)', () => {
   })
 
   test('unknown model list does not duplicate provider prefix', () => {
-    const config = {
+    const config: SystemConfig = {
       providers: {
         chatgpt: {
           apiType: 'openai_responses',
@@ -113,7 +113,7 @@ describe('ModelRouter (Real API)', () => {
       fuseList: [],
     }
 
-    const router = new ModelRouter(config as any, new Map())
+    const router = new ModelRouter(config, new Map())
     router.init()
 
     const result = router.switchModel('missing-model')

@@ -9,6 +9,20 @@ import OpenAI from 'openai'
 import { parseChatGptOAuthSession } from '../auth/chatgpt'
 import type { AdapterConfig, ProviderAdapter } from './base'
 
+type ResponseUsageLike = Partial<OpenAI.Responses.ResponseUsage> & {
+  input_tokens?: number
+  output_tokens?: number
+  input_tokens_details?: {
+    cached_tokens?: number
+    cached_tokens_details?: {
+      cache_creation_input_tokens?: number
+    }
+  }
+  output_tokens_details?: {
+    reasoning_tokens?: number
+  }
+}
+
 interface ChatGptSseEvent {
   type?: string
   delta?: string
@@ -63,15 +77,23 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
     this.modelId = config.modelConfig.modelId
   }
 
+  private getResponsesClient(): OpenAI['responses'] {
+    if (!this.client) {
+      throw new Error('OpenAI responses client is not configured')
+    }
+    return this.client.responses
+  }
+
   async complete(req: CompletionRequest): Promise<CompletionResponse> {
     if (this.isChatGptProvider) {
       return this.completeFromChatGpt(req)
     }
 
+    const client = this.getResponsesClient()
     const input = this.buildInput(req)
     const tools = req.tools ? this.convertTools(req.tools) : undefined
 
-    const response = await (this.client as OpenAI as any).responses.create({
+    const response = await client.create({
       model: req.model ?? this.modelId,
       input,
       tools,
@@ -89,10 +111,11 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       return
     }
 
+    const client = this.getResponsesClient()
     const input = this.buildInput(req)
     const tools = req.tools ? this.convertTools(req.tools) : undefined
 
-    const stream = await (this.client as OpenAI as any).responses.create({
+    const stream = await client.create({
       model: req.model ?? this.modelId,
       input,
       tools,
@@ -156,7 +179,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
     }
 
     try {
-      const response = await (this.client as OpenAI as any).responses.create({
+      const response = await this.getResponsesClient().create({
         model: this.modelId,
         input: 'ping',
         max_output_tokens: 5,
@@ -242,8 +265,9 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       } else if (event.type === 'response.function_call_arguments.delta') {
         const callId = typeof event.call_id === 'string' ? event.call_id : undefined
         const delta = event.delta ?? ''
-        if (callId && toolCallBuffers.has(callId)) {
-          toolCallBuffers.get(callId)!.arguments += delta
+        const toolCall = callId ? toolCallBuffers.get(callId) : undefined
+        if (toolCall) {
+          toolCall.arguments += delta
         }
         const compositeId = callId
           ? joinToolCallId(callId, toolCallBuffers.get(callId)?.itemId)
@@ -254,8 +278,9 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
         }
       } else if (event.type === 'response.function_call_arguments.done') {
         const callId = typeof event.call_id === 'string' ? event.call_id : undefined
-        if (callId && toolCallBuffers.has(callId) && typeof event.arguments === 'string') {
-          toolCallBuffers.get(callId)!.arguments = event.arguments
+        const toolCall = callId ? toolCallBuffers.get(callId) : undefined
+        if (toolCall && typeof event.arguments === 'string') {
+          toolCall.arguments = event.arguments
         }
       } else if (event.type === 'response.output_item.done') {
         const item = event.item ?? {}
@@ -279,8 +304,8 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
     }
   }
 
-  private buildInput(req: CompletionRequest): any[] {
-    const input: any[] = []
+  private buildInput(req: CompletionRequest): OpenAI.Responses.ResponseInputItem[] {
+    const input: OpenAI.Responses.ResponseInputItem[] = []
     const pairedCallIds = this.collectPairedToolCallIds(req)
 
     if (req.system) {
@@ -319,15 +344,17 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
 
         if (textParts || imageParts.length > 0) {
           if (imageParts.length > 0) {
-            const parts: Array<
-              { type: 'input_text'; text: string } | { type: 'input_image'; image_url: string }
-            > = []
+            const parts: OpenAI.Responses.ResponseInputContent[] = []
             if (textParts) parts.push({ type: 'input_text', text: textParts })
             for (const img of imageParts) {
               const { mediaType, data } = img as { mediaType: string; data: string }
-              parts.push({ type: 'input_image', image_url: `data:${mediaType};base64,${data}` })
+              parts.push({
+                type: 'input_image',
+                detail: 'auto',
+                image_url: `data:${mediaType};base64,${data}`,
+              })
             }
-            input.push({ role: 'user', content: parts } as any)
+            input.push({ role: 'user', content: parts })
           } else {
             input.push({ role: 'user', content: textParts })
           }
@@ -538,7 +565,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
         responseId = typeof event.response?.id === 'string' ? event.response.id : responseId
         responseModel =
           typeof event.response?.model === 'string' ? event.response.model : responseModel
-        usage = this.parseUsage(event.response?.usage)
+        usage = this.parseUsage(event.response?.usage as ResponseUsageLike | undefined)
       }
     }
 
@@ -630,13 +657,14 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
     return '[tool completed with empty output]'
   }
 
-  private convertTools(tools: CompletionRequest['tools']): any[] | undefined {
+  private convertTools(tools: CompletionRequest['tools']): OpenAI.Responses.Tool[] | undefined {
     if (!tools || tools.length === 0) return undefined
     return tools.map((t) => ({
       type: 'function',
       name: t.name,
       description: t.description,
       parameters: t.parameters,
+      strict: null,
     }))
   }
 
@@ -672,7 +700,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
     return parts.join('\n')
   }
 
-  private parseResponse(response: any): CompletionResponse {
+  private parseResponse(response: OpenAI.Responses.Response): CompletionResponse {
     const content: ContentBlock[] = []
     const reasoningBuffers = new Map<string, string>()
     let hasToolUse = false
@@ -727,7 +755,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
     }
   }
 
-  private parseUsage(usage?: any): TokenUsage {
+  private parseUsage(usage?: ResponseUsageLike | null): TokenUsage {
     return {
       input: usage?.input_tokens ?? 0,
       output: usage?.output_tokens ?? 0,

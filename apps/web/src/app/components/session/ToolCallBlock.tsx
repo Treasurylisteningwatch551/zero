@@ -48,6 +48,7 @@ export function ToolCallBlock({
 
   const inputPreview = getInputPreview(name, input)
   const hasResult = result !== undefined
+  const handleSelect = () => onSelect?.(id)
 
   return (
     <div
@@ -56,7 +57,13 @@ export function ToolCallBlock({
           ? 'border-[var(--color-accent)]/30 bg-white/[0.04]'
           : 'border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.05]'
       }`}
-      onClick={() => onSelect?.(id)}
+      onClick={handleSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          handleSelect()
+        }
+      }}
     >
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2">

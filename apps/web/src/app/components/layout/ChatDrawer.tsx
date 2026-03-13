@@ -7,10 +7,15 @@ import { apiFetch, apiPost } from '../../lib/api'
 import { useUIStore } from '../../stores/ui'
 
 interface ChatMessage {
+  id: string
   role: 'user' | 'assistant' | 'notification'
   content: string
   title?: string
   severity?: string
+}
+
+function createChatMessage(message: Omit<ChatMessage, 'id'>): ChatMessage {
+  return { id: crypto.randomUUID(), ...message }
 }
 
 export function ChatDrawer() {
@@ -23,10 +28,12 @@ export function ChatDrawer() {
   const [modelName, setModelName] = useState('unknown')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const lastMessage = messages[messages.length - 1]
 
   useEffect(() => {
+    if (!lastMessage) return
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [lastMessage])
 
   // Esc-to-close
   useEffect(() => {
@@ -53,10 +60,12 @@ export function ChatDrawer() {
   useEffect(() => {
     const textarea = textareaRef.current
     if (!textarea) return
+    const textLength = message.length
     textarea.style.height = 'auto'
     const maxHeight = 4 * 24
     textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`
-    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
+    textarea.style.overflowY =
+      textLength > 0 && textarea.scrollHeight > maxHeight ? 'auto' : 'hidden'
   }, [message])
 
   // WebSocket: receive notification cards + streaming deltas
@@ -69,12 +78,12 @@ export function ChatDrawer() {
       if (n) {
         setMessages((prev) => [
           ...prev,
-          {
+          createChatMessage({
             role: 'notification' as const,
             content: n.description ?? '',
             title: n.title,
             severity: n.severity,
-          },
+          }),
         ])
       }
     }
@@ -88,7 +97,7 @@ export function ChatDrawer() {
         if (last && last.role === 'assistant') {
           return [...prev.slice(0, -1), { ...last, content: last.content + delta }]
         }
-        return [...prev, { role: 'assistant', content: delta }]
+        return [...prev, createChatMessage({ role: 'assistant', content: delta })]
       })
     },
     [streaming],
@@ -106,7 +115,7 @@ export function ChatDrawer() {
   async function handleCommand(text: string): Promise<boolean> {
     if (text === '/new') {
       setSessionId(null)
-      setMessages([{ role: 'assistant', content: 'New session started.' }])
+      setMessages([createChatMessage({ role: 'assistant', content: 'New session started.' })])
       return true
     }
 
@@ -121,13 +130,19 @@ export function ChatDrawer() {
         setModelName(result.currentModel)
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: `Model switched to ${result.currentModel}` },
+          createChatMessage({
+            role: 'assistant',
+            content: `Model switched to ${result.currentModel}`,
+          }),
         ])
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : 'Unknown error'
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: `Failed to switch model: ${errMsg}` },
+          createChatMessage({
+            role: 'assistant',
+            content: `Failed to switch model: ${errMsg}`,
+          }),
         ])
       }
       return true
@@ -141,7 +156,7 @@ export function ChatDrawer() {
     if (!text || loading) return
 
     setMessage('')
-    setMessages((prev) => [...prev, { role: 'user', content: text }])
+    setMessages((prev) => [...prev, createChatMessage({ role: 'user', content: text })])
 
     // Handle slash commands
     if (text.startsWith('/')) {
@@ -168,14 +183,20 @@ export function ChatDrawer() {
       setMessages((prev) => {
         const lastIdx = prev.length - 1
         if (lastIdx >= 0 && prev[lastIdx].role === 'assistant') {
-          return [...prev.slice(0, lastIdx), { role: 'assistant', content: res.reply }]
+          return [
+            ...prev.slice(0, lastIdx),
+            createChatMessage({ role: 'assistant', content: res.reply }),
+          ]
         }
-        return [...prev, { role: 'assistant', content: res.reply }]
+        return [...prev, createChatMessage({ role: 'assistant', content: res.reply })]
       })
     } catch (err) {
       setStreaming(false)
       const errMsg = err instanceof Error ? err.message : 'Unknown error'
-      setMessages((prev) => [...prev, { role: 'assistant', content: `Error: ${errMsg}` }])
+      setMessages((prev) => [
+        ...prev,
+        createChatMessage({ role: 'assistant', content: `Error: ${errMsg}` }),
+      ])
     } finally {
       setLoading(false)
     }
@@ -217,11 +238,11 @@ export function ChatDrawer() {
           </div>
         )}
 
-        {messages.map((msg, i) => {
+        {messages.map((msg) => {
           if (msg.role === 'notification') {
             return (
               <div
-                key={i}
+                key={msg.id}
                 className="rounded-lg border border-[var(--color-border)] p-3 bg-white/[0.02]"
               >
                 <div className="flex items-center gap-2 mb-1">
@@ -237,7 +258,7 @@ export function ChatDrawer() {
 
           return (
             <div
-              key={i}
+              key={msg.id}
               className={`text-[13px] ${
                 msg.role === 'user'
                   ? 'ml-8 border-l-2 border-cyan-400 pl-3 py-2 text-[var(--color-text-primary)]'

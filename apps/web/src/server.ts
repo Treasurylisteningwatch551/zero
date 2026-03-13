@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { WebMessageHandler } from '@zero-os/channel'
+import type { ServerWebSocket } from 'bun'
 import { Hono } from 'hono'
 import type { ZeroOS } from '../../server/src/main'
 import { createRoutes } from './api/routes'
@@ -20,6 +21,12 @@ const MIME_TYPES: Record<string, string> = {
 }
 
 const port = Number(process.env.PORT ?? 3001)
+type WebSocketData = { clientId: string }
+type WebSocketClient = ServerWebSocket<WebSocketData>
+type FeishuWebhookBody = {
+  type?: string
+  challenge?: string
+}
 
 export function startWebServer(zero: ZeroOS): { port: number } {
   const app = createRoutes(zero)
@@ -29,7 +36,7 @@ export function startWebServer(zero: ZeroOS): { port: number } {
 
   // Feishu webhook — only url_verification; events delivered via WSClient
   server.post('/webhook/feishu', async (c) => {
-    let body: any
+    let body: FeishuWebhookBody
     try {
       body = await c.req.json()
     } catch {
@@ -53,9 +60,9 @@ export function startWebServer(zero: ZeroOS): { port: number } {
 
   // WebSocket handler
   const wsHandler = new WebMessageHandler()
-  const wsClients = new Map<string, { ws: unknown }>()
+  const wsClients = new Map<string, { ws: WebSocketClient }>()
 
-  Bun.serve<{ clientId: string }>({
+  Bun.serve<WebSocketData>({
     port,
     async fetch(req, srv) {
       const url = new URL(req.url)
@@ -87,11 +94,11 @@ export function startWebServer(zero: ZeroOS): { port: number } {
       return server.fetch(req)
     },
     websocket: {
-      open(ws: any) {
+      open(ws: WebSocketClient) {
         const clientId = ws.data?.clientId ?? crypto.randomUUID()
         wsClients.set(clientId, { ws })
       },
-      async message(ws: any, message: string | Buffer) {
+      async message(ws: WebSocketClient, message: string | Buffer) {
         const clientId = ws.data?.clientId
         if (!clientId) return
         const raw = typeof message === 'string' ? message : message.toString()
@@ -100,7 +107,7 @@ export function startWebServer(zero: ZeroOS): { port: number } {
           ws.send(JSON.stringify(response))
         }
       },
-      close(ws: any) {
+      close(ws: WebSocketClient) {
         const clientId = ws.data?.clientId
         if (clientId) {
           wsHandler.removeClient(clientId)
@@ -120,7 +127,7 @@ export function startWebServer(zero: ZeroOS): { port: number } {
     for (const [clientId, { ws }] of wsClients) {
       if (wsHandler.isSubscribed(clientId, payload.topic)) {
         try {
-          ;(ws as any).send(msg)
+          ws.send(msg)
         } catch {
           // Client disconnected
           wsClients.delete(clientId)

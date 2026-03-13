@@ -66,7 +66,7 @@ export function SessionsPage() {
   const navigate = useNavigate()
   const { setSelectedSessionId } = useUIStore()
 
-  function fetchSessions(f: string, q: string, showLoading = true) {
+  const fetchSessions = useCallback((f: string, q: string, showLoading = true) => {
     if (showLoading) setLoading(true)
     const params = new URLSearchParams()
     if (f !== 'all') params.set('filter', f)
@@ -78,11 +78,11 @@ export function SessionsPage() {
       .finally(() => {
         if (showLoading) setLoading(false)
       })
-  }
+  }, [])
 
   useEffect(() => {
-    fetchSessions(filter, search)
-  }, [filter])
+    fetchSessions(filter, searchRef.current)
+  }, [filter, fetchSessions])
 
   function handleSearch(value: string) {
     setSearch(value)
@@ -90,10 +90,13 @@ export function SessionsPage() {
     debounceRef.current = setTimeout(() => fetchSessions(filter, value), 300)
   }
 
-  function openSession(id: string) {
-    setSelectedSessionId(id)
-    navigate({ to: '/sessions/$id', params: { id } })
-  }
+  const openSession = useCallback(
+    (id: string) => {
+      setSelectedSessionId(id)
+      navigate({ to: '/sessions/$id', params: { id } })
+    },
+    [navigate, setSelectedSessionId],
+  )
 
   function openChannelDetail(session: SessionInfo) {
     if (!session.channelId) return
@@ -130,7 +133,7 @@ export function SessionsPage() {
 
       lastKeyRef.current = e.key
     },
-    [filteredSessions, focusIndex],
+    [filteredSessions, focusIndex, openSession],
   )
 
   useEffect(() => {
@@ -143,7 +146,7 @@ export function SessionsPage() {
     wsDebounceRef.current = setTimeout(() => {
       fetchSessions(filterRef.current, searchRef.current, false)
     }, 500)
-  }, [])
+  }, [fetchSessions])
 
   useWebSocket({
     url: `ws://${window.location.host}/ws`,
@@ -211,8 +214,11 @@ export function SessionsPage() {
 
       {loading ? (
         <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="card p-4" style={{ animationDelay: `${i * 40}ms` }}>
+          {Array.from({ length: 5 }, (_, index) => ({
+            key: `session-loading-${index}`,
+            delay: `${index * 40}ms`,
+          })).map(({ key, delay }) => (
+            <div key={key} className="card p-4" style={{ animationDelay: delay }}>
               <div className="flex items-center gap-3">
                 <Skeleton className="w-2 h-2 rounded-full" />
                 <Skeleton className="h-3.5 w-48" />
@@ -243,6 +249,12 @@ export function SessionsPage() {
               <div
                 key={s.id}
                 onClick={() => openSession(s.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    openSession(s.id)
+                  }
+                }}
                 className={`card p-4 cursor-pointer hover:bg-white/[0.02] transition-colors ${
                   idx === focusIndex
                     ? 'border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]/30'
