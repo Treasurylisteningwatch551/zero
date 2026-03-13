@@ -4,7 +4,7 @@
 export function normalizeMarkdownForChannels(input: string): string {
   return input
     .replace(/\r\n/g, '\n')
-    .replace(/\u0000/g, '')
+    .replaceAll(String.fromCharCode(0), '')
     .replace(/\u200b/g, '')
     .trimEnd()
 }

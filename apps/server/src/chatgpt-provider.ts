@@ -10,10 +10,7 @@ const CONFIG_PATH = join(ZERO_DIR, 'config.yaml')
 const CHATGPT_PROVIDER = 'chatgpt'
 const CHATGPT_OAUTH_TOKEN_REF = 'chatgpt_oauth_token'
 
-const CHATGPT_MODELS = [
-  'gpt-5.3-codex-medium',
-  'gpt-5.4-medium',
-] as const
+const CHATGPT_MODELS = ['gpt-5.3-codex-medium', 'gpt-5.4-medium'] as const
 
 const DEFAULT_MODEL_TEMPLATES: Record<(typeof CHATGPT_MODELS)[number], ModelConfig> = {
   'gpt-5.3-codex-medium': {
@@ -62,15 +59,22 @@ function modelToYaml(model: ModelConfig): Record<string, unknown> {
           pricing: {
             input: model.pricing.input,
             output: model.pricing.output,
-            ...(model.pricing.cacheWrite !== undefined ? { cache_write: model.pricing.cacheWrite } : {}),
-            ...(model.pricing.cacheRead !== undefined ? { cache_read: model.pricing.cacheRead } : {}),
+            ...(model.pricing.cacheWrite !== undefined
+              ? { cache_write: model.pricing.cacheWrite }
+              : {}),
+            ...(model.pricing.cacheRead !== undefined
+              ? { cache_read: model.pricing.cacheRead }
+              : {}),
           },
         }
       : {}),
   }
 }
 
-function deriveModelTemplate(config: SystemConfig, modelName: keyof typeof DEFAULT_MODEL_TEMPLATES): ModelConfig {
+function deriveModelTemplate(
+  config: SystemConfig,
+  modelName: keyof typeof DEFAULT_MODEL_TEMPLATES,
+): ModelConfig {
   const bareModelId = DEFAULT_MODEL_TEMPLATES[modelName].modelId
 
   for (const provider of Object.values(config.providers)) {
@@ -114,11 +118,19 @@ export function getConfigPath() {
 export function ensureChatgptProviderConfig(): { changed: boolean; config: SystemConfig } {
   const existingConfig = loadConfig(CONFIG_PATH)
   const raw = loadRawConfig()
-  const providers = ((raw.providers ??= {}) as Record<string, unknown>)
   let changed = false
+  if (!raw.providers || typeof raw.providers !== 'object') {
+    raw.providers = {}
+    changed = true
+  }
+  const providers = raw.providers as Record<string, unknown>
 
   const hadProvider = !!providers[CHATGPT_PROVIDER]
-  const provider = ((providers[CHATGPT_PROVIDER] ??= {}) as Record<string, unknown>)
+  if (!providers[CHATGPT_PROVIDER] || typeof providers[CHATGPT_PROVIDER] !== 'object') {
+    providers[CHATGPT_PROVIDER] = {}
+    changed = true
+  }
+  const provider = providers[CHATGPT_PROVIDER] as Record<string, unknown>
   if (!hadProvider) {
     changed = true
   }
@@ -133,7 +145,11 @@ export function ensureChatgptProviderConfig(): { changed: boolean; config: Syste
     changed = true
   }
 
-  const auth = ((provider.auth ??= {}) as Record<string, unknown>)
+  if (!provider.auth || typeof provider.auth !== 'object') {
+    provider.auth = {}
+    changed = true
+  }
+  const auth = provider.auth as Record<string, unknown>
   if (auth.type !== 'oauth2') {
     auth.type = 'oauth2'
     changed = true
@@ -145,11 +161,15 @@ export function ensureChatgptProviderConfig(): { changed: boolean; config: Syste
   }
 
   if ('api_key_ref' in auth) {
-    delete auth.api_key_ref
+    auth.api_key_ref = undefined
     changed = true
   }
 
-  const models = ((provider.models ??= {}) as Record<string, unknown>)
+  if (!provider.models || typeof provider.models !== 'object') {
+    provider.models = {}
+    changed = true
+  }
+  const models = provider.models as Record<string, unknown>
   const renamePairs = [
     ['chatgpt/gpt-5.3-codex-medium', 'gpt-5.3-codex-medium'],
     ['chatgpt/gpt-5.4-medium', 'gpt-5.4-medium'],
@@ -170,7 +190,7 @@ export function ensureChatgptProviderConfig(): { changed: boolean; config: Syste
     }
 
     if (Array.isArray(raw.fallback_chain)) {
-      const nextFallback = raw.fallback_chain.map((value) => value === newName ? oldName : value)
+      const nextFallback = raw.fallback_chain.map((value) => (value === newName ? oldName : value))
       if (JSON.stringify(nextFallback) !== JSON.stringify(raw.fallback_chain)) {
         raw.fallback_chain = nextFallback
         changed = true

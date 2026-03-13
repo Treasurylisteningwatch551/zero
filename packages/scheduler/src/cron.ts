@@ -1,5 +1,5 @@
-import parser from 'cron-parser'
 import type { ScheduleConfig } from '@zero-os/shared'
+import parser from 'cron-parser'
 
 export interface ScheduleEntry {
   config: ScheduleConfig
@@ -114,7 +114,7 @@ export class CronScheduler {
   /**
    * Parse a cron expression and return the next N execution times.
    */
-  static getNextRuns(cronExpr: string, count: number = 5): Date[] {
+  static getNextRuns(cronExpr: string, count = 5): Date[] {
     const interval = parser.parseExpression(cronExpr)
     const dates: Date[] = []
     for (let i = 0; i < count; i++) {
@@ -190,28 +190,27 @@ export class CronScheduler {
 
     entry.running = true
     entry.lastRun = new Date()
+    let thrownError: unknown = null
 
     try {
       if (this.onTrigger) {
         await this.onTrigger(entry.config)
       }
+    } catch (error) {
+      thrownError = error
     } finally {
       entry.running = false
+    }
 
-      // oneShot: remove after single execution
-      if (entry.config.oneShot) {
-        this.remove(name)
-        if (this.onRemoved) {
-          this.onRemoved(name)
-        }
-        return
+    // oneShot: remove after single execution
+    if (entry.config.oneShot) {
+      this.remove(name)
+      if (this.onRemoved) {
+        this.onRemoved(name)
       }
-
-      if (this.pendingReplace.delete(name)) {
-        this.launchFire(name, entry)
-        return
-      }
-
+    } else if (this.pendingReplace.delete(name)) {
+      this.launchFire(name, entry)
+    } else {
       // Process queued executions
       const queue = this.queued.get(name)
       if (queue && queue.length > 0) {
@@ -219,13 +218,17 @@ export class CronScheduler {
         if (queue.length === 0) {
           this.queued.delete(name)
         }
+
         // Re-fire immediately for the queued item we just consumed
         this.launchFire(name, entry)
-        return
+      } else {
+        // Schedule next run
+        this.scheduleFollowingRun(entry)
       }
+    }
 
-      // Schedule next run
-      this.scheduleFollowingRun(entry)
+    if (thrownError) {
+      throw thrownError
     }
   }
 

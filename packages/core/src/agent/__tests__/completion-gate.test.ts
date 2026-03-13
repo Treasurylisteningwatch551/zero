@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import type { ProviderAdapter } from '@zero-os/model'
 import { Tracer } from '@zero-os/observe'
 import type {
   CompletionRequest,
@@ -7,10 +8,14 @@ import type {
   StreamEvent,
   ToolContext,
 } from '@zero-os/shared'
-import type { ProviderAdapter } from '@zero-os/model'
-import { Agent, type AgentContext } from '../agent'
 import { ToolRegistry } from '../../tool/registry'
+import { Agent, type AgentContext } from '../agent'
 import { TASK_CLOSURE_PROMPT } from '../task-closure'
+
+async function* failStream(error: Error): AsyncIterable<StreamEvent> {
+  yield* []
+  throw error
+}
 
 const OPTIONAL_TAIL = `如果你愿意，我下一步可以继续帮你做两件更有用的事之一：
 1. 把里面的已知事实和猜测拆开
@@ -39,16 +44,16 @@ function createTextResponse(text: string): CompletionResponse {
 
 function getTextFromMessage(message: Message): string {
   return message.content
-    .filter(block => block.type === 'text')
-    .map(block => (block as { type: 'text'; text: string }).text)
+    .filter((block) => block.type === 'text')
+    .map((block) => (block as { type: 'text'; text: string }).text)
     .join('')
 }
 
 function getTextFromRequest(request: CompletionRequest): string {
   return request.messages
-    .flatMap(message => message.content)
-    .filter(block => block.type === 'text')
-    .map(block => (block as { type: 'text'; text: string }).text)
+    .flatMap((message) => message.content)
+    .filter((block) => block.type === 'text')
+    .map((block) => (block as { type: 'text'; text: string }).text)
     .join('\n')
 }
 
@@ -99,7 +104,7 @@ class TaskClosureAdapter implements ProviderAdapter {
             action: 'continue',
             reason: '后续核验仍属于当前任务',
             trimFrom: OPTIONAL_TAIL,
-          })
+          }),
         )
       }
 
@@ -121,7 +126,7 @@ class TaskClosureAdapter implements ProviderAdapter {
   }
 
   async *stream(_request: CompletionRequest): AsyncIterable<StreamEvent> {
-    throw new Error('stream not supported in test')
+    yield* failStream(new Error('stream not supported in test'))
   }
 
   async healthCheck(): Promise<boolean> {
@@ -161,11 +166,11 @@ describe('Agent task closure gate', () => {
     )
 
     const messages = await agent.run(createContext(registry), '帮我看看这帖值不值得信')
-    const assistantMessages = messages.filter(message => message.role === 'assistant')
+    const assistantMessages = messages.filter((message) => message.role === 'assistant')
 
     expect(assistantMessages).toHaveLength(2)
     expect(getTextFromMessage(assistantMessages[0])).toBe(
-      '我先给你一个初步判断：这帖更像高信息密度的传闻汇总，不能直接当事实依据。'
+      '我先给你一个初步判断：这帖更像高信息密度的传闻汇总，不能直接当事实依据。',
     )
     expect(getTextFromMessage(assistantMessages[1])).toBe(CONTINUED_REPLY)
     expect(adapter.normalCalls).toBe(2)
@@ -183,7 +188,7 @@ describe('Agent task closure gate', () => {
     )
 
     const messages = await agent.run(createContext(registry), '先给我几个下一步选项')
-    const assistantMessages = messages.filter(message => message.role === 'assistant')
+    const assistantMessages = messages.filter((message) => message.role === 'assistant')
 
     expect(assistantMessages).toHaveLength(1)
     expect(getTextFromMessage(assistantMessages[0])).toContain('如果你愿意')
@@ -202,7 +207,7 @@ describe('Agent task closure gate', () => {
     )
 
     const messages = await agent.run(createContext(registry), '继续把线上证据查完')
-    const assistantMessages = messages.filter(message => message.role === 'assistant')
+    const assistantMessages = messages.filter((message) => message.role === 'assistant')
 
     expect(assistantMessages).toHaveLength(1)
     expect(getTextFromMessage(assistantMessages[0])).toBe(BLOCK_REPLY)
@@ -221,7 +226,7 @@ describe('Agent task closure gate', () => {
     )
 
     const messages = await agent.run(createContext(registry), '帮我继续核验')
-    const assistantMessages = messages.filter(message => message.role === 'assistant')
+    const assistantMessages = messages.filter((message) => message.role === 'assistant')
 
     expect(assistantMessages).toHaveLength(1)
     expect(getTextFromMessage(assistantMessages[0])).toContain('如果你愿意')
@@ -245,8 +250,8 @@ describe('Agent task closure gate', () => {
 
     const taskClosureSpan = tracer
       .exportSession('test-session')
-      .flatMap(span => [span, ...span.children])
-      .find(span => span.name === 'task_closure_decision')
+      .flatMap((span) => [span, ...span.children])
+      .find((span) => span.name === 'task_closure_decision')
 
     expect(taskClosureSpan).toBeDefined()
     expect(taskClosureSpan?.metadata?.called).toBe(true)
@@ -255,8 +260,6 @@ describe('Agent task closure gate', () => {
     expect(taskClosureSpan?.metadata?.assistantTailPreview).toContain('如果你愿意')
     expect(taskClosureSpan?.metadata?.rawClassifierResponse).toContain('"action":"continue"')
   })
-
-
 
   test('passes explicit system prompt into the classifier request', async () => {
     const registry = new ToolRegistry()
@@ -303,7 +306,7 @@ describe('Agent task closure gate', () => {
     )
 
     const messages = await agent.run(createContext(registry), '帮我继续核验')
-    const assistantMessages = messages.filter(message => message.role === 'assistant')
+    const assistantMessages = messages.filter((message) => message.role === 'assistant')
 
     expect(assistantMessages).toHaveLength(1)
     expect(getTextFromMessage(assistantMessages[0])).toContain('如果你愿意')

@@ -1,13 +1,13 @@
-import OpenAI from 'openai'
 import type {
   CompletionRequest,
   CompletionResponse,
-  StreamEvent,
   ContentBlock,
+  StreamEvent,
   TokenUsage,
 } from '@zero-os/shared'
+import OpenAI from 'openai'
 import { parseChatGptOAuthSession } from '../auth/chatgpt'
-import type { ProviderAdapter, AdapterConfig } from './base'
+import type { AdapterConfig, ProviderAdapter } from './base'
 
 interface ChatGptSseEvent {
   type?: string
@@ -58,9 +58,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       ? null
       : new OpenAI({
           apiKey: config.apiKey ?? 'dummy',
-          baseURL: config.baseUrl.endsWith('/v1')
-            ? config.baseUrl
-            : `${config.baseUrl}/v1`,
+          baseURL: config.baseUrl.endsWith('/v1') ? config.baseUrl : `${config.baseUrl}/v1`,
         })
     this.modelId = config.modelConfig.modelId
   }
@@ -234,7 +232,11 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
           const itemId = typeof item.id === 'string' ? item.id : undefined
           const name = typeof item.name === 'string' ? item.name : 'unknown_tool'
           const compositeId = joinToolCallId(callId, itemId)
-          toolCallBuffers.set(callId, { name, arguments: typeof item.arguments === 'string' ? item.arguments : '', itemId })
+          toolCallBuffers.set(callId, {
+            name,
+            arguments: typeof item.arguments === 'string' ? item.arguments : '',
+            itemId,
+          })
           yield { type: 'tool_use_start', data: { id: compositeId, name } }
         }
       } else if (event.type === 'response.function_call_arguments.delta') {
@@ -243,8 +245,13 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
         if (callId && toolCallBuffers.has(callId)) {
           toolCallBuffers.get(callId)!.arguments += delta
         }
-        const compositeId = callId ? joinToolCallId(callId, toolCallBuffers.get(callId)?.itemId) : undefined
-        yield { type: 'tool_use_delta', data: { ...(compositeId ? { id: compositeId } : {}), arguments: delta } }
+        const compositeId = callId
+          ? joinToolCallId(callId, toolCallBuffers.get(callId)?.itemId)
+          : undefined
+        yield {
+          type: 'tool_use_delta',
+          data: { ...(compositeId ? { id: compositeId } : {}), arguments: delta },
+        }
       } else if (event.type === 'response.function_call_arguments.done') {
         const callId = typeof event.call_id === 'string' ? event.call_id : undefined
         if (callId && toolCallBuffers.has(callId) && typeof event.arguments === 'string') {
@@ -312,7 +319,9 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
 
         if (textParts || imageParts.length > 0) {
           if (imageParts.length > 0) {
-            const parts: Array<{ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string }> = []
+            const parts: Array<
+              { type: 'input_text'; text: string } | { type: 'input_image'; image_url: string }
+            > = []
             if (textParts) parts.push({ type: 'input_text', text: textParts })
             for (const img of imageParts) {
               const { mediaType, data } = img as { mediaType: string; data: string }
@@ -429,9 +438,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
 
         try {
           yield JSON.parse(data) as ChatGptSseEvent
-        } catch {
-          continue
-        }
+        } catch {}
       }
     }
   }
@@ -510,26 +517,27 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
           if (!callId) continue
           const existing = toolCalls.get(callId)
           toolCalls.set(callId, {
-            name: typeof item.name === 'string' ? item.name : existing?.name ?? 'unknown_tool',
-            arguments: typeof item.arguments === 'string' ? item.arguments : existing?.arguments ?? '',
+            name: typeof item.name === 'string' ? item.name : (existing?.name ?? 'unknown_tool'),
+            arguments:
+              typeof item.arguments === 'string' ? item.arguments : (existing?.arguments ?? ''),
             itemId: typeof item.id === 'string' ? item.id : existing?.itemId,
           })
         } else if (item.type === 'reasoning') {
           const summaryTexts = this.extractReasoningSummaryTexts(item.summary)
           const itemId = typeof item.id === 'string' ? item.id : undefined
           const alreadyTracked = itemId
-            ? Array.from(reasoningBuffers.keys()).some((key) => key === itemId || key.startsWith(`${itemId}:`))
+            ? Array.from(reasoningBuffers.keys()).some(
+                (key) => key === itemId || key.startsWith(`${itemId}:`),
+              )
             : false
           if (summaryTexts.length > 0 && !alreadyTracked) {
-            reasoningBuffers.set(
-              itemId ?? `${reasoningBuffers.size}`,
-              summaryTexts.join('\n')
-            )
+            reasoningBuffers.set(itemId ?? `${reasoningBuffers.size}`, summaryTexts.join('\n'))
           }
         }
       } else if (event.type === 'response.completed') {
         responseId = typeof event.response?.id === 'string' ? event.response.id : responseId
-        responseModel = typeof event.response?.model === 'string' ? event.response.model : responseModel
+        responseModel =
+          typeof event.response?.model === 'string' ? event.response.model : responseModel
         usage = this.parseUsage(event.response?.usage)
       }
     }
@@ -562,10 +570,14 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
   private getChatGptSession() {
     const session = parseChatGptOAuthSession(this.oauthToken)
     if (!session) {
-      throw new Error('ChatGPT OAuth credentials not found. Please run `bun zero provider login chatgpt`.')
+      throw new Error(
+        'ChatGPT OAuth credentials not found. Please run `bun zero provider login chatgpt`.',
+      )
     }
     if (Date.now() >= session.expiresAt - 60_000) {
-      throw new Error('ChatGPT OAuth token expired. Please re-authenticate with `bun zero provider login chatgpt`.')
+      throw new Error(
+        'ChatGPT OAuth token expired. Please re-authenticate with `bun zero provider login chatgpt`.',
+      )
     }
     return session
   }
@@ -579,12 +591,14 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
   }
 
   private computePromptCacheKey(req: CompletionRequest): string {
-    return Bun.hash(JSON.stringify({
-      system: req.system,
-      model: req.model ?? this.modelId,
-      messages: req.messages,
-      tools: req.tools,
-    })).toString()
+    return Bun.hash(
+      JSON.stringify({
+        system: req.system,
+        model: req.model ?? this.modelId,
+        messages: req.messages,
+        tools: req.tools,
+      }),
+    ).toString()
   }
 
   private collectPairedToolCallIds(req: CompletionRequest): Set<string> {
@@ -687,7 +701,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
         if (summaryTexts.length > 0) {
           reasoningBuffers.set(
             typeof item.id === 'string' ? item.id : `${reasoningBuffers.size}`,
-            summaryTexts.join('\n')
+            summaryTexts.join('\n'),
           )
         }
       }
@@ -699,7 +713,9 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
 
     const stopReason = hasToolUse
       ? 'tool_use'
-      : response.status === 'completed' ? 'end_turn' : 'end_turn'
+      : response.status === 'completed'
+        ? 'end_turn'
+        : 'end_turn'
 
     return {
       id: response.id,

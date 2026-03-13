@@ -1,8 +1,8 @@
 import { Readability } from '@mozilla/readability'
-import TurndownService from 'turndown'
-import { parseHTML } from 'linkedom'
-import { BaseTool } from './base'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
+import { parseHTML } from 'linkedom'
+import TurndownService from 'turndown'
+import { BaseTool } from './base'
 
 type FetchFormat = 'auto' | 'html' | 'json' | 'text'
 
@@ -26,8 +26,7 @@ const turndown = new TurndownService({
 
 export class FetchTool extends BaseTool {
   name = 'fetch'
-  description =
-    'HTTP 请求，读取网页内容 / API / 下载文件。HTML 自动转 Markdown。'
+  description = 'HTTP 请求，读取网页内容 / API / 下载文件。HTML 自动转 Markdown。'
   parameters = {
     type: 'object',
     properties: {
@@ -69,7 +68,11 @@ export class FetchTool extends BaseTool {
     } = input as FetchInput
 
     if (!url) {
-      return { success: false, output: 'Missing required parameter: url', outputSummary: 'Missing url' }
+      return {
+        success: false,
+        output: 'Missing required parameter: url',
+        outputSummary: 'Missing url',
+      }
     }
 
     // Resolve credential if specified
@@ -90,7 +93,7 @@ export class FetchTool extends BaseTool {
           outputSummary: 'Credential not found',
         }
       }
-      reqHeaders['Authorization'] = `Bearer ${secret}`
+      reqHeaders.Authorization = `Bearer ${secret}`
     }
 
     // Set default User-Agent if not provided
@@ -105,7 +108,10 @@ export class FetchTool extends BaseTool {
       const response = await fetch(url, {
         method: method.toUpperCase(),
         headers: reqHeaders,
-        body: body && method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD' ? body : undefined,
+        body:
+          body && method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD'
+            ? body
+            : undefined,
         signal: controller.signal,
         redirect: 'follow',
       })
@@ -143,7 +149,8 @@ export class FetchTool extends BaseTool {
       // Truncate if too long
       if (outputBody.length > MAX_BODY_LENGTH) {
         truncated = true
-        outputBody = outputBody.slice(0, MAX_BODY_LENGTH) + '\n\n[Content truncated at 100,000 characters]'
+        outputBody =
+          outputBody.slice(0, MAX_BODY_LENGTH) + '\n\n[Content truncated at 100,000 characters]'
       }
 
       const statusPrefix = `HTTP ${status}`

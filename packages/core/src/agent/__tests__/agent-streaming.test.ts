@@ -1,8 +1,18 @@
-import { describe, test, expect } from 'bun:test'
-import { Agent, type AgentContext } from '../agent'
+import { describe, expect, test } from 'bun:test'
 import type { ProviderAdapter } from '@zero-os/model'
-import type { CompletionRequest, CompletionResponse, StreamEvent, ToolContext } from '@zero-os/shared'
+import type {
+  CompletionRequest,
+  CompletionResponse,
+  StreamEvent,
+  ToolContext,
+} from '@zero-os/shared'
 import { ToolRegistry } from '../../tool/registry'
+import { Agent, type AgentContext } from '../agent'
+
+async function* failStream(error: Error): AsyncIterable<StreamEvent> {
+  yield* []
+  throw error
+}
 
 class StreamingOnlyAdapter implements ProviderAdapter {
   readonly apiType = 'fake-streaming'
@@ -20,7 +30,10 @@ class StreamingOnlyAdapter implements ProviderAdapter {
   async *stream(_req: CompletionRequest): AsyncIterable<StreamEvent> {
     yield { type: 'text_delta', data: { text: 'hello' } }
     yield { type: 'text_delta', data: { text: ' world' } }
-    yield { type: 'done', data: { finishReason: 'end_turn', usage: { input: 3, output: 2 }, model: 'fake' } }
+    yield {
+      type: 'done',
+      data: { finishReason: 'end_turn', usage: { input: 3, output: 2 }, model: 'fake' },
+    }
   }
 
   async healthCheck(): Promise<boolean> {
@@ -48,7 +61,11 @@ class ReasoningStreamingAdapter implements ProviderAdapter {
     yield { type: 'text_delta', data: { text: 'visible answer' } }
     yield {
       type: 'done',
-      data: { finishReason: 'end_turn', usage: { input: 3, output: 2, reasoning: 7 }, model: 'fake-reasoning' },
+      data: {
+        finishReason: 'end_turn',
+        usage: { input: 3, output: 2, reasoning: 7 },
+        model: 'fake-reasoning',
+      },
     }
   }
 
@@ -73,7 +90,7 @@ class FallbackAdapter implements ProviderAdapter {
   }
 
   async *stream(_req: CompletionRequest): AsyncIterable<StreamEvent> {
-    throw new Error('stream failed')
+    yield* failStream(new Error('stream failed'))
   }
 
   async healthCheck(): Promise<boolean> {
@@ -99,7 +116,7 @@ class AnthropicFailingAdapter implements ProviderAdapter {
   }
 
   async *stream(_req: CompletionRequest): AsyncIterable<StreamEvent> {
-    throw this.streamError
+    yield* failStream(this.streamError)
   }
 
   async healthCheck(): Promise<boolean> {
@@ -120,7 +137,7 @@ function createAgent(adapter: ProviderAdapter, logger?: ToolContext['logger']): 
       workDir: process.cwd(),
       logger: logger ?? { info: () => {}, warn: () => {}, error: () => {} },
     },
-    {}
+    {},
   )
 }
 
@@ -138,12 +155,8 @@ describe('Agent streaming callback', () => {
     const agent = createAgent(adapter)
 
     const deltas: string[] = []
-    const messages = await agent.run(
-      createContext(),
-      'say hi',
-      undefined,
-      undefined,
-      (delta) => deltas.push(delta)
+    const messages = await agent.run(createContext(), 'say hi', undefined, undefined, (delta) =>
+      deltas.push(delta),
     )
 
     expect(deltas).toEqual(['hello', ' world'])
@@ -213,7 +226,7 @@ describe('Agent streaming callback', () => {
           message: 'Overloaded',
         },
         request_id: 'req_456',
-      })
+      }),
     )
     const adapter = new AnthropicFailingAdapter(streamError)
     const warnings: Array<Record<string, unknown>> = []
@@ -236,7 +249,7 @@ describe('Agent streaming callback', () => {
 
   test('Anthropic SDK streaming guidance errors do not fallback to complete', async () => {
     const streamError = new Error(
-      'Streaming is strongly recommended for operations that may take longer than 10 minutes.'
+      'Streaming is strongly recommended for operations that may take longer than 10 minutes.',
     )
     const adapter = new AnthropicFailingAdapter(streamError)
     const warnings: Array<Record<string, unknown>> = []
@@ -247,7 +260,7 @@ describe('Agent streaming callback', () => {
     })
 
     await expect(agent.run(createContext(), 'say hi')).rejects.toThrow(
-      'Streaming is strongly recommended'
+      'Streaming is strongly recommended',
     )
 
     expect(adapter.completeCalls).toBe(0)
@@ -278,7 +291,7 @@ describe('Agent streaming callback', () => {
           logSessionRequest: (entry: Record<string, unknown>) => entries.push(entry),
           logSessionClosure: () => {},
         } as any,
-      }
+      },
     )
 
     const messages = await agent.run(createContext(), 'reason please')

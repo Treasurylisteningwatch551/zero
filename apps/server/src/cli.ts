@@ -1,13 +1,17 @@
 import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs'
-import { generateMasterKey, setMasterKey, getMasterKey, Vault } from '@zero-os/secrets'
 import { DEFAULT_TEMPLATES } from '@zero-os/core'
-import { getSupervisorLaunchAgentStatus, installSupervisorLaunchAgent, uninstallSupervisorLaunchAgent } from './launchd'
-import { startZeroOS } from './main'
-import { rebuildWebBundle } from './web-build'
+import { Vault, generateMasterKey, getMasterKey, setMasterKey } from '@zero-os/secrets'
 import { ChatGptOAuthBroker } from './chatgpt-oauth'
 import { ensureChatgptProviderConfig, getChatgptOAuthTokenRef } from './chatgpt-provider'
+import {
+  getSupervisorLaunchAgentStatus,
+  installSupervisorLaunchAgent,
+  uninstallSupervisorLaunchAgent,
+} from './launchd'
+import { startZeroOS } from './main'
+import { rebuildWebBundle } from './web-build'
 
 const ZERO_DIR = join(process.cwd(), '.zero')
 const SECRETS_PATH = join(ZERO_DIR, 'secrets.enc')
@@ -107,7 +111,9 @@ async function init() {
       const launchAgent = installSupervisorLaunchAgent()
       console.log(`  LaunchAgent: installed at ${launchAgent.plistPath}`)
     } catch (err) {
-      console.log(`  LaunchAgent: not installed automatically (${err instanceof Error ? err.message : err})`)
+      console.log(
+        `  LaunchAgent: not installed automatically (${err instanceof Error ? err.message : err})`,
+      )
       console.log('               Run `bun zero launchctl install` after fixing the issue.')
     }
   }
@@ -149,7 +155,7 @@ async function secret() {
   vault.load()
 
   switch (action) {
-    case 'set':
+    case 'set': {
       if (!key || !value) {
         console.error('Usage: bun zero secret set <key> <value>')
         process.exit(1)
@@ -157,8 +163,9 @@ async function secret() {
       vault.set(key, value)
       console.log(`Secret "${key}" stored.`)
       break
+    }
 
-    case 'list':
+    case 'list': {
       const keys = vault.keys()
       if (keys.length === 0) {
         console.log('No secrets stored.')
@@ -169,8 +176,9 @@ async function secret() {
         }
       }
       break
+    }
 
-    case 'delete':
+    case 'delete': {
       if (!key) {
         console.error('Usage: bun zero secret delete <key>')
         process.exit(1)
@@ -178,6 +186,7 @@ async function secret() {
       vault.delete(key)
       console.log(`Secret "${key}" deleted.`)
       break
+    }
 
     default:
       console.log('Usage:')
@@ -211,7 +220,10 @@ async function provider() {
   try {
     ensureChatgptProviderConfig()
   } catch (error) {
-    console.error('[ZeRo OS] Failed to prepare ChatGPT provider config:', error instanceof Error ? error.message : error)
+    console.error(
+      '[ZeRo OS] Failed to prepare ChatGPT provider config:',
+      error instanceof Error ? error.message : error,
+    )
     process.exit(1)
   }
 
@@ -226,7 +238,9 @@ async function provider() {
 
     const status = await broker.waitForCompletion(120_000)
     if (status.state === 'connected') {
-      console.log('[ZeRo OS] ChatGPT OAuth configured. Run `bun zero restart` to use the new provider.')
+      console.log(
+        '[ZeRo OS] ChatGPT OAuth configured. Run `bun zero restart` to use the new provider.',
+      )
       return
     }
   } catch (error) {
@@ -247,19 +261,25 @@ async function provider() {
     if (status.state !== 'connected') {
       throw new Error(status.error ?? 'Authentication failed')
     }
-    console.log('[ZeRo OS] ChatGPT OAuth configured. Run `bun zero restart` to use the new provider.')
+    console.log(
+      '[ZeRo OS] ChatGPT OAuth configured. Run `bun zero restart` to use the new provider.',
+    )
   } catch (error) {
-    console.error('[ZeRo OS] ChatGPT OAuth login failed:', error instanceof Error ? error.message : error)
+    console.error(
+      '[ZeRo OS] ChatGPT OAuth login failed:',
+      error instanceof Error ? error.message : error,
+    )
     process.exit(1)
   }
 }
 
 function tryOpenBrowser(url: string) {
-  const openCommand = process.platform === 'darwin'
-    ? ['open', url]
-    : process.platform === 'win32'
-      ? ['cmd', '/c', 'start', '', url]
-      : ['xdg-open', url]
+  const openCommand =
+    process.platform === 'darwin'
+      ? ['open', url]
+      : process.platform === 'win32'
+        ? ['cmd', '/c', 'start', '', url]
+        : ['xdg-open', url]
 
   try {
     Bun.spawn(openCommand, { stdout: 'ignore', stderr: 'ignore' })
@@ -311,7 +331,9 @@ async function status() {
 
   if (process.platform === 'darwin') {
     const launchAgent = getSupervisorLaunchAgentStatus()
-    console.log(`  LaunchCtl: ${launchAgent.loaded ? '✓ loaded' : launchAgent.installed ? '○ installed, not loaded' : '✗ not installed'}`)
+    console.log(
+      `  LaunchCtl: ${launchAgent.loaded ? '✓ loaded' : launchAgent.installed ? '○ installed, not loaded' : '✗ not installed'}`,
+    )
     console.log(`  Agent:     ${launchAgent.plistPath}`)
   }
 }

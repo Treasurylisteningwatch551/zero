@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import type { ProviderAdapter } from '@zero-os/model'
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -8,10 +9,14 @@ import type {
   ToolResult,
 } from '@zero-os/shared'
 import { generateId, now } from '@zero-os/shared'
-import type { ProviderAdapter } from '@zero-os/model'
-import { Agent, type AgentContext } from '../agent'
-import { ToolRegistry } from '../../tool/registry'
 import { BaseTool } from '../../tool/base'
+import { ToolRegistry } from '../../tool/registry'
+import { Agent, type AgentContext } from '../agent'
+
+async function* failStream(error: Error): AsyncIterable<StreamEvent> {
+  yield* []
+  throw error
+}
 
 class NoopTool extends BaseTool {
   name = 'noop'
@@ -69,7 +74,7 @@ class CompressionAdapter implements ProviderAdapter {
   }
 
   async *stream(_request: CompletionRequest): AsyncIterable<StreamEvent> {
-    throw new Error('stream not supported in test')
+    yield* failStream(new Error('stream not supported in test'))
   }
 
   async healthCheck(): Promise<boolean> {
