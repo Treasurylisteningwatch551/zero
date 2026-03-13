@@ -21,15 +21,6 @@ interface FeishuBinaryResponse {
   headers?: unknown
 }
 
-interface FeishuIncomingEvent {
-  sender?: {
-    sender_id?: {
-      open_id?: string
-    }
-  }
-  message?: FeishuMessagePayload
-}
-
 interface FeishuMessagePayload {
   message_id?: string
   chat_id?: string
@@ -37,10 +28,6 @@ interface FeishuMessagePayload {
   message_type?: string
   create_time?: string | number
   content?: string
-}
-
-interface FeishuReactionCreateResponse {
-  reaction_id?: string
 }
 
 interface FeishuPostElement {
@@ -53,11 +40,6 @@ interface FeishuPostElement {
   user_id?: string
   file_name?: string
   emoji_type?: string
-}
-
-interface FeishuPostDocument {
-  title?: string
-  content?: FeishuPostElement[][]
 }
 
 /**

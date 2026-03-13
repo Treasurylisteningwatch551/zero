@@ -396,9 +396,12 @@ describe('TelegramChannel contract', () => {
     const channel = new TelegramChannel({ botToken: 'test-token' })
 
     const originalFetch = globalThis.fetch
-    globalThis.fetch = Object.assign(async () => new Response(Buffer.from('png-binary'), { status: 200 }), {
-      preconnect: originalFetch.preconnect,
-    })
+    globalThis.fetch = Object.assign(
+      async () => new Response(Buffer.from('png-binary'), { status: 200 }),
+      {
+        preconnect: originalFetch.preconnect,
+      },
+    )
     getTelegramHarness(channel).bot = {
       telegram: {
         getFile: async () => ({ file_path: 'docs/pic.png' }),
