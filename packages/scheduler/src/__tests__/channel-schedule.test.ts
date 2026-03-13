@@ -86,21 +86,19 @@ describe('CronScheduler — new methods', () => {
       removedName = name
     })
 
-    // Use a cron that would fire "now" via misfire policy
-    const pastCron = '0 0 1 1 *' // Jan 1st midnight — always in the past
     scheduler.add({
       name: 'oneshot_test',
-      cron: pastCron,
+      cron: '*/5 * * * *',
       instruction: 'fire once',
       oneShot: true,
       misfirePolicy: 'run_once',
     })
 
-    // Manually get entry and fire it
     const entry = scheduler.getEntry('oneshot_test')
     expect(entry).toBeDefined()
+    entry!.nextRun = new Date(Date.now() - 1_000)
 
-    // Simulate fire by calling the internal method via start (which triggers misfire)
+    // Starting the scheduler should treat the past-due nextRun as a misfire.
     scheduler.start()
 
     // Give it a tick to process
@@ -112,6 +110,33 @@ describe('CronScheduler — new methods', () => {
     expect(scheduler.getStatus()).toHaveLength(0)
 
     scheduler.stop()
+  })
+
+  test('far-future schedules cap timer delay to the runtime maximum', () => {
+    const scheduler = new CronScheduler()
+    const originalSetTimeout = globalThis.setTimeout
+    const scheduledDelays: number[] = []
+
+    globalThis.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+      scheduledDelays.push(timeout ?? 0)
+      return originalSetTimeout(handler, 0, ...args)
+    }) as typeof setTimeout
+
+    try {
+      scheduler.add({
+        name: 'future_job',
+        cron: '0 0 1 1 *',
+        instruction: 'future run',
+      })
+
+      scheduler.start()
+
+      expect(scheduledDelays.length).toBeGreaterThan(0)
+      expect(scheduledDelays[0]).toBe(2_147_483_647)
+    } finally {
+      scheduler.stop()
+      globalThis.setTimeout = originalSetTimeout
+    }
   })
 
   test('remove() clears timer for running schedule', () => {

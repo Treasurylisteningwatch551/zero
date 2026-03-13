@@ -8,6 +8,8 @@ export interface ScheduleEntry {
   running: boolean
 }
 
+const MAX_TIMEOUT_MS = 2_147_483_647
+
 /**
  * Cron scheduler — manages timed task execution.
  */
@@ -122,6 +124,11 @@ export class CronScheduler {
   }
 
   private scheduleNext(name: string, entry: ScheduleEntry): void {
+    const existingTimer = this.timers.get(name)
+    if (existingTimer) {
+      clearTimeout(existingTimer)
+    }
+
     const delay = entry.nextRun.getTime() - Date.now()
     if (delay < 0) {
       // Missed execution — check misfire policy
@@ -133,6 +140,14 @@ export class CronScheduler {
       const interval = parser.parseExpression(entry.config.cron)
       entry.nextRun = interval.next().toDate()
       this.scheduleNext(name, entry)
+      return
+    }
+
+    if (delay > MAX_TIMEOUT_MS) {
+      const timer = setTimeout(() => {
+        this.scheduleNext(name, entry)
+      }, MAX_TIMEOUT_MS)
+      this.timers.set(name, timer)
       return
     }
 
