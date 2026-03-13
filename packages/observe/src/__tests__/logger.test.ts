@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { rmSync } from 'node:fs'
+import { existsSync, readlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { JsonlLogger } from '../logger'
 
@@ -93,6 +93,29 @@ describe('JsonlLogger', () => {
     expect(entries[0].durationMs).toBe(456)
   })
 
+  test('logSessionRequest uses dated layout for generated-style session ids', () => {
+    const logger = new JsonlLogger(testDir)
+    const sessionId = 'sess_20260313_1423_fei_a1b2'
+
+    logger.logSessionRequest({
+      id: 'req_session_dated',
+      sessionId,
+      model: 'gpt-5.4',
+      provider: 'openai-codex',
+      userPrompt: 'dated prompt',
+      response: 'dated response',
+      stopReason: 'end_turn',
+      toolUseCount: 0,
+      tokens: { input: 1, output: 2 },
+      cost: 0.01,
+    })
+
+    expect(
+      existsSync(join(testDir, 'sessions', '2026-03-13', sessionId, 'requests.jsonl')),
+    ).toBe(true)
+    expect(logger.readSessionRequests(sessionId)).toHaveLength(1)
+  })
+
   test('readSessionRequests falls back to legacy global requests file', () => {
     const logger = new JsonlLogger(testDir)
     logger.logRequest({
@@ -144,6 +167,20 @@ describe('JsonlLogger', () => {
     const ids = new Set(entries.map((entry) => entry.id))
     expect(ids.has('req_global_001')).toBe(true)
     expect(ids.has('req_scoped_001')).toBe(true)
+  })
+
+  test('syncSessionActiveState maintains _active symlinks for active sessions only', () => {
+    const logger = new JsonlLogger(testDir)
+    const sessionId = 'sess_20260312_2130_fei_a1b2'
+
+    logger.syncSessionActiveState(sessionId, 'active')
+    const linkPath = join(testDir, 'sessions', '_active', sessionId)
+
+    expect(existsSync(linkPath)).toBe(true)
+    expect(readlinkSync(linkPath)).toBe('../2026-03-12/sess_20260312_2130_fei_a1b2')
+
+    logger.syncSessionActiveState(sessionId, 'completed')
+    expect(existsSync(linkPath)).toBe(false)
   })
 
   test('logSessionClosure writes to session-scoped closure ledger', () => {

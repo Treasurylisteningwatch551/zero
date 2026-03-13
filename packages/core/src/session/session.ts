@@ -95,14 +95,16 @@ export class Session {
     toolRegistry: ToolRegistry,
     deps: SessionDeps = {},
     initialModel?: string,
+    sessionId?: string,
   ) {
     const currentModel = initialModel
       ? (modelRouter.resolveModel(initialModel) ??
         modelRouter.getDefaultModel() ??
         modelRouter.getCurrentModel())
       : (modelRouter.getDefaultModel() ?? modelRouter.getCurrentModel())
+    const id = sessionId ?? Session.allocateSessionId(source, deps.sessionDb)
     this.data = {
-      id: generateSessionId(),
+      id,
       createdAt: now(),
       updatedAt: now(),
       source,
@@ -131,6 +133,7 @@ export class Session {
 
     // Persist session metadata to DB
     this.deps.sessionDb?.saveSession(this.data)
+    this.deps.logger?.syncSessionActiveState(this.data.id, this.data.status)
   }
 
   /**
@@ -633,6 +636,17 @@ export class Session {
     }
   }
 
+  private static allocateSessionId(source: SessionSource, sessionDb?: SessionDB): string {
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const id = generateSessionId(source)
+      if (!sessionDb?.getSession(id)) {
+        return id
+      }
+    }
+
+    throw new Error(`Unable to allocate unique session ID for source "${source}" after 16 attempts.`)
+  }
+
   /**
    * Restore a session from persisted data (bypasses constructor side-effects).
    */
@@ -677,6 +691,7 @@ export class Session {
       lastSnapshotContext: null,
     })
     session.restoreSnapshotStateFromLogger()
+    session.deps.logger?.syncSessionActiveState(session.data.id, session.data.status)
     return session
   }
 
@@ -701,6 +716,7 @@ export class Session {
     this.data.updatedAt = now()
     // Persist status change
     this.deps.sessionDb?.updateStatus(this.data.id, status, this.data.updatedAt)
+    this.deps.logger?.syncSessionActiveState(this.data.id, status)
     // Emit session:end when status transitions to completed
     if (status === 'completed' || status === 'failed') {
       this.deps.bus?.emit('session:end', {

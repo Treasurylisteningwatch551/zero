@@ -1,6 +1,7 @@
 import type { MemoryRepository } from '@zero-os/memory'
 import type { ModelRouter } from '@zero-os/model'
 import type { MetricsDB, SessionDB, SessionRow } from '@zero-os/observe'
+import { generateSessionId } from '@zero-os/shared'
 import type { Message, Session as SessionData, SessionSource, SessionStatus } from '@zero-os/shared'
 import type { AgentConfig } from '../agent/agent'
 import type { ToolRegistry } from '../tool/registry'
@@ -49,6 +50,7 @@ export class SessionManager {
     const initialModel =
       options.initialModel ??
       this.getPreferredModel(source, modelScope?.channelId, modelScope?.channelName)
+    const sessionId = this.allocateSessionId(source)
     const sessionDeps = this.createSessionDeps(source, modelScope)
     const session = new Session(
       source,
@@ -56,6 +58,7 @@ export class SessionManager {
       this.toolRegistry,
       sessionDeps,
       initialModel,
+      sessionId,
     )
 
     if (options.channelName) {
@@ -179,6 +182,17 @@ export class SessionManager {
     return `${source}:${channelName ?? source}:${channelId}`
   }
 
+  private allocateSessionId(source: SessionSource): string {
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const id = generateSessionId(source)
+      if (!this.sessions.has(id) && !this.sessionDb?.getSession(id)) {
+        return id
+      }
+    }
+
+    throw new Error(`Unable to allocate unique session ID for source "${source}" after 16 attempts.`)
+  }
+
   /**
    * Get or create a session bound to a channel conversation.
    * Reuses an existing active/idle session for the same (source, channelId) pair.
@@ -250,6 +264,9 @@ export class SessionManager {
    */
   remove(id: string): void {
     const session = this.sessions.get(id)
+    if (session) {
+      this.deps.logger?.syncSessionActiveState(id, 'archived')
+    }
     if (session?.data.channelId) {
       const key = this.getChannelSessionKey(
         session.data.source,

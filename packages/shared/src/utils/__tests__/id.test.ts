@@ -1,5 +1,14 @@
 import { describe, expect, test } from 'bun:test'
-import { generateId, generatePrefixedId, generateSessionId } from '../id'
+import {
+  buildSessionId,
+  formatLocalSessionDateParts,
+  generateId,
+  generatePrefixedId,
+  generateSessionId,
+  getSessionLogRelativeDirCandidates,
+  parseSessionId,
+  sessionSourceToAbbreviation,
+} from '../id'
 
 describe('ID generation', () => {
   test('generateId returns a valid UUIDv7', () => {
@@ -18,8 +27,51 @@ describe('ID generation', () => {
     expect(id.length).toBeGreaterThan(4)
   })
 
-  test('generateSessionId has date-based format', () => {
-    const id = generateSessionId()
-    expect(id).toMatch(/^sess_\d{8}_[0-9a-f]{8}$/)
+  test('generateSessionId has local date, time, and source format', () => {
+    const id = generateSessionId('feishu')
+    expect(id).toMatch(/^sess_\d{8}_\d{4}_fei_[0-9a-f]{4}$/)
+  })
+
+  test('formatLocalSessionDateParts uses local clock fields', () => {
+    const date = new Date('2026-03-13T02:05:00.000Z')
+    const parts = formatLocalSessionDateParts(date)
+
+    expect(parts.dateStamp).toBe(
+      `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`,
+    )
+    expect(parts.timeStamp).toBe(
+      `${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}`,
+    )
+  })
+
+  test('buildSessionId accepts explicit source code and date', () => {
+    const date = new Date('2026-03-13T10:23:00.000Z')
+    const id = buildSessionId('web', date, 'a1b2')
+    const parsed = parseSessionId(id)
+    const parts = formatLocalSessionDateParts(date)
+
+    expect(parsed).toEqual({
+      layout: 'dated',
+      dateStamp: parts.dateStamp,
+      timeStamp: parts.timeStamp,
+      sourceCode: 'web',
+      random: 'a1b2',
+    })
+  })
+
+  test('sessionSourceToAbbreviation maps runtime sources to stable codes', () => {
+    expect(sessionSourceToAbbreviation('web')).toBe('web')
+    expect(sessionSourceToAbbreviation('feishu')).toBe('fei')
+    expect(sessionSourceToAbbreviation('telegram')).toBe('tel')
+    expect(sessionSourceToAbbreviation('scheduler')).toBe('sch')
+    expect(sessionSourceToAbbreviation('browser')).toBe('brw')
+  })
+
+  test('getSessionLogRelativeDirCandidates prefers dated layout and keeps flat fallback', () => {
+    expect(getSessionLogRelativeDirCandidates('sess_20260313_1423_fei_a1b2')).toEqual([
+      'sessions/2026-03-13/sess_20260313_1423_fei_a1b2',
+      'sessions/sess_20260313_1423_fei_a1b2',
+    ])
+    expect(getSessionLogRelativeDirCandidates('sess_test')).toEqual(['sessions/sess_test'])
   })
 })

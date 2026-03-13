@@ -1,6 +1,22 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
-import { dirname } from 'node:path'
-import { now } from '@zero-os/shared'
+import {
+  appendFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+} from 'node:fs'
+import { dirname, join, relative } from 'node:path'
+import {
+  getSessionLogRelativeDir,
+  getSessionLogRelativeDirCandidates,
+  now,
+  type SessionStatus,
+} from '@zero-os/shared'
 import type { StopReason } from '@zero-os/shared'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
@@ -90,18 +106,89 @@ export class JsonlLogger {
 
   constructor(basePath: string) {
     this.basePath = basePath
-    if (!existsSync(basePath)) {
-      mkdirSync(basePath, { recursive: true })
-    }
+    this.ensureDir(basePath)
+    this.ensureDir(this.getSessionsRoot())
+    this.ensureDir(this.getActiveSessionsRoot())
   }
 
-  private appendLine(file: string, data: unknown): void {
-    const filePath = `${this.basePath}/${file}`
-    const dir = dirname(filePath)
+  private ensureDir(dir: string): void {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true })
     }
+  }
+
+  private getSessionsRoot(): string {
+    return join(this.basePath, 'sessions')
+  }
+
+  private getActiveSessionsRoot(): string {
+    return join(this.getSessionsRoot(), '_active')
+  }
+
+  private appendLine(file: string, data: unknown): void {
+    const filePath = join(this.basePath, file)
+    const dir = dirname(filePath)
+    this.ensureDir(dir)
     appendFileSync(filePath, `${JSON.stringify(data)}\n`, 'utf-8')
+  }
+
+  private getSessionFileCandidates(sessionId: string, file: string): string[] {
+    return getSessionLogRelativeDirCandidates(sessionId).map((dir) => join(this.basePath, dir, file))
+  }
+
+  private listSessionDirectories(): string[] {
+    const sessionsDir = this.getSessionsRoot()
+    if (!existsSync(sessionsDir)) return []
+
+    const sessionDirs: string[] = []
+    for (const dirent of readdirSync(sessionsDir, { withFileTypes: true })) {
+      if (dirent.name === '_active' || !dirent.isDirectory()) continue
+
+      const entryPath = join(sessionsDir, dirent.name)
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dirent.name)) {
+        for (const sessionDirent of readdirSync(entryPath, { withFileTypes: true })) {
+          if (!sessionDirent.isDirectory()) continue
+          sessionDirs.push(join(entryPath, sessionDirent.name))
+        }
+        continue
+      }
+
+      sessionDirs.push(entryPath)
+    }
+
+    return sessionDirs
+  }
+
+  private removePathIfExists(path: string): void {
+    try {
+      const stat = lstatSync(path)
+      if (stat.isDirectory() && !stat.isSymbolicLink()) {
+        rmSync(path, { recursive: true, force: true })
+        return
+      }
+      unlinkSync(path)
+    } catch {}
+  }
+
+  syncSessionActiveState(sessionId: string, status: SessionStatus): void {
+    const linkPath = join(this.getActiveSessionsRoot(), sessionId)
+    if (status !== 'active') {
+      this.removePathIfExists(linkPath)
+      return
+    }
+
+    const sessionDir = join(this.basePath, getSessionLogRelativeDir(sessionId))
+    this.ensureDir(sessionDir)
+    this.ensureDir(this.getActiveSessionsRoot())
+
+    const target = relative(this.getActiveSessionsRoot(), sessionDir)
+    try {
+      const currentTarget = readlinkSync(linkPath)
+      if (currentTarget === target) return
+      this.removePathIfExists(linkPath)
+    } catch {}
+
+    symlinkSync(target, linkPath, 'dir')
   }
 
   /**
@@ -122,21 +209,30 @@ export class JsonlLogger {
    * Log an LLM request to the session-scoped ledger.
    */
   logSessionRequest(entry: Omit<RequestLogEntry, 'ts'>): void {
-    this.appendLine(`sessions/${entry.sessionId}/requests.jsonl`, { ...entry, ts: now() })
+    this.appendLine(join(getSessionLogRelativeDir(entry.sessionId), 'requests.jsonl'), {
+      ...entry,
+      ts: now(),
+    })
   }
 
   /**
    * Log a context snapshot.
    */
   logSnapshot(entry: Omit<SnapshotEntry, 'ts'>): void {
-    this.appendLine(`sessions/${entry.sessionId}/snapshots.jsonl`, { ...entry, ts: now() })
+    this.appendLine(join(getSessionLogRelativeDir(entry.sessionId), 'snapshots.jsonl'), {
+      ...entry,
+      ts: now(),
+    })
   }
 
   /**
    * Log a session-scoped task closure event.
    */
   logSessionClosure(entry: Omit<ClosureLogEntry, 'ts'>): void {
-    this.appendLine(`sessions/${entry.sessionId}/closure.jsonl`, { ...entry, ts: now() })
+    this.appendLine(join(getSessionLogRelativeDir(entry.sessionId), 'closure.jsonl'), {
+      ...entry,
+      ts: now(),
+    })
   }
 
   /**
@@ -150,26 +246,27 @@ export class JsonlLogger {
    * Read all entries from a JSONL file.
    */
   readEntries<T = unknown>(file: string): T[] {
-    const filePath = `${this.basePath}/${file}`
-    return this.readJsonlFile<T>(filePath)
+    return this.readJsonlFile<T>(join(this.basePath, file))
   }
 
   /**
    * Read entries from a session-scoped JSONL file.
    */
   readSessionEntries<T = unknown>(sessionId: string, file: string): T[] {
-    const filePath = `${this.basePath}/sessions/${sessionId}/${file}`
-    return this.readJsonlFile<T>(filePath)
+    for (const filePath of this.getSessionFileCandidates(sessionId, file)) {
+      if (existsSync(filePath)) {
+        return this.readJsonlFile<T>(filePath)
+      }
+    }
+    return []
   }
 
   /**
    * Read requests for a session, falling back to legacy global requests.jsonl.
    */
   readSessionRequests(sessionId: string): RequestLogEntry[] {
-    const sessionFile = `${this.basePath}/sessions/${sessionId}/requests.jsonl`
-    if (existsSync(sessionFile)) {
-      return this.readJsonlFile<RequestLogEntry>(sessionFile)
-    }
+    const entries = this.readSessionEntries<RequestLogEntry>(sessionId, 'requests.jsonl')
+    if (entries.length > 0) return entries
 
     return this.readEntries<RequestLogEntry>('requests.jsonl')
       .filter((entry) => entry.sessionId === sessionId)
@@ -180,10 +277,8 @@ export class JsonlLogger {
    * Read task closure events for a session, falling back to legacy operations.jsonl.
    */
   readSessionClosures(sessionId: string): ClosureLogEntry[] {
-    const sessionFile = `${this.basePath}/sessions/${sessionId}/closure.jsonl`
-    if (existsSync(sessionFile)) {
-      return this.readJsonlFile<ClosureLogEntry>(sessionFile)
-    }
+    const entries = this.readSessionEntries<ClosureLogEntry>(sessionId, 'closure.jsonl')
+    if (entries.length > 0) return entries
 
     return this.readEntries<ClosureLogEntry>('operations.jsonl')
       .filter((entry) => {
@@ -201,10 +296,8 @@ export class JsonlLogger {
    * Read snapshots for a session, falling back to legacy global snapshots.jsonl.
    */
   readSessionSnapshots(sessionId: string): SnapshotEntry[] {
-    const sessionFile = `${this.basePath}/sessions/${sessionId}/snapshots.jsonl`
-    if (existsSync(sessionFile)) {
-      return this.readJsonlFile<SnapshotEntry>(sessionFile)
-    }
+    const entries = this.readSessionEntries<SnapshotEntry>(sessionId, 'snapshots.jsonl')
+    if (entries.length > 0) return entries
 
     return this.readEntries<SnapshotEntry>('snapshots.jsonl')
       .filter((entry) => entry.sessionId === sessionId)
@@ -221,16 +314,9 @@ export class JsonlLogger {
       deduped.set(entry.id, entry)
     }
 
-    const sessionsDir = `${this.basePath}/sessions`
-    if (existsSync(sessionsDir)) {
-      for (const dirent of readdirSync(sessionsDir, { withFileTypes: true })) {
-        if (!dirent.isDirectory()) continue
-        for (const entry of this.readSessionEntries<RequestLogEntry>(
-          dirent.name,
-          'requests.jsonl',
-        )) {
-          deduped.set(entry.id, entry)
-        }
+    for (const sessionDir of this.listSessionDirectories()) {
+      for (const entry of this.readJsonlFile<RequestLogEntry>(join(sessionDir, 'requests.jsonl'))) {
+        deduped.set(entry.id, entry)
       }
     }
 
@@ -247,16 +333,9 @@ export class JsonlLogger {
       deduped.set(entry.id, entry)
     }
 
-    const sessionsDir = `${this.basePath}/sessions`
-    if (existsSync(sessionsDir)) {
-      for (const dirent of readdirSync(sessionsDir, { withFileTypes: true })) {
-        if (!dirent.isDirectory()) continue
-        for (const entry of this.readSessionEntries<SnapshotEntry>(
-          dirent.name,
-          'snapshots.jsonl',
-        )) {
-          deduped.set(entry.id, entry)
-        }
+    for (const sessionDir of this.listSessionDirectories()) {
+      for (const entry of this.readJsonlFile<SnapshotEntry>(join(sessionDir, 'snapshots.jsonl'))) {
+        deduped.set(entry.id, entry)
       }
     }
 

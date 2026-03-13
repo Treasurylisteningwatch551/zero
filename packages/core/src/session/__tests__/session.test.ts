@@ -1,5 +1,8 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, test } from 'bun:test'
+import { existsSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { ModelRouter } from '@zero-os/model'
+import { JsonlLogger } from '@zero-os/observe'
 import type { SystemConfig } from '@zero-os/shared'
 import { BashTool } from '../../tool/bash'
 import { ReadTool } from '../../tool/read'
@@ -40,6 +43,7 @@ const config: SystemConfig = {
 }
 
 const secrets = new Map([['openai_codex_api_key', API_KEY]])
+const loggerDir = join(import.meta.dir, '__fixtures__/session-logs')
 
 function createRouter() {
   const router = new ModelRouter(config, secrets)
@@ -55,6 +59,10 @@ function createToolRegistry() {
 }
 
 describe('Session', () => {
+  afterAll(() => {
+    rmSync(join(import.meta.dir, '__fixtures__'), { recursive: true, force: true })
+  })
+
   test('creates with correct initial state', () => {
     const router = createRouter()
     const registry = createToolRegistry()
@@ -64,6 +72,21 @@ describe('Session', () => {
     expect(session.data.source).toBe('web')
     expect(session.data.status).toBe('active')
     expect(session.data.currentModel).toBe('openai-codex/gpt-5.3-codex-medium')
+  })
+
+  test('active sessions maintain _active symlink lifecycle', () => {
+    const router = createRouter()
+    const registry = createToolRegistry()
+    const logger = new JsonlLogger(loggerDir)
+    const sessionId = 'sess_20260313_1423_fei_a1b2'
+
+    const session = new Session('feishu', router, registry, { logger }, undefined, sessionId)
+    const activeLink = join(loggerDir, 'sessions', '_active', sessionId)
+
+    expect(existsSync(activeLink)).toBe(true)
+
+    session.setStatus('completed')
+    expect(existsSync(activeLink)).toBe(false)
   })
 
   test('/model command returns current model', async () => {
