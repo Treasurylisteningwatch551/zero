@@ -100,6 +100,43 @@ test('adds persisted task closure event when traces are unavailable', () => {
   }
 })
 
+test('orders task closure event after its assistant message when assistant timestamp is available', () => {
+  const messages: Message[] = [
+    {
+      id: 'msg_1',
+      role: 'assistant',
+      messageType: 'message',
+      content: [{ type: 'text', text: 'analysis result' }],
+      createdAt: '2026-03-08T00:00:02.000Z',
+    },
+  ]
+
+  const traces: TraceSpan[] = [
+    {
+      id: 'span_1',
+      sessionId: 'sess_1',
+      name: 'task_closure_decision',
+      startTime: '2026-03-08T00:00:01.100Z',
+      endTime: '2026-03-08T00:00:01.200Z',
+      durationMs: 100,
+      status: 'success',
+      metadata: {
+        called: true,
+        action: 'continue',
+        reason: 'remaining work is required',
+        assistantMessageId: 'msg_1',
+        assistantMessageCreatedAt: '2026-03-08T00:00:02.000Z',
+      },
+      children: [],
+    },
+  ]
+
+  const items = buildTimeline(messages, traces)
+  expect(items).toHaveLength(2)
+  expect(items[0].type).toBe('agent-text')
+  expect(items[1].type).toBe('system-event')
+})
+
 test('deduplicates persisted task closure events when matching trace spans exist', () => {
   const traces: TraceSpan[] = [
     {

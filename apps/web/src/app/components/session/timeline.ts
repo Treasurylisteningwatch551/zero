@@ -174,7 +174,7 @@ export function filterDuplicateTaskClosureEvents(
 
 
 function mapPersistedTaskClosureEvent(event: PersistedTaskClosureEvent): TimelineItem {
-  const createdAt = event.ts
+  const createdAt = event.assistantMessageCreatedAt ?? event.ts
 
   if (event.event === 'task_closure_skipped') {
     return {
@@ -216,7 +216,10 @@ function mapTaskClosureDecision(span: TraceSpan): TimelineItem | null {
   const action = typeof metadata.action === 'string' ? metadata.action : undefined
   const reason = typeof metadata.reason === 'string' ? metadata.reason : undefined
   const skipReason = typeof metadata.skipReason === 'string' ? metadata.skipReason : undefined
-  const createdAt = span.endTime ?? span.startTime
+  const assistantMessageCreatedAt = typeof metadata.assistantMessageCreatedAt === 'string'
+    ? metadata.assistantMessageCreatedAt
+    : undefined
+  const createdAt = assistantMessageCreatedAt ?? span.endTime ?? span.startTime
 
   if (!called) {
     return {
@@ -246,11 +249,14 @@ function mapTaskClosureDecision(span: TraceSpan): TimelineItem | null {
 function mapTaskClosureTrimFailed(span: TraceSpan): TimelineItem {
   const metadata = span.metadata ?? {}
   const reason = typeof metadata.reason === 'string' ? metadata.reason : 'trim failed'
+  const assistantMessageCreatedAt = typeof metadata.assistantMessageCreatedAt === 'string'
+    ? metadata.assistantMessageCreatedAt
+    : undefined
   return {
     type: 'system-event',
     variant: 'warning',
     text: `Task closure trim failed: ${reason}`,
-    createdAt: span.endTime ?? span.startTime,
+    createdAt: assistantMessageCreatedAt ?? span.endTime ?? span.startTime,
   }
 }
 
