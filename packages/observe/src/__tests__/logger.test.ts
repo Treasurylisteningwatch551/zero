@@ -196,12 +196,38 @@ describe('JsonlLogger', () => {
         prompt: '<instruction>prompt</instruction>',
         maxTokens: 200,
       },
+      classifierResponse: {
+        id: 'resp_classifier_1',
+        model: 'fake-model',
+        stopReason: 'end_turn' as const,
+        usage: { input: 5, output: 7 },
+        reasoningContent: 'classifier reasoning',
+        content: [
+          {
+            type: 'text' as const,
+            text: '{"action":"finish","reason":"sufficient_coverage","trimFrom":""}',
+          },
+        ],
+      },
     })
 
     const entries = logger.readSessionClosures('sess_closure')
     expect(entries).toHaveLength(1)
     expect(entries[0].event).toBe('task_closure_decision')
     expect(entries[0].assistantMessageId).toBe('msg_001')
+    expect(entries[0].classifierResponse).toEqual({
+      id: 'resp_classifier_1',
+      model: 'fake-model',
+      stopReason: 'end_turn' as const,
+      usage: { input: 5, output: 7 },
+      reasoningContent: 'classifier reasoning',
+      content: [
+        {
+          type: 'text' as const,
+          text: '{"action":"finish","reason":"sufficient_coverage","trimFrom":""}',
+        },
+      ],
+    })
   })
 
   test('logSessionClosure deduplicates repeated closure entries', () => {
@@ -216,6 +242,14 @@ describe('JsonlLogger', () => {
         system: 'strict classifier',
         prompt: '<instruction>prompt</instruction>',
         maxTokens: 200,
+      },
+      classifierResponse: {
+        id: 'resp_classifier_bad',
+        model: 'fake-model',
+        stopReason: 'end_turn' as const,
+        usage: { input: 5, output: 3 },
+        reasoningContent: 'classifier reasoning bad',
+        content: [{ type: 'text' as const, text: 'not-json' }],
       },
       classifierResponseRaw: 'not-json',
     }

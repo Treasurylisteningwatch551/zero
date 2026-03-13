@@ -6,6 +6,7 @@ export type {
   SnapshotEntry,
   ClosureLogEntry,
   ClosureLogEntryInput,
+  TaskClosureClassifierResponse,
   OperationLogEntry,
 } from './logger'
 export { MetricsDB } from './metrics'

@@ -1,6 +1,12 @@
 import type { ProviderAdapter } from '@zero-os/model'
 import { computeCost } from '@zero-os/model'
-import type { ClosureLogEntryInput, JsonlLogger, MetricsDB, Tracer } from '@zero-os/observe'
+import type {
+  ClosureLogEntryInput,
+  JsonlLogger,
+  MetricsDB,
+  TaskClosureClassifierResponse,
+  Tracer,
+} from '@zero-os/observe'
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -115,6 +121,7 @@ type PersistedTaskClosureEvent =
       action: 'finish' | 'continue' | 'block'
       reason: string
       classifierRequest: TaskClosureClassifierRequest
+      classifierResponse?: TaskClosureClassifierResponse
       trimFrom?: string
     }
   | {
@@ -123,6 +130,7 @@ type PersistedTaskClosureEvent =
       reason: 'invalid_classifier_output' | 'classifier_failed'
       failureStage: 'parse_classifier_response' | 'request_classifier'
       classifierRequest: TaskClosureClassifierRequest
+      classifierResponse?: TaskClosureClassifierResponse
       classifierResponseRaw?: string
       error?: string
     }
@@ -800,11 +808,12 @@ export class Agent {
         return {
           decision: validDecision,
           eventPayload: {
-          event: 'task_closure_decision',
-          sessionId: this.toolContext.sessionId,
-          action: validDecision.action,
-          reason: validDecision.reason,
-          classifierRequest,
+            event: 'task_closure_decision',
+            sessionId: this.toolContext.sessionId,
+            action: validDecision.action,
+            reason: validDecision.reason,
+            classifierRequest,
+            classifierResponse: result,
             ...(validDecision.action === 'continue' ? { trimFrom: validDecision.trimFrom } : {}),
           },
           traceSpanId: taskClosureSpan?.id,
@@ -832,6 +841,7 @@ export class Agent {
           reason: 'invalid_classifier_output',
           failureStage: 'parse_classifier_response',
           classifierRequest,
+          classifierResponse: result,
           classifierResponseRaw: text,
         },
         traceSpanId: taskClosureSpan?.id,

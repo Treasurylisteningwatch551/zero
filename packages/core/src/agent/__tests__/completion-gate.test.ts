@@ -33,13 +33,14 @@ const BLOCK_REPLY = '要继续线上核验，我需要你的账号登录态或�
 
 type ClassifierMode = 'continue' | 'finish' | 'block' | 'malformed' | 'throw'
 
-function createTextResponse(text: string): CompletionResponse {
+function createTextResponse(text: string, reasoningContent?: string): CompletionResponse {
   return {
     id: 'resp_test',
     content: [{ type: 'text', text }],
     stopReason: 'end_turn',
     usage: { input: 8, output: 8 },
     model: 'fake-model',
+    reasoningContent,
   }
 }
 
@@ -89,11 +90,14 @@ class TaskClosureAdapter implements ProviderAdapter {
       }
 
       if (this.mode === 'malformed') {
-        return createTextResponse('not-json')
+        return createTextResponse('not-json', 'classifier reasoning before malformed output')
       }
 
       if (this.mode === 'block') {
-        return createTextResponse('{"action":"block","reason":"缺少登录态","trimFrom":""}')
+        return createTextResponse(
+          '{"action":"block","reason":"缺少登录态","trimFrom":""}',
+          'classifier reasoning for block',
+        )
       }
 
       const prompt = getTextFromRequest(request)
@@ -106,10 +110,14 @@ class TaskClosureAdapter implements ProviderAdapter {
             reason: '后续核验仍属于当前任务',
             trimFrom: OPTIONAL_TAIL,
           }),
+          'classifier reasoning for continue',
         )
       }
 
-      return createTextResponse('{"action":"finish","reason":"当前回复应直接结束","trimFrom":""}')
+      return createTextResponse(
+        '{"action":"finish","reason":"当前回复应直接结束","trimFrom":""}',
+        'classifier reasoning for finish',
+      )
     }
 
     this.normalCalls++
@@ -352,6 +360,23 @@ describe('Agent task closure gate', () => {
       action: 'continue',
       reason: '后续核验仍属于当前任务',
       trimFrom: OPTIONAL_TAIL,
+      classifierResponse: {
+        id: 'resp_test',
+        model: 'fake-model',
+        stopReason: 'end_turn',
+        usage: { input: 8, output: 8 },
+        reasoningContent: 'classifier reasoning for continue',
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              action: 'continue',
+              reason: '后续核验仍属于当前任务',
+              trimFrom: OPTIONAL_TAIL,
+            }),
+          },
+        ],
+      },
       classifierRequest: {
         system: expect.stringContaining('严格的任务收尾判定器'),
         prompt: expect.stringContaining('<assistant_tail>'),
@@ -380,6 +405,14 @@ describe('Agent task closure gate', () => {
       failureStage: 'parse_classifier_response',
       assistantMessageId: expect.any(String),
       assistantMessageCreatedAt: expect.any(String),
+      classifierResponse: {
+        id: 'resp_test',
+        model: 'fake-model',
+        stopReason: 'end_turn',
+        usage: { input: 8, output: 8 },
+        reasoningContent: 'classifier reasoning before malformed output',
+        content: [{ type: 'text', text: 'not-json' }],
+      },
       classifierRequest: {
         system: expect.stringContaining('严格的任务收尾判定器'),
         prompt: expect.stringContaining('<assistant_tail>'),

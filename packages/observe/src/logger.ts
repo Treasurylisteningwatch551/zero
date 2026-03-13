@@ -17,7 +17,7 @@ import {
   now,
   type SessionStatus,
 } from '@zero-os/shared'
-import type { StopReason } from '@zero-os/shared'
+import type { CompletionResponse, StopReason } from '@zero-os/shared'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -75,6 +75,8 @@ export interface TaskClosureClassifierRequest {
   maxTokens: number
 }
 
+export type TaskClosureClassifierResponse = CompletionResponse
+
 export interface OperationLogEntry {
   ts: string
   level: LogLevel
@@ -96,6 +98,7 @@ export interface TaskClosureDecisionLogEntry {
   assistantMessageId?: string
   assistantMessageCreatedAt?: string
   classifierRequest: TaskClosureClassifierRequest
+  classifierResponse?: TaskClosureClassifierResponse
   trimFrom?: string
 }
 
@@ -108,6 +111,7 @@ export interface TaskClosureFailedLogEntry {
   assistantMessageId?: string
   assistantMessageCreatedAt?: string
   classifierRequest: TaskClosureClassifierRequest
+  classifierResponse?: TaskClosureClassifierResponse
   classifierResponseRaw?: string
   error?: string
 }
@@ -372,6 +376,7 @@ export class JsonlLogger {
         assistantMessageId: entry.assistantMessageId ?? '',
         action: entry.action,
         reason: entry.reason,
+        classifierResponse: entry.classifierResponse ?? null,
         trimFrom: entry.trimFrom ?? '',
       })
     }
@@ -381,6 +386,7 @@ export class JsonlLogger {
       assistantMessageId: entry.assistantMessageId ?? '',
       reason: entry.reason,
       failureStage: entry.failureStage,
+      classifierResponse: entry.classifierResponse ?? null,
       classifierResponseRaw: entry.classifierResponseRaw ?? '',
       error: entry.error ?? '',
     })
