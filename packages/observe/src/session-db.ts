@@ -112,25 +112,25 @@ export class SessionDB {
 
     // Migration: add system_prompt column
     try {
-      this.db.run(`ALTER TABLE sessions ADD COLUMN system_prompt TEXT`)
+      this.db.run('ALTER TABLE sessions ADD COLUMN system_prompt TEXT')
     } catch {
       // Column already exists
     }
 
     try {
-      this.db.run(`ALTER TABLE sessions ADD COLUMN channel_name TEXT`)
+      this.db.run('ALTER TABLE sessions ADD COLUMN channel_name TEXT')
     } catch {
       // Column already exists
     }
 
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)`)
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_channel ON sessions(source, channel_id)`)
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)')
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_sessions_channel ON sessions(source, channel_id)')
     this.db.run(
-      `CREATE INDEX IF NOT EXISTS idx_sessions_channel_instance ON sessions(source, channel_name, channel_id)`,
+      'CREATE INDEX IF NOT EXISTS idx_sessions_channel_instance ON sessions(source, channel_name, channel_id)',
     )
-    this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at)`)
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at)')
     this.db.run(
-      `CREATE INDEX IF NOT EXISTS idx_channel_models_updated ON channel_models(updated_at)`,
+      'CREATE INDEX IF NOT EXISTS idx_channel_models_updated ON channel_models(updated_at)',
     )
 
     this.db.run(`
@@ -209,7 +209,7 @@ export class SessionDB {
   ): string | undefined {
     const row = this.db
       .query(
-        `SELECT model FROM channel_models WHERE source = ? AND channel_name = ? AND channel_id = ?`,
+        'SELECT model FROM channel_models WHERE source = ? AND channel_name = ? AND channel_id = ?',
       )
       .get(source, channelName ?? '', channelId) as { model: string } | null
     return row?.model ?? undefined
@@ -223,7 +223,7 @@ export class SessionDB {
   }> {
     const rows = this.db
       .query(
-        `SELECT source, channel_name, channel_id, model, updated_at FROM channel_models ORDER BY updated_at DESC`,
+        'SELECT source, channel_name, channel_id, model, updated_at FROM channel_models ORDER BY updated_at DESC',
       )
       .all() as RawChannelModelRow[]
 
@@ -239,7 +239,7 @@ export class SessionDB {
    * Update session status only.
    */
   updateStatus(sessionId: string, status: SessionStatus, updatedAt: string): void {
-    this.db.run(`UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?`, [
+    this.db.run('UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?', [
       status,
       updatedAt,
       sessionId,
@@ -261,7 +261,7 @@ export class SessionDB {
    */
   loadSessionMessages(sessionId: string): Message[] {
     const row = this.db
-      .query(`SELECT messages_json FROM session_messages WHERE session_id = ?`)
+      .query('SELECT messages_json FROM session_messages WHERE session_id = ?')
       .get(sessionId) as RawMessagesRow | null
     if (!row) return []
     return JSON.parse(row.messages_json) as Message[]
@@ -303,7 +303,7 @@ export class SessionDB {
    */
   getSession(sessionId: string): SessionRow | null {
     const row = this.db
-      .query(`SELECT * FROM sessions WHERE id = ?`)
+      .query('SELECT * FROM sessions WHERE id = ?')
       .get(sessionId) as RawSessionRow | null
     if (!row) return null
     return toSessionRow(row)
@@ -340,8 +340,8 @@ export class SessionDB {
    * Permanently delete a session and its messages.
    */
   deleteSession(sessionId: string): boolean {
-    this.db.run(`DELETE FROM session_messages WHERE session_id = ?`, [sessionId])
-    const result = this.db.run(`DELETE FROM sessions WHERE id = ?`, [sessionId])
+    this.db.run('DELETE FROM session_messages WHERE session_id = ?', [sessionId])
+    const result = this.db.run('DELETE FROM sessions WHERE id = ?', [sessionId])
     return result.changes > 0
   }
 
@@ -373,7 +373,7 @@ export class SessionDB {
   }
 
   deleteSchedule(name: string): boolean {
-    const result = this.db.run(`DELETE FROM schedules WHERE name = ?`, [name])
+    const result = this.db.run('DELETE FROM schedules WHERE name = ?', [name])
     return result.changes > 0
   }
 

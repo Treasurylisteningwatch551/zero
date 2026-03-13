@@ -21,7 +21,7 @@ export class WriteTool extends BaseTool {
     required: ['path', 'content'],
   }
 
-  protected async execute(ctx: ToolContext, input: unknown): Promise<ToolResult> {
+  protected async execute(_ctx: ToolContext, input: unknown): Promise<ToolResult> {
     const { path, content } = input as WriteInput
 
     return withLock(path, async () => {

@@ -161,6 +161,7 @@ export function SessionsPage() {
             {['all', 'active', 'completed', 'archived'].map((f) => (
               <button
                 key={f}
+                type="button"
                 onClick={() => setFilter(f)}
                 className={`px-3 py-1 rounded-md text-[12px] transition-colors ${
                   filter === f
@@ -194,6 +195,7 @@ export function SessionsPage() {
           {SOURCE_FILTERS.map((sf) => (
             <button
               key={sf}
+              type="button"
               onClick={() => setSourceFilter(sf)}
               className={`px-2.5 py-0.5 rounded text-[11px] transition-colors ${
                 sourceFilter === sf
@@ -260,6 +262,7 @@ export function SessionsPage() {
                   <span className="flex-1" />
                   {showChannelButton && (
                     <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation()
                         openChannelDetail(s)

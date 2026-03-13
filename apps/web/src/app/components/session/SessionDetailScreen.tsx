@@ -263,7 +263,7 @@ export function SessionDetailScreen({
       emptyState ?? (
         <div className="p-6 text-center text-[var(--color-text-muted)]">
           No session selected.{' '}
-          <button onClick={goBack} className="text-[var(--color-accent)] underline">
+          <button type="button" onClick={goBack} className="text-[var(--color-accent)] underline">
             Back to sessions
           </button>
         </div>
@@ -275,6 +275,7 @@ export function SessionDetailScreen({
     return (
       <div className="p-6 max-w-[1400px] mx-auto">
         <button
+          type="button"
           onClick={goBack}
           className="flex items-center gap-1.5 text-[13px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors mb-4"
         >
@@ -313,6 +314,7 @@ export function SessionDetailScreen({
     return (
       <div className="p-6 max-w-[1400px] mx-auto">
         <button
+          type="button"
           onClick={goBack}
           className="flex items-center gap-1.5 text-[13px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors mb-4"
         >
@@ -328,6 +330,7 @@ export function SessionDetailScreen({
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
       <button
+        type="button"
         onClick={goBack}
         className="flex items-center gap-1.5 text-[13px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors mb-4"
       >

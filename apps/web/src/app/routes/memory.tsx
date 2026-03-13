@@ -210,6 +210,7 @@ export function MemoryPage() {
           {/* Type filters */}
           <div className="flex flex-wrap gap-1.5">
             <button
+              type="button"
               onClick={() => {
                 setSelectedType('all')
                 setSearch('')
@@ -225,6 +226,7 @@ export function MemoryPage() {
             {memoryTypes.map((type) => (
               <button
                 key={type}
+                type="button"
                 onClick={() => {
                   setSelectedType(type)
                   setSearch('')
@@ -288,6 +290,7 @@ export function MemoryPage() {
               {filteredMemories.map((mem) => (
                 <button
                   key={mem.id}
+                  type="button"
                   onClick={() => {
                     setSelected(mem)
                     setEditing(false)
@@ -336,6 +339,7 @@ export function MemoryPage() {
                 </div>
                 {!editing ? (
                   <button
+                    type="button"
                     onClick={startEdit}
                     className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] hover:bg-white/[0.05] transition-colors"
                   >
@@ -345,6 +349,7 @@ export function MemoryPage() {
                 ) : (
                   <div className="flex items-center gap-1">
                     <button
+                      type="button"
                       onClick={saveEdit}
                       disabled={editSaving}
                       className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-emerald-400 hover:bg-emerald-400/10 transition-colors disabled:opacity-40"
@@ -353,6 +358,7 @@ export function MemoryPage() {
                       {editSaving ? 'Saving...' : 'Save'}
                     </button>
                     <button
+                      type="button"
                       onClick={cancelEdit}
                       className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-[var(--color-text-muted)] hover:bg-white/[0.05] transition-colors"
                     >

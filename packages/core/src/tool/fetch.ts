@@ -149,8 +149,7 @@ export class FetchTool extends BaseTool {
       // Truncate if too long
       if (outputBody.length > MAX_BODY_LENGTH) {
         truncated = true
-        outputBody =
-          outputBody.slice(0, MAX_BODY_LENGTH) + '\n\n[Content truncated at 100,000 characters]'
+        outputBody = `${outputBody.slice(0, MAX_BODY_LENGTH)}\n\n[Content truncated at 100,000 characters]`
       }
 
       const statusPrefix = `HTTP ${status}`
@@ -191,7 +190,7 @@ function resolveFormat(format: FetchFormat, contentType: string): 'html' | 'json
   return 'text'
 }
 
-function htmlToMarkdown(html: string, url: string): string {
+function htmlToMarkdown(html: string, _url: string): string {
   const { document } = parseHTML(html)
 
   // Use Readability to extract main content

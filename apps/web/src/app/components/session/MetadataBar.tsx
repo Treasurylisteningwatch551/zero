@@ -76,6 +76,7 @@ export function MetadataBar({
         </div>
         <div className="flex items-center gap-2">
           <button
+            type="button"
             onClick={() => setShowDeleteConfirm(true)}
             className="px-3 py-1.5 rounded-md text-[11px] text-red-400/70 border border-red-400/20 hover:text-red-400 hover:border-red-400/40 hover:bg-red-400/5 transition-colors flex items-center gap-1.5"
           >
@@ -83,6 +84,7 @@ export function MetadataBar({
             Delete
           </button>
           <button
+            type="button"
             onClick={() => setShowArchiveConfirm(true)}
             className="px-3 py-1.5 rounded-md text-[11px] text-[var(--color-text-muted)] border border-[var(--color-border)] hover:text-red-400 hover:border-red-400/30 transition-colors flex items-center gap-1.5"
           >

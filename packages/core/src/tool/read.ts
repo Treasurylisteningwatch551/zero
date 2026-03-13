@@ -21,7 +21,7 @@ export class ReadTool extends BaseTool {
     required: ['path'],
   }
 
-  protected async execute(ctx: ToolContext, input: unknown): Promise<ToolResult> {
+  protected async execute(_ctx: ToolContext, input: unknown): Promise<ToolResult> {
     const { path, offset, limit } = input as ReadInput
 
     if (!existsSync(path)) {

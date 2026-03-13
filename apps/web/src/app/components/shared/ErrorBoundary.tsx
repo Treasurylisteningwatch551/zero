@@ -32,6 +32,7 @@ export class ErrorBoundary extends Component<Props, State> {
             {this.state.error?.message ?? 'Unknown error'}
           </p>
           <button
+            type="button"
             onClick={this.handleRetry}
             className="px-3 py-1.5 rounded-md text-[12px] bg-red-400/10 text-red-400 hover:bg-red-400/20 transition-colors"
           >

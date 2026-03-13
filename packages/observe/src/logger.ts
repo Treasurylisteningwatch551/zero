@@ -101,7 +101,7 @@ export class JsonlLogger {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true })
     }
-    appendFileSync(filePath, JSON.stringify(data) + '\n', 'utf-8')
+    appendFileSync(filePath, `${JSON.stringify(data)}\n`, 'utf-8')
   }
 
   /**

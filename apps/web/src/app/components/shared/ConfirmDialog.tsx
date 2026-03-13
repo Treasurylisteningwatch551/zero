@@ -63,6 +63,7 @@ export function ConfirmDialog({
 
         <div className="flex justify-end gap-2 mt-5">
           <button
+            type="button"
             onClick={onCancel}
             disabled={loading}
             className="px-4 py-2 rounded-lg text-[13px] text-[var(--color-text-secondary)] border border-[var(--color-border)] hover:bg-white/[0.04] transition-colors disabled:opacity-40"
@@ -70,6 +71,7 @@ export function ConfirmDialog({
             {cancelText}
           </button>
           <button
+            type="button"
             onClick={handleConfirm}
             disabled={loading}
             className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors disabled:opacity-40 ${

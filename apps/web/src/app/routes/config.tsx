@@ -222,6 +222,7 @@ export function ConfigPage() {
         {TABS.map((t) => (
           <button
             key={t.key}
+            type="button"
             onClick={() => setTab(t.key)}
             className={`px-4 py-1.5 rounded-md text-[13px] transition-colors ${
               tab === t.key
@@ -276,6 +277,7 @@ export function ConfigPage() {
                           </span>
                           {isChatgpt && (
                             <button
+                              type="button"
                               onClick={handleConnectChatgpt}
                               disabled={chatgptConnecting}
                               className="text-[11px] px-2 py-1 rounded-md bg-[var(--color-accent-glow)] text-[var(--color-accent)] hover:opacity-90 disabled:opacity-50"
@@ -303,6 +305,7 @@ export function ConfigPage() {
                         </p>
                       </div>
                       <button
+                        type="button"
                         onClick={handleConnectChatgpt}
                         disabled={chatgptConnecting}
                         className="text-[11px] px-2 py-1 rounded-md bg-[var(--color-accent-glow)] text-[var(--color-accent)] hover:opacity-90 disabled:opacity-50"
@@ -438,6 +441,7 @@ export function ConfigPage() {
                   Secrets
                 </h3>
                 <button
+                  type="button"
                   onClick={() => setShowAddSecret((v) => !v)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-border-hover)] transition-colors"
                 >
@@ -462,6 +466,7 @@ export function ConfigPage() {
                     className="flex-1 px-2 py-1.5 rounded-md text-[12px] bg-[var(--color-bg-secondary)] border border-[var(--color-border)] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-disabled)] focus:outline-none focus:border-[var(--color-accent)]"
                   />
                   <button
+                    type="button"
                     onClick={handleAddSecret}
                     disabled={secretSaving || !newSecretKey.trim() || !newSecretValue.trim()}
                     className="px-3 py-1.5 rounded-md text-[12px] bg-[var(--color-accent)] text-white hover:opacity-90 transition-opacity disabled:opacity-40"
@@ -469,6 +474,7 @@ export function ConfigPage() {
                     {secretSaving ? 'Saving...' : 'Save'}
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
                       setShowAddSecret(false)
                       setNewSecretKey('')
@@ -502,12 +508,14 @@ export function ConfigPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <button
+                          type="button"
                           onClick={() => toggleReveal(s.key)}
                           className="p-1.5 rounded-md hover:bg-white/[0.05] text-[var(--color-text-muted)]"
                         >
                           {revealedKeys.has(s.key) ? <EyeSlash size={14} /> : <Eye size={14} />}
                         </button>
                         <button
+                          type="button"
                           onClick={() => setDeleteSecretKey(s.key)}
                           className="p-1.5 rounded-md hover:bg-red-400/10 text-[var(--color-text-muted)] hover:text-red-400"
                         >
@@ -664,6 +672,7 @@ export function ConfigPage() {
                           {lastStableTag}
                         </span>
                         <button
+                          type="button"
                           onClick={() => setShowRollbackConfirm(true)}
                           disabled={rollbackLoading}
                           className="text-[11px] px-2 py-0.5 rounded-md bg-red-400/10 text-red-400 hover:bg-red-400/20 transition-colors disabled:opacity-40"

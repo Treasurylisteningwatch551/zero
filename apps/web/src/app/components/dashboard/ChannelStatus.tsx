@@ -20,7 +20,7 @@ export function ChannelStatus() {
   }, [])
 
   // WebSocket real-time channel status updates
-  const onEvent = useCallback((topic: string, data: unknown) => {
+  const onEvent = useCallback((topic: string, _data: unknown) => {
     if (topic === 'heartbeat') {
       // Re-fetch channel status on heartbeat
       apiFetch<{ channels: Channel[] }>('/api/channels/status')

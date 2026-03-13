@@ -115,6 +115,7 @@ export function ToolsPage() {
           </div>
           {/* Toggle switch */}
           <button
+            type="button"
             onClick={() => requestToggle(tool.name)}
             className={`relative w-9 h-5 rounded-full transition-colors ${
               isEnabled ? 'bg-[var(--color-accent)]' : 'bg-white/[0.1]'
@@ -131,6 +132,7 @@ export function ToolsPage() {
         {tool.parameters && Object.keys(tool.parameters).length > 0 && (
           <div>
             <button
+              type="button"
               onClick={() => toggleExpand(tool.name)}
               className="text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors"
             >
@@ -158,6 +160,7 @@ export function ToolsPage() {
         {FILTERS.map((f) => (
           <button
             key={f.key}
+            type="button"
             onClick={() => setFilter(f.key)}
             className={`px-4 py-1.5 rounded-md text-[13px] transition-colors ${
               filter === f.key

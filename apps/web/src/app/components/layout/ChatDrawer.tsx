@@ -201,6 +201,7 @@ export function ChatDrawer() {
           </span>
         </div>
         <button
+          type="button"
           onClick={toggleChatDrawer}
           className="p-1 rounded-md hover:bg-white/[0.05] text-[var(--color-text-muted)]"
         >
@@ -284,6 +285,7 @@ export function ChatDrawer() {
             }}
           />
           <button
+            type="button"
             className="p-2 rounded-lg bg-[var(--color-accent)] text-[var(--color-deep-bg)] hover:bg-[var(--color-accent-hover)] transition-colors disabled:opacity-40 shrink-0"
             disabled={!message.trim() || loading}
             onClick={sendMessage}

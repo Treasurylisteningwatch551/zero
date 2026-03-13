@@ -84,6 +84,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
       <div className={`flex items-center ${isCollapsed ? 'justify-center py-3' : 'px-5 py-5'}`}>
         {isCollapsed ? (
           <button
+            type="button"
             onClick={toggleSidebar}
             className="p-1 rounded-md hover:bg-white/[0.05] text-[var(--color-text-muted)]"
           >
@@ -101,10 +102,11 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
         {navItems.map((item) => {
           const isActive =
             location.pathname === item.path ||
-            (item.path !== '/' && location.pathname.startsWith(item.path + '/'))
+            (item.path !== '/' && location.pathname.startsWith(`${item.path}/`))
           return (
             <button
               key={item.path}
+              type="button"
               onClick={() => navigate({ to: item.path })}
               title={isCollapsed ? item.name : undefined}
               className={`w-full flex items-center ${isCollapsed ? 'justify-center px-0 py-2' : 'gap-3 px-3 py-2'} rounded-lg text-[13px] transition-colors ${
@@ -131,6 +133,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
               <span className="text-[11px] text-[var(--color-text-secondary)]">Running</span>
             </div>
             <button
+              type="button"
               onClick={() => setShowModelPicker((v) => !v)}
               className="flex items-center gap-1 text-[11px] font-mono text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors w-full text-left"
             >
@@ -147,6 +150,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                 {models.map((m) => (
                   <button
                     key={m}
+                    type="button"
                     onClick={() => switchModel(m)}
                     className={`w-full text-left px-3 py-1.5 text-[11px] font-mono transition-colors ${
                       m === currentModel
@@ -163,9 +167,10 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
         )}
 
         <button
+          type="button"
           onClick={toggleChatDrawer}
           title={isCollapsed ? 'Chat' : undefined}
-          className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-border-hover)] transition-colors`}
+          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-accent)] hover:border-[var(--color-border-hover)] transition-colors"
         >
           <ChatCircle size={18} />
           {!isCollapsed && <span className="text-[12px]">Chat</span>}

@@ -467,6 +467,7 @@ export function LogsPage() {
             {LOG_TYPES.map((t) => (
               <button
                 key={t}
+                type="button"
                 onClick={() => {
                   setLogType(t)
                   setExpandedRow(null)
@@ -484,6 +485,7 @@ export function LogsPage() {
 
           {/* Live button */}
           <button
+            type="button"
             onClick={() => setIsLive(!isLive)}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] transition-colors ${
               isLive
@@ -505,6 +507,7 @@ export function LogsPage() {
               {(['info', 'warn', 'error'] as const).map((lvl) => (
                 <button
                   key={lvl}
+                  type="button"
                   onClick={() => toggleLevel(lvl)}
                   className={`flex items-center gap-1.5 px-2 py-1 rounded text-[11px] transition-colors ${
                     levels.has(lvl)
@@ -577,6 +580,7 @@ export function LogsPage() {
         {/* Jump to latest FAB */}
         {userScrolledUp && !loading && filtered.length > 0 && (
           <button
+            type="button"
             onClick={() => {
               scrollRef.current?.scrollTo({
                 top: scrollRef.current.scrollHeight,

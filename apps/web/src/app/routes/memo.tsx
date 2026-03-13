@@ -186,6 +186,7 @@ export function MemoPage() {
             {VIEW_MODES.map((mode) => (
               <button
                 key={mode.key}
+                type="button"
                 onClick={() => setViewMode(mode.key)}
                 title={mode.label}
                 className={`px-2.5 py-1.5 text-[12px] flex items-center gap-1.5 transition-colors ${
@@ -201,6 +202,7 @@ export function MemoPage() {
           </div>
 
           <button
+            type="button"
             onClick={() => saveMemo()}
             disabled={saving || saveStatus === 'saved'}
             className="px-3 py-1.5 rounded-lg text-[12px] bg-[var(--color-accent)] text-[var(--color-deep-bg)] hover:bg-[var(--color-accent-hover)] transition-colors disabled:opacity-40"

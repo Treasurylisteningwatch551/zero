@@ -22,7 +22,7 @@ export class EditTool extends BaseTool {
     required: ['path', 'oldText', 'newText'],
   }
 
-  protected async execute(ctx: ToolContext, input: unknown): Promise<ToolResult> {
+  protected async execute(_ctx: ToolContext, input: unknown): Promise<ToolResult> {
     const { path, oldText, newText } = input as EditInput
 
     if (!existsSync(path)) {

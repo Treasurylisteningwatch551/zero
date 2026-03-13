@@ -797,6 +797,7 @@ export function MetricsPage() {
           {TABS.map((tab) => (
             <button
               key={tab.key}
+              type="button"
               onClick={() => setActiveTab(tab.key)}
               className={`px-4 py-1.5 rounded-md text-[13px] transition-colors ${
                 activeTab === tab.key
@@ -814,6 +815,7 @@ export function MetricsPage() {
           {RANGES.map((r) => (
             <button
               key={r}
+              type="button"
               onClick={() => setRange(r)}
               className={`px-3 py-1 rounded-md text-[12px] transition-colors ${
                 range === r

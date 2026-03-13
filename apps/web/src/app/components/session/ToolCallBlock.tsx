@@ -76,6 +76,7 @@ export function ToolCallBlock({
         )}
         {hasResult && (
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation()
               setExpanded(!expanded)

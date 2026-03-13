@@ -390,7 +390,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     }
     notifications.push(notification)
     // Persist to JSONL
-    appendFileSync(notificationsPath, JSON.stringify(notification) + '\n')
+    appendFileSync(notificationsPath, `${JSON.stringify(notification)}\n`)
     // Emit to bus so WS clients receive it
     globalBus.emit('notification', {
       notification,

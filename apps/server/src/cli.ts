@@ -81,10 +81,10 @@ async function init() {
       vault.set(apiKeyRef, apiKey)
       console.log(`  API key: stored as "${apiKeyRef}"`)
     } else {
-      console.log(`\n  ⚠  No API key found. Run:`)
-      console.log(`     bun zero init <your-api-key>`)
-      console.log(`     or:`)
-      console.log(`     bun zero secret set openai_codex_api_key <your-api-key>`)
+      console.log('\n  ⚠  No API key found. Run:')
+      console.log('     bun zero init <your-api-key>')
+      console.log('     or:')
+      console.log('     bun zero secret set openai_codex_api_key <your-api-key>')
     }
   } else {
     console.log(`  API key: "${apiKeyRef}" already configured`)

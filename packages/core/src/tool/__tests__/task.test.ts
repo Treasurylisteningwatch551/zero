@@ -134,7 +134,7 @@ describe('TaskTool', () => {
     router.init()
     const taskTool = new TaskTool(router, registry)
 
-    const start = Date.now()
+    const _start = Date.now()
     const result = await taskTool.run(ctx, {
       tasks: [
         {

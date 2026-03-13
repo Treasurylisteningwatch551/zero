@@ -123,6 +123,7 @@ export function AttentionCard() {
                 )}
                 {n.actionable && (
                   <button
+                    type="button"
                     onClick={() => handleAction(n)}
                     className="text-[11px] px-2 py-0.5 rounded bg-cyan-400 text-[var(--color-deep-bg)] font-medium hover:bg-cyan-300 transition-colors"
                   >
@@ -130,15 +131,17 @@ export function AttentionCard() {
                   </button>
                 )}
                 {n.sessionId && !n.actionable && (
-                  <span
+                  <button
+                    type="button"
                     className="text-[11px] text-[var(--color-accent)] cursor-pointer hover:underline"
                     onClick={() => handleAction(n)}
                   >
                     详情
-                  </span>
+                  </button>
                 )}
                 {n.id && (
                   <button
+                    type="button"
                     onClick={() => handleDismiss(n.id)}
                     className="text-[11px] text-[var(--color-text-disabled)] hover:text-[var(--color-text-muted)] transition-colors"
                   >
@@ -152,12 +155,13 @@ export function AttentionCard() {
       </div>
 
       {hasMore && (
-        <p
+        <button
+          type="button"
           className="text-[12px] text-[var(--color-accent)] mt-3 cursor-pointer hover:underline"
           onClick={() => setCurrentPage('logs')}
         >
           View all in Logs ({notifications.length} total)
-        </p>
+        </button>
       )}
     </div>
   )

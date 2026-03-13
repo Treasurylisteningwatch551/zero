@@ -188,6 +188,7 @@ export function ContextPanel({
         {(['summary', 'trace'] as const).map((t) => (
           <button
             key={t}
+            type="button"
             onClick={() => setTab(t)}
             className={`px-2 py-1 rounded text-[11px] transition-colors ${
               tab === t
@@ -211,6 +212,7 @@ export function ContextPanel({
           {systemPrompt && (
             <Section title="System Prompt">
               <button
+                type="button"
                 onClick={() => setPromptExpanded(!promptExpanded)}
                 className="text-[11px] text-[var(--color-accent)] hover:underline mb-1"
               >

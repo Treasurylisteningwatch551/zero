@@ -21,10 +21,11 @@ export function TabBar() {
       {tabItems.map((item) => {
         const isActive =
           location.pathname === item.path ||
-          (item.path !== '/' && location.pathname.startsWith(item.path + '/'))
+          (item.path !== '/' && location.pathname.startsWith(`${item.path}/`))
         return (
           <button
             key={item.path}
+            type="button"
             onClick={() => navigate({ to: item.path })}
             className={`flex flex-col items-center gap-0.5 py-2 px-3 transition-colors ${
               isActive ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-muted)]'

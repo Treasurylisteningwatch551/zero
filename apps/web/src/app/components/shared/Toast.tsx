@@ -58,6 +58,7 @@ export function ToastContainer() {
               {toast.message}
             </span>
             <button
+              type="button"
               onClick={() => removeToast(toast.id)}
               className="shrink-0 p-0.5 rounded hover:bg-white/[0.08] text-[var(--color-text-disabled)] hover:text-[var(--color-text-muted)] transition-colors"
             >
