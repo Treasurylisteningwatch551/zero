@@ -6,7 +6,9 @@ import type {
   CompletionResponse,
   StreamEvent,
   ToolContext,
+  ToolResult,
 } from '@zero-os/shared'
+import { BaseTool } from '../../tool/base'
 import { ToolRegistry } from '../../tool/registry'
 import { Agent, type AgentContext } from '../agent'
 
@@ -87,6 +89,61 @@ class FallbackAdapter implements ProviderAdapter {
       stopReason: 'end_turn',
       usage: { input: 1, output: 1 },
       model: 'fake-fallback',
+    }
+  }
+
+  async *stream(_req: CompletionRequest): AsyncIterable<StreamEvent> {
+    yield* failStream(new Error('stream failed'))
+  }
+
+  async healthCheck(): Promise<boolean> {
+    return true
+  }
+}
+
+class NoopTool extends BaseTool {
+  name = 'noop'
+  description = 'Returns ok'
+  parameters = { type: 'object', properties: {} }
+
+  protected async execute(_ctx: ToolContext, _input: unknown): Promise<ToolResult> {
+    return { success: true, output: 'ok', outputSummary: 'ok' }
+  }
+}
+
+class ToolLoopAdapter implements ProviderAdapter {
+  readonly apiType = 'fake-tool-loop'
+  completeCalls = 0
+
+  async complete(_req: CompletionRequest): Promise<CompletionResponse> {
+    this.completeCalls += 1
+
+    if (this.completeCalls === 1) {
+      return {
+        id: 'resp_tool_1',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'noop', input: {} }],
+        stopReason: 'tool_use',
+        usage: { input: 5, output: 2 },
+        model: 'fake-tool-loop',
+      }
+    }
+
+    if (this.completeCalls === 2) {
+      return {
+        id: 'resp_tool_2',
+        content: [{ type: 'tool_use', id: 'call_2', name: 'noop', input: {} }],
+        stopReason: 'tool_use',
+        usage: { input: 6, output: 2 },
+        model: 'fake-tool-loop',
+      }
+    }
+
+    return {
+      id: 'resp_final',
+      content: [{ type: 'text', text: 'done' }],
+      stopReason: 'end_turn',
+      usage: { input: 7, output: 3 },
+      model: 'fake-tool-loop',
     }
   }
 
@@ -316,5 +373,57 @@ describe('Agent streaming callback', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0].reasoningContent).toBe('step 1. step 2.')
     expect((entries[0].tokens as Record<string, unknown>).reasoning).toBe(7)
+  })
+
+  test('tool_use retries share turnIndex and chain parentId to the prior response id', async () => {
+    const entries: Array<Record<string, unknown>> = []
+    const adapter = new ToolLoopAdapter()
+    const registry = new ToolRegistry()
+    registry.register(new NoopTool())
+    const logger = Object.assign(Object.create(JsonlLogger.prototype), {
+      logSessionRequest(entry: Record<string, unknown>) {
+        entries.push(entry)
+      },
+      logSessionClosure() {},
+    }) as JsonlLogger
+    const agent = new Agent(
+      {
+        name: 'stream-agent',
+        agentInstruction: 'test',
+      },
+      adapter,
+      registry,
+      {
+        sessionId: 'sess-stream',
+        workDir: process.cwd(),
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+      },
+      {
+        logger,
+      },
+    )
+
+    const messages = await agent.run(
+      createContext(),
+      'use tools',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        turnIndex: 4,
+      },
+    )
+
+    expect(messages.at(-1)?.role).toBe('assistant')
+    expect(entries).toHaveLength(3)
+    expect(entries.map((entry) => entry.turnIndex)).toEqual([4, 4, 4])
+    expect(entries.map((entry) => entry.parentId ?? null)).toEqual([
+      null,
+      'resp_tool_1',
+      'resp_tool_2',
+    ])
+    expect(entries.map((entry) => entry.id)).toEqual(['resp_tool_1', 'resp_tool_2', 'resp_final'])
   })
 })

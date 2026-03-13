@@ -47,6 +47,7 @@ describe('JsonlLogger', () => {
     const logger = new JsonlLogger(testDir)
     logger.logRequest({
       id: 'req_001',
+      turnIndex: 1,
       sessionId: 'sess_test',
       model: 'gpt-5.3-codex-medium',
       provider: 'openai-codex',
@@ -75,6 +76,7 @@ describe('JsonlLogger', () => {
     const logger = new JsonlLogger(testDir)
     logger.logSessionRequest({
       id: 'req_session_001',
+      turnIndex: 1,
       sessionId: 'sess_scoped',
       model: 'gpt-5.4',
       provider: 'openai-codex',
@@ -99,6 +101,7 @@ describe('JsonlLogger', () => {
 
     logger.logSessionRequest({
       id: 'req_session_dated',
+      turnIndex: 1,
       sessionId,
       model: 'gpt-5.4',
       provider: 'openai-codex',
@@ -110,9 +113,9 @@ describe('JsonlLogger', () => {
       cost: 0.01,
     })
 
-    expect(
-      existsSync(join(testDir, 'sessions', '2026-03-13', sessionId, 'requests.jsonl')),
-    ).toBe(true)
+    expect(existsSync(join(testDir, 'sessions', '2026-03-13', sessionId, 'requests.jsonl'))).toBe(
+      true,
+    )
     expect(logger.readSessionRequests(sessionId)).toHaveLength(1)
   })
 
@@ -120,6 +123,7 @@ describe('JsonlLogger', () => {
     const logger = new JsonlLogger(testDir)
     logger.logRequest({
       id: 'req_legacy_001',
+      turnIndex: 1,
       sessionId: 'sess_legacy',
       model: 'gpt-5.3-codex-medium',
       provider: 'openai-codex',
@@ -140,6 +144,7 @@ describe('JsonlLogger', () => {
     const logger = new JsonlLogger(testDir)
     logger.logRequest({
       id: 'req_global_001',
+      turnIndex: 1,
       sessionId: 'sess_global',
       model: 'gpt-5.3-codex-medium',
       provider: 'openai-codex',
@@ -152,6 +157,7 @@ describe('JsonlLogger', () => {
     })
     logger.logSessionRequest({
       id: 'req_scoped_001',
+      turnIndex: 1,
       sessionId: 'sess_scoped_all',
       model: 'gpt-5.4',
       provider: 'openai-codex',

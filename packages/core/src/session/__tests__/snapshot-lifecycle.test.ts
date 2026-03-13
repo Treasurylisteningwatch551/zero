@@ -113,6 +113,43 @@ function installFakeAgent(session: Session): void {
   }
 }
 
+function installTurnCapturingAgent(session: Session, turnIndexes: number[]): void {
+  const mutableSession = session as unknown as {
+    agent: {
+      run: (
+        context: unknown,
+        userMessage: string,
+        images: unknown,
+        onNewMessage?: (message: Message) => void,
+        onTextDelta?: unknown,
+        shouldInterrupt?: unknown,
+        getQueuedMessages?: unknown,
+        requestLogMeta?: { turnIndex?: number },
+      ) => Promise<Message[]>
+    }
+  }
+
+  mutableSession.agent = {
+    run: async (
+      _context: unknown,
+      userMessage: string,
+      _images: unknown,
+      onNewMessage?: (message: Message) => void,
+      _onTextDelta?: unknown,
+      _shouldInterrupt?: unknown,
+      _getQueuedMessages?: unknown,
+      requestLogMeta?: { turnIndex?: number },
+    ) => {
+      turnIndexes.push(requestLogMeta?.turnIndex ?? -1)
+      const user = makeMessage(session.data.id, 'user', userMessage)
+      const assistant = makeMessage(session.data.id, 'assistant', 'ok')
+      onNewMessage?.(user)
+      onNewMessage?.(assistant)
+      return [user, assistant]
+    },
+  }
+}
+
 afterEach(() => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()
@@ -226,5 +263,36 @@ describe('Session snapshot lifecycle', () => {
     expect(snapshots).toHaveLength(1)
     const restoredSession = restored as unknown as { currentSnapshotId?: string }
     expect(restoredSession.currentSnapshotId).toBe(existingSnapshotId)
+  })
+
+  test('restored sessions continue turnIndex from prior request logs', async () => {
+    const logger = createTempLogger()
+    const router = createRouter()
+    const registry = createRegistry()
+    const session = new Session('web', router, registry, { logger })
+    session.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
+
+    const initialTurns: number[] = []
+    installTurnCapturingAgent(session, initialTurns)
+    await session.handleMessage('hello')
+    await session.handleMessage('hello again')
+
+    expect(initialTurns).toEqual([1, 2])
+
+    const restored = Session.restore(
+      session.data,
+      session.getMessages(),
+      router,
+      registry,
+      { logger },
+      session.getSystemPrompt(),
+    )
+    restored.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
+
+    const restoredTurns: number[] = []
+    installTurnCapturingAgent(restored, restoredTurns)
+    await restored.handleMessage('follow up')
+
+    expect(restoredTurns).toEqual([3])
   })
 })

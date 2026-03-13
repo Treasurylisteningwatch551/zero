@@ -167,6 +167,7 @@ export class Agent {
     onTextDelta?: (delta: string, meta: { role: 'assistant'; turnId: string }) => void,
     shouldInterrupt?: () => boolean,
     getQueuedMessages?: () => QueuedMessage[],
+    requestLogMeta?: { turnIndex?: number },
   ): Promise<Message[]> {
     let continuationCount = 0
     let taskClosureRetryCount = 0
@@ -215,6 +216,8 @@ export class Agent {
     const system = systemParts.join('\n\n')
 
     let hadQueuedMessages = false
+    let pendingParentRequestId: string | undefined
+    const turnIndex = requestLogMeta?.turnIndex ?? 1
 
     while (true) {
       const request: CompletionRequest = {
@@ -230,7 +233,11 @@ export class Agent {
       const llmDurationMs = Date.now() - llmStart
 
       // Log LLM request to observability
-      this.logLLMRequest(response, userMessage, llmDurationMs)
+      this.logLLMRequest(response, userMessage, llmDurationMs, {
+        turnIndex,
+        parentId: pendingParentRequestId,
+      })
+      pendingParentRequestId = response.stopReason === 'tool_use' ? response.id : undefined
 
       if (response.content.length === 0) {
         this.toolContext.logger.warn('llm_empty_response', {
@@ -281,7 +288,8 @@ export class Agent {
       const taskClosureDecision = taskClosureEvaluation.decision
       const displayContent = taskClosureEvaluation.trimmedContent ?? response.content
       const shouldAutoContinueTaskClosure =
-        taskClosureDecision?.action === 'continue' && taskClosureEvaluation.trimmedContent !== undefined
+        taskClosureDecision?.action === 'continue' &&
+        taskClosureEvaluation.trimmedContent !== undefined
 
       // Create assistant message — filter secrets from text blocks
       const filteredContent = this.filterContent(displayContent)
@@ -527,7 +535,12 @@ export class Agent {
         const finalStart = Date.now()
         const finalResponse = await this.completeWithStreamFallback(finalRequest, onTextDelta)
         const finalDurationMs = Date.now() - finalStart
-        this.logLLMRequest(finalResponse, userMessage, finalDurationMs)
+        this.logLLMRequest(finalResponse, userMessage, finalDurationMs, {
+          turnIndex,
+          parentId: pendingParentRequestId,
+        })
+        pendingParentRequestId =
+          finalResponse.stopReason === 'tool_use' ? finalResponse.id : undefined
 
         const finalContent = this.filterContent(finalResponse.content)
         const finalMsg: Message = {
@@ -1085,6 +1098,10 @@ export class Agent {
     response: CompletionResponse,
     userPrompt: string,
     durationMs: number,
+    meta: {
+      turnIndex: number
+      parentId?: string
+    },
   ): void {
     const cost = computeCost(response.usage, this.obs.pricing)
     const filter = this.obs.secretFilter
@@ -1103,6 +1120,8 @@ export class Agent {
 
     this.obs.logger?.logSessionRequest({
       id: response.id,
+      turnIndex: meta.turnIndex,
+      parentId: meta.parentId,
       sessionId: this.toolContext.sessionId,
       snapshotId: this.obs.getCurrentSnapshotId?.(),
       model: this.obs.modelLabel ?? response.model,

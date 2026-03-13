@@ -31,6 +31,7 @@ export interface LogEntry {
 
 export interface RequestLogEntry {
   id: string
+  turnIndex: number
   parentId?: string
   sessionId: string
   snapshotId?: string
@@ -157,7 +158,9 @@ export class JsonlLogger {
   }
 
   private getSessionFileCandidates(sessionId: string, file: string): string[] {
-    return getSessionLogRelativeDirCandidates(sessionId).map((dir) => join(this.basePath, dir, file))
+    return getSessionLogRelativeDirCandidates(sessionId).map((dir) =>
+      join(this.basePath, dir, file),
+    )
   }
 
   private listSessionDirectories(): string[] {
@@ -303,8 +306,8 @@ export class JsonlLogger {
    * Read task closure events for a session.
    */
   readSessionClosures(sessionId: string): ClosureLogEntry[] {
-    return this.readSessionEntries<ClosureLogEntry>(sessionId, 'closure.jsonl').sort((left, right) =>
-      left.ts.localeCompare(right.ts),
+    return this.readSessionEntries<ClosureLogEntry>(sessionId, 'closure.jsonl').sort(
+      (left, right) => left.ts.localeCompare(right.ts),
     )
   }
 

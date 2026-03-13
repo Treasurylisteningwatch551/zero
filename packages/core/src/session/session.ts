@@ -3,7 +3,14 @@ import { hostname } from 'node:os'
 import { join } from 'node:path'
 import type { MemoryRetriever } from '@zero-os/memory'
 import type { ModelRouter, ModelSwitchResult, ResolvedModel } from '@zero-os/model'
-import type { JsonlLogger, MetricsDB, SessionDB, SnapshotEntry, Tracer } from '@zero-os/observe'
+import type {
+  JsonlLogger,
+  MetricsDB,
+  RequestLogEntry,
+  SessionDB,
+  SnapshotEntry,
+  Tracer,
+} from '@zero-os/observe'
 import type {
   CompressionResult,
   Message,
@@ -18,8 +25,9 @@ import { Agent, type AgentConfig, type AgentContext, type AgentObservability } f
 import { allocateBudget } from '../agent/budget'
 import { estimateConversationTokens } from '../agent/context'
 import { buildDynamicContext, buildSystemPrompt } from '../agent/prompt'
-import type { QueuedMessage } from '../agent/queue'
+import { CONTINUATION_PROMPT, type QueuedMessage } from '../agent/queue'
 import { buildSnapshot } from '../agent/snapshot'
+import { TASK_CLOSURE_PROMPT } from '../agent/task-closure'
 import { loadBootstrapFiles } from '../bootstrap/loader'
 import { loadSkills } from '../skill/loader'
 import type { ToolRegistry } from '../tool/registry'
@@ -67,6 +75,9 @@ interface SnapshotContext {
   identityMemory?: string
 }
 
+const EMPTY_RESPONSE_RETRY_PROMPT =
+  'Your previous reply was empty. Continue the current task and provide the actual answer or the next required tool call. Do not return an empty response.'
+
 /**
  * Session — manages the lifecycle of a single conversation.
  */
@@ -88,6 +99,7 @@ export class Session {
   private knownSkillNames = new Set<string>()
   private currentSnapshotId?: string
   private lastSnapshotContext: SnapshotContext | null = null
+  private nextTurnIndex = 1
 
   constructor(
     source: SessionSource,
@@ -496,6 +508,7 @@ export class Session {
       options?.onTextDelta,
       shouldInterrupt,
       getQueuedMessages,
+      { turnIndex: this.allocateTurnIndex() },
     )
 
     // Emit session:update
@@ -644,7 +657,9 @@ export class Session {
       }
     }
 
-    throw new Error(`Unable to allocate unique session ID for source "${source}" after 16 attempts.`)
+    throw new Error(
+      `Unable to allocate unique session ID for source "${source}" after 16 attempts.`,
+    )
   }
 
   /**
@@ -689,6 +704,7 @@ export class Session {
       knownSkillNames: new Set<string>(),
       currentSnapshotId: undefined,
       lastSnapshotContext: null,
+      nextTurnIndex: Session.deriveNextTurnIndex(data.id, messages, deps.logger),
     })
     session.restoreSnapshotStateFromLogger()
     session.deps.logger?.syncSessionActiveState(session.data.id, session.data.status)
@@ -724,5 +740,63 @@ export class Session {
         status,
       })
     }
+  }
+
+  private allocateTurnIndex(): number {
+    const turnIndex = this.nextTurnIndex
+    this.nextTurnIndex += 1
+    return turnIndex
+  }
+
+  private static deriveNextTurnIndex(
+    sessionId: string,
+    messages: Message[],
+    logger?: JsonlLogger,
+  ): number {
+    const maxLoggedTurnIndex = Session.findMaxLoggedTurnIndex(
+      logger?.readSessionRequests(sessionId) ?? [],
+    )
+    if (maxLoggedTurnIndex > 0) {
+      return maxLoggedTurnIndex + 1
+    }
+
+    return Session.countRecoverableUserTurns(messages) + 1
+  }
+
+  private static findMaxLoggedTurnIndex(entries: RequestLogEntry[]): number {
+    return entries.reduce((max, entry) => {
+      return Number.isFinite(entry.turnIndex) ? Math.max(max, entry.turnIndex) : max
+    }, 0)
+  }
+
+  private static countRecoverableUserTurns(messages: Message[]): number {
+    return messages.filter((message) => Session.isTopLevelUserTurn(message)).length
+  }
+
+  private static isTopLevelUserTurn(message: Message): boolean {
+    if (message.role !== 'user') return false
+    if (message.content.some((block) => block.type === 'tool_result')) return false
+
+    const hasVisibleContent = message.content.some(
+      (block) => block.type === 'text' || block.type === 'image',
+    )
+    if (!hasVisibleContent) return false
+
+    const textBlocks = message.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+    if (textBlocks.length === 0) return true
+
+    return !textBlocks.every((text) => Session.isInternalControlText(text))
+  }
+
+  private static isInternalControlText(text: string): boolean {
+    return (
+      text === EMPTY_RESPONSE_RETRY_PROMPT ||
+      text === CONTINUATION_PROMPT ||
+      text === TASK_CLOSURE_PROMPT ||
+      text.startsWith('<queued_message>') ||
+      text.startsWith('<queued_messages ')
+    )
   }
 }

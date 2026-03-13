@@ -27,6 +27,8 @@ interface MemoryResult {
 
 interface LlmRequestEntry {
   id: string
+  turnIndex?: number
+  parentId?: string
   model: string
   provider: string
   userPrompt: string
@@ -502,8 +504,7 @@ export function TraceSummaryCard({ span }: { span: TraceSpan }) {
   const metadata = span.metadata ?? {}
   const action = typeof metadata.action === 'string' ? metadata.action : undefined
   const reason = typeof metadata.reason === 'string' ? metadata.reason : undefined
-  const failureStage =
-    typeof metadata.failureStage === 'string' ? metadata.failureStage : undefined
+  const failureStage = typeof metadata.failureStage === 'string' ? metadata.failureStage : undefined
   const trimFrom = typeof metadata.trimFrom === 'string' ? metadata.trimFrom : undefined
   const classifierResponseRaw =
     typeof metadata.classifierResponseRaw === 'string' ? metadata.classifierResponseRaw : undefined
@@ -538,8 +539,7 @@ export function TraceSummaryCard({ span }: { span: TraceSpan }) {
         )}
         {failureStage && (
           <p>
-            <span className="text-[var(--color-text-disabled)]">failure_stage:</span>{' '}
-            {failureStage}
+            <span className="text-[var(--color-text-disabled)]">failure_stage:</span> {failureStage}
           </p>
         )}
         {assistantMessageId && (

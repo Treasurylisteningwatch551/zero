@@ -142,8 +142,7 @@ describe('API Routes Extended', () => {
       event: 'message_handled',
     })
 
-    const newEntries = zero
-      .logger
+    const newEntries = zero.logger
       .readEntries<Record<string, unknown>>('operations.jsonl')
       .slice(before)
 
@@ -230,6 +229,7 @@ describe('API Routes Extended', () => {
     const session = zero.sessionManager.create('web')
     zero.logger.logSessionRequest({
       id: 'req_session_route_001',
+      turnIndex: 1,
       sessionId: session.data.id,
       model: 'openai-codex/gpt-5.4-medium',
       provider: 'openai-codex',
@@ -255,6 +255,7 @@ describe('API Routes Extended', () => {
     const session = zero.sessionManager.create('web')
     zero.logger.logRequest({
       id: 'req_legacy_route_001',
+      turnIndex: 1,
       sessionId: session.data.id,
       model: 'openai-codex/gpt-5.4-medium',
       provider: 'openai-codex',
@@ -278,6 +279,7 @@ describe('API Routes Extended', () => {
     const session = zero.sessionManager.create('web')
     zero.logger.logSessionRequest({
       id: 'req_logs_route_001',
+      turnIndex: 1,
       sessionId: session.data.id,
       model: 'openai-codex/gpt-5.4-medium',
       provider: 'openai-codex',

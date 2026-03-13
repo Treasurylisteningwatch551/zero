@@ -37,6 +37,8 @@ interface ModelHistoryEntry {
 
 interface SessionRequestEntry {
   id: string
+  turnIndex?: number
+  parentId?: string
   model: string
   provider: string
   userPrompt: string
