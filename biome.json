@@ -26,6 +26,6 @@
     }
   },
   "files": {
-    "ignore": ["node_modules", "dist", ".zero"]
+    "ignore": ["node_modules", "dist", ".zero", "test-results", ".claude"]
   }
 }

@@ -18,6 +18,7 @@
     "zero": "bun run apps/server/src/cli.ts"
   },
   "devDependencies": {
+    "@biomejs/biome": "1.9.4",
     "@playwright/test": "^1.58.2"
   }
 }
