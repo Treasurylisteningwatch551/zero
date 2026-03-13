@@ -1,4 +1,4 @@
-import { Database } from 'bun:sqlite'
+import { Database, type SQLQueryBindings } from 'bun:sqlite'
 import type {
   Session as SessionData,
   SessionSource,
@@ -254,7 +254,7 @@ export class SessionDB {
    */
   loadAllSessions(filter?: { status?: SessionStatus; limit?: number; offset?: number }): SessionRow[] {
     let sql = 'SELECT * FROM sessions'
-    const params: unknown[] = []
+    const params: SQLQueryBindings[] = []
 
     if (filter?.status) {
       sql += ' WHERE status = ?'

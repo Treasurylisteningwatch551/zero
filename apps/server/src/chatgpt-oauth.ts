@@ -171,6 +171,7 @@ export class ChatGptOAuthBroker {
         const callbackState = requestUrl.searchParams.get('state')
         if (callbackState !== state) {
           this.updateAttempt({
+            provider: 'chatgpt',
             state: 'error',
             authorized: false,
             error: 'State validation failed.',
@@ -184,6 +185,7 @@ export class ChatGptOAuthBroker {
 
         if (!code) {
           this.updateAttempt({
+            provider: 'chatgpt',
             state: 'error',
             authorized: false,
             error: 'Missing authorization code.',
@@ -196,6 +198,7 @@ export class ChatGptOAuthBroker {
         }
 
         this.updateAttempt({
+          provider: 'chatgpt',
           state: 'authorizing',
           authorized: false,
           attemptId,

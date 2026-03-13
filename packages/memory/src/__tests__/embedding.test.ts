@@ -11,7 +11,7 @@ describe('EmbeddingClient', () => {
   test('embed returns a single vector', async () => {
     globalThis.fetch = mock(async () => new Response(JSON.stringify({
       data: [{ embedding: [0.1, 0.2, 0.3] }],
-    }))) as typeof fetch
+    }))) as unknown as typeof fetch
 
     const client = new EmbeddingClient({
       baseUrl: 'https://example.test/v1',
@@ -29,7 +29,7 @@ describe('EmbeddingClient', () => {
         { embedding: [1, 0] },
         { embedding: [0, 1] },
       ],
-    }))) as typeof fetch
+    }))) as unknown as typeof fetch
 
     const client = new EmbeddingClient({
       baseUrl: 'https://example.test/v1',
@@ -41,7 +41,7 @@ describe('EmbeddingClient', () => {
   })
 
   test('throws on non-ok response', async () => {
-    globalThis.fetch = mock(async () => new Response('bad gateway', { status: 502 })) as typeof fetch
+    globalThis.fetch = mock(async () => new Response('bad gateway', { status: 502 })) as unknown as typeof fetch
 
     const client = new EmbeddingClient({
       baseUrl: 'https://example.test/v1',
@@ -53,7 +53,7 @@ describe('EmbeddingClient', () => {
   })
 
   test('throws on malformed response payload', async () => {
-    globalThis.fetch = mock(async () => new Response(JSON.stringify({ data: [] }))) as typeof fetch
+    globalThis.fetch = mock(async () => new Response(JSON.stringify({ data: [] }))) as unknown as typeof fetch
 
     const client = new EmbeddingClient({
       baseUrl: 'https://example.test/v1',

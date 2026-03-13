@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { Telegraf } from 'telegraf'
+import type { MenuButton } from '@telegraf/types/settings'
 import type { Channel, IncomingMessage, MessageHandler, ImageAttachment } from '../base'
 import { chunkTelegramRichText, markdownToTelegramRichText, type TelegramRichText } from '../richtext'
 
@@ -267,8 +268,8 @@ export class TelegramChannel implements Channel {
 
   private toApiSetChatMenuButtonOptions(
     options: TelegramSetChatMenuButtonOptions
-  ): { chatId?: number; menuButton?: Record<string, unknown> } {
-    const out: { chatId?: number; menuButton?: Record<string, unknown> } = {}
+  ): { chatId?: number; menuButton?: MenuButton } {
+    const out: { chatId?: number; menuButton?: MenuButton } = {}
     if (options.chatId !== undefined) {
       out.chatId = options.chatId
     }
@@ -287,7 +288,7 @@ export class TelegramChannel implements Channel {
     return {}
   }
 
-  private toApiMenuButton(menuButton: TelegramMenuButtonConfig): Record<string, unknown> {
+  private toApiMenuButton(menuButton: TelegramMenuButtonConfig): MenuButton {
     if (menuButton.type === 'web_app') {
       return {
         type: 'web_app',

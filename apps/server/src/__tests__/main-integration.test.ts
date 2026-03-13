@@ -100,7 +100,7 @@ describe('startZeroOS Integration', () => {
 
   test('bus can emit events without error', () => {
     expect(() => {
-      zero.bus.emit('test:event', { key: 'value' })
+      zero.bus.emit('heartbeat', { key: 'value' })
     }).not.toThrow()
   })
 })

@@ -1,6 +1,6 @@
 import { LocalIndex } from 'vectra'
 
-export interface MemoryVectorMeta {
+export interface MemoryVectorMeta extends Record<string, string> {
   memoryId: string
   type: string
   title: string

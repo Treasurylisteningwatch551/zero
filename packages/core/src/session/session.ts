@@ -679,7 +679,7 @@ export class Session {
     // Persist status change
     this.deps.sessionDb?.updateStatus(this.data.id, status, this.data.updatedAt)
     // Emit session:end when status transitions to completed
-    if (status === 'completed' || status === 'error') {
+    if (status === 'completed' || status === 'failed') {
       this.deps.bus?.emit('session:end', {
         sessionId: this.data.id,
         status,

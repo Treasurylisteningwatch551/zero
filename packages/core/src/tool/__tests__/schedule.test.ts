@@ -52,10 +52,13 @@ describe('ScheduleTool', () => {
 
   test('tool definition tells the model to ground relative time against current local time', () => {
     const definition = tool.toDefinition()
+    const parameters = definition.parameters as {
+      properties?: Record<string, { description?: string }>
+    }
 
     expect(definition.description).toContain('first obtain the current local time')
     expect(definition.description).toContain('verify that the returned cron')
-    expect(String(definition.parameters.properties?.cron.description)).toContain('first check the current local time')
+    expect(String(parameters.properties?.cron?.description)).toContain('first check the current local time')
   })
 
   test('create: adds schedule with channel binding', async () => {

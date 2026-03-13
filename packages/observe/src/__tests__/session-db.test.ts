@@ -97,10 +97,10 @@ describe('SessionDB', () => {
       {
         id: 'msg_tool_2',
         sessionId: 'sess_tool',
-        role: 'tool',
-        messageType: 'tool_result',
+        role: 'assistant',
+        messageType: 'message',
         content: [
-          { type: 'tool_result', tool_use_id: 'call_1', content: 'file contents here' },
+          { type: 'tool_result', toolUseId: 'call_1', content: 'file contents here' },
         ],
         createdAt: new Date().toISOString(),
       },

@@ -440,7 +440,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
     const textParts: string[] = []
     const toolCalls = new Map<string, { name: string; arguments: string; itemId?: string }>()
     const reasoningBuffers = new Map<string, string>()
-    let responseId = crypto.randomUUID()
+    let responseId: string = crypto.randomUUID()
     let responseModel = this.modelId
     let usage: TokenUsage = { input: 0, output: 0 }
     let hasToolUse = false

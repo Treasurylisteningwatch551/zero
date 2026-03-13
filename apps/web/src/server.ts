@@ -55,7 +55,7 @@ export function startWebServer(zero: ZeroOS): { port: number } {
   const wsHandler = new WebMessageHandler()
   const wsClients = new Map<string, { ws: unknown }>()
 
-  const bunServer = Bun.serve({
+  const bunServer = Bun.serve<{ clientId: string }>({
     port,
     async fetch(req, srv) {
       const url = new URL(req.url)

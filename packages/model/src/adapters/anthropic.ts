@@ -55,8 +55,8 @@ export class AnthropicAdapter implements ProviderAdapter {
       usage: {
         input: response.usage.input_tokens,
         output: response.usage.output_tokens,
-        cacheWrite: (response.usage as Record<string, number>).cache_creation_input_tokens,
-        cacheRead: (response.usage as Record<string, number>).cache_read_input_tokens,
+        cacheWrite: response.usage.cache_creation_input_tokens ?? undefined,
+        cacheRead: response.usage.cache_read_input_tokens ?? undefined,
       },
       model: response.model,
       reasoningContent: this.extractReasoningContent(response.content),
@@ -82,7 +82,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 
     for await (const event of stream) {
       if (event.type === 'content_block_delta') {
-        const delta = event.delta as Record<string, unknown>
+        const delta = event.delta as unknown as Record<string, unknown>
         if (delta.type === 'text_delta') {
           yield { type: 'text_delta', data: { text: delta.text } }
         } else if (delta.type === 'thinking_delta') {
@@ -91,7 +91,7 @@ export class AnthropicAdapter implements ProviderAdapter {
           yield { type: 'tool_use_delta', data: { arguments: delta.partial_json } }
         }
       } else if (event.type === 'content_block_start') {
-        const block = event.content_block as Record<string, unknown>
+        const block = event.content_block as unknown as Record<string, unknown>
         if (block.type === 'tool_use') {
           const toolId = typeof block.id === 'string' ? block.id : undefined
           if (typeof event.index === 'number' && toolId) {

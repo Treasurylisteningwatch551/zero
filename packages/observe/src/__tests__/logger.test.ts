@@ -189,7 +189,7 @@ describe('JsonlLogger', () => {
 
     const entries = logger.readSessionSnapshots('sess_test')
     expect(entries.length).toBeGreaterThanOrEqual(1)
-    const last = entries[entries.length - 1] as Record<string, unknown>
+    const last = entries[entries.length - 1]
     expect(last.trigger).toBe('session_start')
     expect(last.model).toBe('openai-codex/gpt-5.4')
     expect(last.compressedRange).toBe('0..3')

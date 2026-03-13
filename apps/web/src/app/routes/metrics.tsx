@@ -87,7 +87,7 @@ function pctTickFormatter(v: number): string {
 // Pivot helper — turns array of { period, key, value } into pivoted rows
 // ---------------------------------------------------------------------------
 
-function pivotBy<T extends Record<string, unknown>>(
+function pivotBy<T extends object>(
   rows: T[],
   periodKey: keyof T,
   groupKey: keyof T,
@@ -99,7 +99,7 @@ function pivotBy<T extends Record<string, unknown>>(
   for (const row of rows) {
     const period = String(row[periodKey])
     const group = String(row[groupKey])
-    const value = row[valueKey]
+    const value = row[valueKey] as unknown
     keySet.add(group)
     if (!grouped.has(period)) grouped.set(period, { period })
     grouped.get(period)![group] = value

@@ -143,7 +143,7 @@ describe('Agent', () => {
         {
           name: 'FakeTool',
           description: 'A tool that does something',
-          inputSchema: {
+          parameters: {
             type: 'object' as const,
             properties: { query: { type: 'string', description: 'the query' } },
             required: ['query'],

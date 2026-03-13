@@ -445,7 +445,7 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
     })
 
     const originalFetch = globalThis.fetch
-    globalThis.fetch = async () => new Response(
+    globalThis.fetch = (async () => new Response(
       [
         'data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"call_123","name":"read","arguments":""}}',
         '',
@@ -462,7 +462,7 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
         status: 200,
         headers: { 'Content-Type': 'text/event-stream' },
       }
-    ) as any
+    )) as unknown as typeof fetch
 
     try {
       const events = [] as Array<{ type: string; data: any }>

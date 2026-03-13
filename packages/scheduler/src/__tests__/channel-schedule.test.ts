@@ -77,7 +77,7 @@ describe('CronScheduler — new methods', () => {
   test('oneShot schedule fires once and auto-removes', async () => {
     const scheduler = new CronScheduler()
     let triggerCount = 0
-    let removedName: string | null = null
+    let removedName = ''
 
     scheduler.setTriggerHandler(async () => {
       triggerCount++

@@ -4,7 +4,7 @@ import type { ZeroOS } from '../../../server/src/main'
 import { ChatGptOAuthBroker } from '../../../server/src/chatgpt-oauth'
 import { ensureChatgptProviderConfig, getConfigPath, getChatgptOAuthTokenRef } from '../../../server/src/chatgpt-provider'
 import { loadConfig } from '@zero-os/core'
-import type { MemoryType, SessionStatus } from '@zero-os/shared'
+import type { MemoryStatus, MemoryType, SessionStatus } from '@zero-os/shared'
 import type { SessionRow } from '@zero-os/observe'
 import { GitOps } from '@zero-os/supervisor'
 
@@ -426,7 +426,7 @@ export function createRoutes(zero: ZeroOS) {
         title: string
         content: string
         tags?: string[]
-        status?: string
+        status?: MemoryStatus
         confidence?: number
       }>()
       if (!body.type || !body.title || !body.content) {
