@@ -372,16 +372,28 @@ export class MetricsDB {
   }
 
   /**
-   * Cache hit rate by day: cache_read_tokens / input_tokens.
+   * Cache hit rate by day.
+   * Anthropic uses effective input = input + cache_write + cache_read.
    */
   cacheHitRate(range = '30d'): CacheHitRate[] {
     const since = rangeToCutoff(range)
     return this.db
       .query(
-        `SELECT substr(created_at, 1, 10) as period,
-                SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(input_tokens), 0) as hitRate
-         FROM requests
-         WHERE created_at >= ?
+        `SELECT period,
+                SUM(cacheRead) * 1.0 / NULLIF(SUM(denominator), 0) as hitRate
+         FROM (
+           SELECT substr(created_at, 1, 10) as period,
+                  provider,
+                  SUM(cache_read_tokens) as cacheRead,
+                  CASE
+                    WHEN provider = 'anthropic'
+                      THEN SUM(input_tokens + cache_write_tokens + cache_read_tokens)
+                    ELSE SUM(input_tokens)
+                  END as denominator
+           FROM requests
+           WHERE created_at >= ?
+           GROUP BY period, provider
+         )
          GROUP BY period
          ORDER BY period`,
       )

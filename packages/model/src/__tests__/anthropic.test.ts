@@ -419,6 +419,169 @@ describe('Anthropic Adapter (Pure Logic)', () => {
 
     expect(calls[0].thinking).toEqual({ type: 'enabled', budget_tokens: 2048 })
   })
+
+  test('complete adds prompt caching breakpoints to system and the last tool', async () => {
+    const cachingAdapter = createAdapter()
+    const calls: Array<Record<string, unknown>> = []
+    getAnthropicHarness(cachingAdapter).client = {
+      messages: {
+        create: async (params: Record<string, unknown>) => {
+          calls.push(params)
+          return {
+            id: 'msg_cache_001',
+            content: [{ type: 'text', text: 'cached answer' }],
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 11, output_tokens: 7 },
+            model: 'claude-sonnet-4-20250514',
+          }
+        },
+      },
+    }
+
+    await cachingAdapter.complete({
+      messages: [makeMessage('user', 'test')],
+      tools: [
+        {
+          name: 'read',
+          description: 'Read files',
+          parameters: { type: 'object', properties: { path: { type: 'string' } } },
+        },
+        {
+          name: 'bash',
+          description: 'Run shell commands',
+          parameters: { type: 'object', properties: { cmd: { type: 'string' } } },
+        },
+      ],
+      system: 'You are a cached assistant.',
+      stream: false,
+      maxTokens: 512,
+    })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].system).toEqual([
+      {
+        type: 'text',
+        text: 'You are a cached assistant.',
+        cache_control: { type: 'ephemeral' },
+      },
+    ])
+    expect(calls[0].tools).toEqual([
+      {
+        name: 'read',
+        description: 'Read files',
+        input_schema: { type: 'object', properties: { path: { type: 'string' } } },
+      },
+      {
+        name: 'bash',
+        description: 'Run shell commands',
+        input_schema: { type: 'object', properties: { cmd: { type: 'string' } } },
+        cache_control: { type: 'ephemeral' },
+      },
+    ])
+  })
+
+  test('stream reuses the same prompt caching request shape', async () => {
+    const cachingAdapter = createAdapter()
+    const calls: Array<Record<string, unknown>> = []
+    getAnthropicHarness(cachingAdapter).client = {
+      messages: {
+        create: async (params: Record<string, unknown>) => {
+          calls.push(params)
+          return (async function* () {
+            yield {
+              type: 'message_start',
+              message: {
+                model: 'claude-sonnet-4-20250514',
+                usage: { input_tokens: 11, output_tokens: 0 },
+              },
+            }
+            yield {
+              type: 'message_delta',
+              delta: { stop_reason: 'end_turn' },
+              usage: { output_tokens: 7 },
+            }
+            yield {
+              type: 'message_stop',
+            }
+          })()
+        },
+      },
+    }
+
+    const events: Array<{ type: string; data: unknown }> = []
+    for await (const event of cachingAdapter.stream({
+      messages: [makeMessage('user', 'test')],
+      tools: [
+        {
+          name: 'read',
+          description: 'Read files',
+          parameters: { type: 'object', properties: { path: { type: 'string' } } },
+        },
+      ],
+      system: 'You are a cached assistant.',
+      stream: true,
+      maxTokens: 512,
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      {
+        type: 'done',
+        data: {
+          model: 'claude-sonnet-4-20250514',
+          usage: { input: 11, output: 7, cacheWrite: undefined, cacheRead: undefined },
+          finishReason: 'end_turn',
+        },
+      },
+    ])
+    expect(calls).toHaveLength(1)
+    expect(calls[0].stream).toBe(true)
+    expect(calls[0].system).toEqual([
+      {
+        type: 'text',
+        text: 'You are a cached assistant.',
+        cache_control: { type: 'ephemeral' },
+      },
+    ])
+    expect(calls[0].tools).toEqual([
+      {
+        name: 'read',
+        description: 'Read files',
+        input_schema: { type: 'object', properties: { path: { type: 'string' } } },
+        cache_control: { type: 'ephemeral' },
+      },
+    ])
+  })
+
+  test('does not inject prompt caching config when system and tools are absent', async () => {
+    const cachingAdapter = createAdapter()
+    const calls: Array<Record<string, unknown>> = []
+    getAnthropicHarness(cachingAdapter).client = {
+      messages: {
+        create: async (params: Record<string, unknown>) => {
+          calls.push(params)
+          return {
+            id: 'msg_cache_002',
+            content: [{ type: 'text', text: 'plain answer' }],
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 11, output_tokens: 7 },
+            model: 'claude-sonnet-4-20250514',
+          }
+        },
+      },
+    }
+
+    await cachingAdapter.complete({
+      messages: [makeMessage('user', 'test')],
+      stream: false,
+      maxTokens: 512,
+    })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].system).toBeUndefined()
+    expect(calls[0].tools).toBeUndefined()
+  })
 })
 
 // Real API tests — only run when ANTHROPIC_API_KEY env var is set

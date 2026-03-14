@@ -16,6 +16,7 @@ export class AnthropicAdapter implements ProviderAdapter {
   readonly apiType = 'anthropic_messages'
   private static readonly DEFAULT_THINKING_TOKENS = 512
   private static readonly MIN_THINKING_TOKENS = 1024
+  private static readonly PROMPT_CACHE_CONTROL = { type: 'ephemeral' } as const
   private client: Anthropic
   private modelId: string
   private thinkingTokens?: number
@@ -38,15 +39,7 @@ export class AnthropicAdapter implements ProviderAdapter {
   }
 
   async complete(req: CompletionRequest): Promise<CompletionResponse> {
-    const thinking = this.buildThinkingConfig(req.maxTokens)
-    const response = await this.client.messages.create({
-      model: req.model ?? this.modelId,
-      system: req.system,
-      messages: this.convertMessages(req),
-      tools: req.tools ? this.convertTools(req.tools) : undefined,
-      ...(thinking ? { thinking } : {}),
-      max_tokens: req.maxTokens ?? 4096,
-    })
+    const response = await this.client.messages.create(this.buildRequest(req))
 
     return {
       id: response.id,
@@ -64,14 +57,8 @@ export class AnthropicAdapter implements ProviderAdapter {
   }
 
   async *stream(req: CompletionRequest): AsyncIterable<StreamEvent> {
-    const thinking = this.buildThinkingConfig(req.maxTokens)
     const stream = await this.client.messages.create({
-      model: req.model ?? this.modelId,
-      system: req.system,
-      messages: this.convertMessages(req),
-      tools: req.tools ? this.convertTools(req.tools) : undefined,
-      ...(thinking ? { thinking } : {}),
-      max_tokens: req.maxTokens ?? 4096,
+      ...this.buildRequest(req),
       stream: true,
     })
 
@@ -154,6 +141,31 @@ export class AnthropicAdapter implements ProviderAdapter {
     }
   }
 
+  private buildRequest(req: CompletionRequest): Anthropic.MessageCreateParamsNonStreaming {
+    const thinking = this.buildThinkingConfig(req.maxTokens)
+
+    return {
+      model: req.model ?? this.modelId,
+      system: this.buildSystem(req.system),
+      messages: this.convertMessages(req),
+      tools: req.tools ? this.convertTools(req.tools) : undefined,
+      ...(thinking ? { thinking } : {}),
+      max_tokens: req.maxTokens ?? 4096,
+    }
+  }
+
+  private buildSystem(system?: string): Anthropic.TextBlockParam[] | undefined {
+    if (!system) return undefined
+
+    return [
+      {
+        type: 'text',
+        text: system,
+        cache_control: AnthropicAdapter.PROMPT_CACHE_CONTROL,
+      },
+    ]
+  }
+
   private convertMessages(req: CompletionRequest): Anthropic.MessageParam[] {
     const messages: Anthropic.MessageParam[] = []
 
@@ -205,10 +217,13 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   private convertTools(tools: CompletionRequest['tools']): Anthropic.Tool[] | undefined {
     if (!tools || tools.length === 0) return undefined
-    return tools.map((t) => ({
+    return tools.map((t, index) => ({
       name: t.name,
       description: t.description,
       input_schema: t.parameters as Anthropic.Tool.InputSchema,
+      ...(index === tools.length - 1
+        ? { cache_control: AnthropicAdapter.PROMPT_CACHE_CONTROL }
+        : {}),
     }))
   }
 

@@ -89,25 +89,97 @@ describe('MetricsDB', () => {
   })
 
   test('cacheHitRate returns daily ratio', () => {
-    db.recordRequest({
+    const cacheDb = MetricsDB.createInMemory()
+    const createdAt = new Date().toISOString()
+
+    cacheDb.recordRequest({
       id: 'req_cache_001',
       sessionId: 'sess_002',
       model: 'claude-opus',
       provider: 'anthropic',
       inputTokens: 1000,
       outputTokens: 500,
+      cacheWriteTokens: 200,
       cacheReadTokens: 400,
       cost: 0.01,
       durationMs: 800,
-      createdAt: new Date().toISOString(),
+      createdAt,
+    })
+    cacheDb.recordRequest({
+      id: 'req_cache_002',
+      sessionId: 'sess_003',
+      model: 'gpt-5.3-codex-medium',
+      provider: 'openai-codex',
+      inputTokens: 1000,
+      outputTokens: 500,
+      cacheReadTokens: 400,
+      cost: 0.01,
+      durationMs: 800,
+      createdAt,
     })
 
-    const rates = db.cacheHitRate('1d')
+    const rates = cacheDb.cacheHitRate('1d')
     expect(rates.length).toBeGreaterThanOrEqual(1)
     const todayRate = expectDefined(
       rates.find((r) => r.period === new Date().toISOString().slice(0, 10)),
     )
-    expect(todayRate.hitRate).toBeCloseTo(400 / 5700, 3)
+    expect(todayRate.hitRate).toBeCloseTo(800 / 2600, 3)
+
+    cacheDb.close()
+  })
+
+  test('cacheHitRate uses effective input for anthropic requests', () => {
+    const cacheDb = MetricsDB.createInMemory()
+    const createdAt = new Date().toISOString()
+
+    cacheDb.recordRequest({
+      id: 'req_cache_003',
+      sessionId: 'sess_004',
+      model: 'claude-opus',
+      provider: 'anthropic',
+      inputTokens: 1000,
+      outputTokens: 500,
+      cacheWriteTokens: 200,
+      cacheReadTokens: 400,
+      cost: 0.01,
+      durationMs: 800,
+      createdAt,
+    })
+
+    const rates = cacheDb.cacheHitRate('1d')
+    const todayRate = expectDefined(
+      rates.find((r) => r.period === new Date().toISOString().slice(0, 10)),
+    )
+    expect(todayRate.hitRate).toBeCloseTo(400 / 1600, 3)
+
+    cacheDb.close()
+  })
+
+  test('cacheHitRate keeps legacy denominator for non-anthropic requests', () => {
+    const cacheDb = MetricsDB.createInMemory()
+    const createdAt = new Date().toISOString()
+
+    cacheDb.recordRequest({
+      id: 'req_cache_004',
+      sessionId: 'sess_005',
+      model: 'gpt-5.3-codex-medium',
+      provider: 'openai-codex',
+      inputTokens: 1000,
+      outputTokens: 500,
+      cacheWriteTokens: 200,
+      cacheReadTokens: 400,
+      cost: 0.01,
+      durationMs: 800,
+      createdAt,
+    })
+
+    const rates = cacheDb.cacheHitRate('1d')
+    const todayRate = expectDefined(
+      rates.find((r) => r.period === new Date().toISOString().slice(0, 10)),
+    )
+    expect(todayRate.hitRate).toBeCloseTo(400 / 1000, 3)
+
+    cacheDb.close()
   })
 
   test('taskSuccessRate returns daily success rate', () => {
@@ -130,11 +202,39 @@ describe('MetricsDB', () => {
   })
 
   test('costByDayModel returns per-model daily cost', () => {
-    const data = db.costByDayModel('1d')
+    const costDb = MetricsDB.createInMemory()
+    const createdAt = new Date().toISOString()
+
+    costDb.recordRequest({
+      id: 'req_cost_day_001',
+      sessionId: 'sess_cost_001',
+      model: 'gpt-5.3-codex-medium',
+      provider: 'openai-codex',
+      inputTokens: 3200,
+      outputTokens: 1800,
+      cost: 0.028,
+      durationMs: 1500,
+      createdAt,
+    })
+    costDb.recordRequest({
+      id: 'req_cost_day_002',
+      sessionId: 'sess_cost_002',
+      model: 'claude-opus',
+      provider: 'anthropic',
+      inputTokens: 1000,
+      outputTokens: 500,
+      cost: 0.01,
+      durationMs: 800,
+      createdAt,
+    })
+
+    const data = costDb.costByDayModel('1d')
     expect(data.length).toBeGreaterThanOrEqual(1)
     const models = new Set(data.map((d) => d.model))
     expect(models.has('gpt-5.3-codex-medium')).toBe(true)
     expect(models.has('claude-opus')).toBe(true)
+
+    costDb.close()
   })
 
   test('recordRepair and repairStats', () => {
