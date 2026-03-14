@@ -56,6 +56,28 @@ describe('MetricsDB', () => {
     expect(costs[0].requestCount).toBe(2)
   })
 
+  test('sessionStats returns cache metrics', () => {
+    db.recordRequest({
+      id: 'req_session_cache_001',
+      sessionId: 'sess_001',
+      model: 'gpt-5.3-codex-medium',
+      provider: 'openai-codex',
+      inputTokens: 1000,
+      outputTokens: 200,
+      cacheWriteTokens: 100,
+      cacheReadTokens: 400,
+      cost: 0.01,
+      durationMs: 100,
+      createdAt: new Date().toISOString(),
+    })
+
+    const stats = db.sessionStats('sess_001')
+    expect(stats.cacheWriteTokens).toBe(100)
+    expect(stats.cacheReadTokens).toBe(400)
+    expect(stats.effectiveInputTokens).toBe(5700)
+    expect(stats.cacheHitRate).toBeCloseTo(400 / 5700, 3)
+  })
+
   test('record and query tool operations', () => {
     db.recordOperation({
       sessionId: 'sess_001',
@@ -237,6 +259,35 @@ describe('MetricsDB', () => {
     costDb.close()
   })
 
+  test('cacheByModel returns provider and cache aggregates', () => {
+    const cacheDb = MetricsDB.createInMemory()
+    const createdAt = new Date().toISOString()
+
+    cacheDb.recordRequest({
+      id: 'req_cache_by_model_001',
+      sessionId: 'sess_cache_by_model_001',
+      model: 'claude-opus',
+      provider: 'anthropic',
+      inputTokens: 1000,
+      outputTokens: 100,
+      cacheWriteTokens: 200,
+      cacheReadTokens: 400,
+      cost: 0.01,
+      durationMs: 100,
+      createdAt,
+    })
+
+    const rows = cacheDb.cacheByModel('1d')
+    expect(rows.length).toBe(1)
+    expect(rows[0].provider).toBe('anthropic')
+    expect(rows[0].cacheWrite).toBe(200)
+    expect(rows[0].cacheRead).toBe(400)
+    expect(rows[0].effectiveInput).toBe(1600)
+    expect(rows[0].hitRate).toBeCloseTo(400 / 1600, 3)
+
+    cacheDb.close()
+  })
+
   test('recordRepair and repairStats', () => {
     db.recordRepair({
       sessionId: 'sess_001',
@@ -275,10 +326,15 @@ describe('MetricsDB', () => {
     expect(records.length).toBeGreaterThanOrEqual(1)
     const first = records[0]
     expect(first.date).toBeDefined()
+    expect(first.provider).toBeDefined()
     expect(first.model).toBeDefined()
+    expect(typeof first.requestCount).toBe('number')
     expect(typeof first.input).toBe('number')
     expect(typeof first.output).toBe('number')
+    expect(typeof first.cacheWrite).toBe('number')
     expect(typeof first.cacheRead).toBe('number')
+    expect(typeof first.effectiveInput).toBe('number')
+    expect(typeof first.hitRate).toBe('number')
     expect(typeof first.cost).toBe('number')
   })
 

@@ -1,5 +1,5 @@
 import { loadConfig } from '@zero-os/core'
-import type { MemoryStatus, MemoryType, SessionStatus } from '@zero-os/shared'
+import type { MemoryStatus, MemoryType, ModelPricing, SessionStatus } from '@zero-os/shared'
 import { GitOps } from '@zero-os/supervisor'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -46,6 +46,71 @@ export function createRoutes(zero: ZeroOS) {
         ]
       }),
     )
+  }
+
+  function resolvePricing(providerName: string, modelName: string): ModelPricing | undefined {
+    const candidates = [modelName]
+    if (!modelName.startsWith(`${providerName}/`)) {
+      candidates.push(formatModelLabel(providerName, modelName))
+    }
+
+    for (const candidate of candidates) {
+      const resolved = zero.modelRouter.resolveModel(candidate)
+      if (resolved && resolved.providerName === providerName) {
+        return resolved.modelConfig.pricing
+      }
+    }
+
+    return undefined
+  }
+
+  function computeCacheEconomics(
+    cacheReadTokens: number,
+    cacheWriteTokens: number,
+    pricing?: ModelPricing,
+  ) {
+    const perMillion = 1_000_000
+    const cacheReadCost =
+      pricing?.cacheRead !== undefined ? (cacheReadTokens * pricing.cacheRead) / perMillion : 0
+    const cacheWriteCost =
+      pricing?.cacheWrite !== undefined ? (cacheWriteTokens * pricing.cacheWrite) / perMillion : 0
+    const grossAvoidedInputCost =
+      pricing?.input !== undefined ? (cacheReadTokens * pricing.input) / perMillion : 0
+
+    return {
+      cacheReadCost,
+      cacheWriteCost,
+      grossAvoidedInputCost,
+      netSavings: grossAvoidedInputCost - cacheWriteCost,
+    }
+  }
+
+  function summarizeSessionCacheEconomics(sessionId: string) {
+    const requests = zero.logger.readSessionRequests(sessionId)
+    let cacheReadCost = 0
+    let cacheWriteCost = 0
+    let grossAvoidedInputCost = 0
+    let netSavings = 0
+
+    for (const request of requests) {
+      const pricing = resolvePricing(request.provider, request.model)
+      const economics = computeCacheEconomics(
+        request.tokens.cacheRead ?? 0,
+        request.tokens.cacheWrite ?? 0,
+        pricing,
+      )
+      cacheReadCost += economics.cacheReadCost
+      cacheWriteCost += economics.cacheWriteCost
+      grossAvoidedInputCost += economics.grossAvoidedInputCost
+      netSavings += economics.netSavings
+    }
+
+    return {
+      cacheReadCost,
+      cacheWriteCost,
+      grossAvoidedInputCost,
+      netSavings,
+    }
   }
 
   function getSessionRow(id: string) {
@@ -282,6 +347,7 @@ export function createRoutes(zero: ZeroOS) {
       const session = zero.sessionManager.get(id)
       if (session) {
         const stats = zero.metrics.sessionStats(id)
+        const cacheEconomics = summarizeSessionCacheEconomics(id)
         return c.json({
           id: session.data.id,
           source: session.data.source,
@@ -299,6 +365,14 @@ export function createRoutes(zero: ZeroOS) {
           totalTokens: stats.totalTokens,
           inputTokens: stats.inputTokens,
           outputTokens: stats.outputTokens,
+          cacheWriteTokens: stats.cacheWriteTokens,
+          cacheReadTokens: stats.cacheReadTokens,
+          effectiveInputTokens: stats.effectiveInputTokens,
+          cacheHitRate: stats.cacheHitRate,
+          cacheReadCost: cacheEconomics.cacheReadCost,
+          cacheWriteCost: cacheEconomics.cacheWriteCost,
+          grossAvoidedInputCost: cacheEconomics.grossAvoidedInputCost,
+          netSavings: cacheEconomics.netSavings,
           totalCost: stats.totalCost,
           requestCount: stats.requestCount,
         })
@@ -311,6 +385,7 @@ export function createRoutes(zero: ZeroOS) {
       }
       const messages = zero.sessionManager.getMessagesFromDB(id)
       const stats = zero.metrics.sessionStats(id)
+      const cacheEconomics = summarizeSessionCacheEconomics(id)
       return c.json({
         id: row.id,
         source: row.source,
@@ -328,6 +403,14 @@ export function createRoutes(zero: ZeroOS) {
         totalTokens: stats.totalTokens,
         inputTokens: stats.inputTokens,
         outputTokens: stats.outputTokens,
+        cacheWriteTokens: stats.cacheWriteTokens,
+        cacheReadTokens: stats.cacheReadTokens,
+        effectiveInputTokens: stats.effectiveInputTokens,
+        cacheHitRate: stats.cacheHitRate,
+        cacheReadCost: cacheEconomics.cacheReadCost,
+        cacheWriteCost: cacheEconomics.cacheWriteCost,
+        grossAvoidedInputCost: cacheEconomics.grossAvoidedInputCost,
+        netSavings: cacheEconomics.netSavings,
         totalCost: stats.totalCost,
         requestCount: stats.requestCount,
       })
@@ -532,6 +615,18 @@ export function createRoutes(zero: ZeroOS) {
       return c.json({ data })
     })
 
+    .get('/api/metrics/cache-by-model', (c) => {
+      const range = c.req.query('range') ?? '30d'
+      const data = zero.metrics.cacheByModel(range).map((row) => {
+        const pricing = resolvePricing(row.provider, row.model)
+        return {
+          ...row,
+          ...computeCacheEconomics(row.cacheRead, row.cacheWrite, pricing),
+        }
+      })
+      return c.json({ data })
+    })
+
     .get('/api/metrics/task-success-rate', (c) => {
       const range = c.req.query('range') ?? '30d'
       const data = zero.metrics.taskSuccessRate(range)
@@ -559,7 +654,13 @@ export function createRoutes(zero: ZeroOS) {
 
     .get('/api/metrics/cost-detail', (c) => {
       const range = c.req.query('range') ?? '30d'
-      const data = zero.metrics.costDetailRecords(range)
+      const data = zero.metrics.costDetailRecords(range).map((row) => {
+        const pricing = resolvePricing(row.provider, row.model)
+        return {
+          ...row,
+          ...computeCacheEconomics(row.cacheRead, row.cacheWrite, pricing),
+        }
+      })
       return c.json({ data })
     })
 

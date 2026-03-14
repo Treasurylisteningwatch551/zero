@@ -7,8 +7,6 @@ import {
   Legend,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -24,14 +22,6 @@ import { formatCost, formatNumber } from '../lib/format'
 type Tab = 'cost' | 'operations' | 'health'
 type TimeRange = '7d' | '30d' | '90d' | 'custom'
 
-interface CostByModel {
-  model: string
-  provider: string
-  totalCost: number
-  totalInput: number
-  totalOutput: number
-  requestCount: number
-}
 interface CostByDayModel {
   period: string
   model: string
@@ -39,10 +29,35 @@ interface CostByDayModel {
 }
 interface CostDetail {
   date: string
+  provider: string
   model: string
+  requestCount: number
   input: number
   output: number
+  cacheWrite: number
   cacheRead: number
+  effectiveInput: number
+  hitRate: number
+  cacheReadCost: number
+  cacheWriteCost: number
+  grossAvoidedInputCost: number
+  netSavings: number
+  cost: number
+}
+interface CacheByModel {
+  provider: string
+  model: string
+  requestCount: number
+  input: number
+  output: number
+  cacheWrite: number
+  cacheRead: number
+  effectiveInput: number
+  hitRate: number
+  cacheReadCost: number
+  cacheWriteCost: number
+  grossAvoidedInputCost: number
+  netSavings: number
   cost: number
 }
 interface CacheHitRate {
@@ -160,6 +175,13 @@ function pctTickFormatter(v: number): string {
   return `${(v * 100).toFixed(0)}%`
 }
 
+function signedCostFormatter(v: number): string {
+  const abs = formatCost(Math.abs(v))
+  if (v > 0) return `+$${abs}`
+  if (v < 0) return `-$${abs}`
+  return `$${abs}`
+}
+
 // ---------------------------------------------------------------------------
 // Pivot helper — turns array of { period, key, value } into pivoted rows
 // ---------------------------------------------------------------------------
@@ -196,7 +218,7 @@ function pivotBy<T extends object>(
 function CostTab({ range }: { range: TimeRange }) {
   const [loading, setLoading] = useState(true)
   const [costByDayModel, setCostByDayModel] = useState<CostByDayModel[]>([])
-  const [costByModel, setCostByModel] = useState<CostByModel[]>([])
+  const [cacheByModel, setCacheByModel] = useState<CacheByModel[]>([])
   const [costDetail, setCostDetail] = useState<CostDetail[]>([])
   const [cacheHitRate, setCacheHitRate] = useState<CacheHitRate[]>([])
 
@@ -204,13 +226,13 @@ function CostTab({ range }: { range: TimeRange }) {
     setLoading(true)
     Promise.all([
       apiFetch<{ data: CostByDayModel[] }>(`/api/metrics/cost-by-day-model?range=${r}`),
-      apiFetch<{ byModel: CostByModel[] }>(`/api/metrics/cost?range=${r}`),
+      apiFetch<{ data: CacheByModel[] }>(`/api/metrics/cache-by-model?range=${r}`),
       apiFetch<{ data: CostDetail[] }>(`/api/metrics/cost-detail?range=${r}`),
       apiFetch<{ data: CacheHitRate[] }>(`/api/metrics/cache-hit-rate?range=${r}`),
     ])
-      .then(([dayModelRes, costRes, detailRes, cacheRes]) => {
+      .then(([dayModelRes, cacheByModelRes, detailRes, cacheRes]) => {
         setCostByDayModel(dayModelRes.data)
-        setCostByModel(costRes.byModel)
+        setCacheByModel(cacheByModelRes.data)
         setCostDetail(detailRes.data)
         setCacheHitRate(cacheRes.data)
       })
@@ -243,8 +265,52 @@ function CostTab({ range }: { range: TimeRange }) {
   }
   const tokenUsageData = Array.from(tokenUsageMap.values())
 
+  const cacheSummary = cacheByModel.reduce(
+    (acc, row) => {
+      acc.cacheRead += row.cacheRead
+      acc.cacheWrite += row.cacheWrite
+      acc.effectiveInput += row.effectiveInput
+      acc.netSavings += row.netSavings
+      return acc
+    },
+    { cacheRead: 0, cacheWrite: 0, effectiveInput: 0, netSavings: 0 },
+  )
+  const cacheSummaryHitRate =
+    cacheSummary.effectiveInput > 0 ? cacheSummary.cacheRead / cacheSummary.effectiveInput : 0
+  const cacheSavingsData = [...cacheByModel]
+    .sort((left, right) => right.netSavings - left.netSavings)
+    .slice(0, 8)
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-5 gap-4">
+        <StatCard
+          label="Cache Read"
+          value={loading ? '...' : formatNumber(cacheSummary.cacheRead)}
+          delay={0}
+        />
+        <StatCard
+          label="Cache Write"
+          value={loading ? '...' : formatNumber(cacheSummary.cacheWrite)}
+          delay={40}
+        />
+        <StatCard
+          label="Effective Input"
+          value={loading ? '...' : formatNumber(cacheSummary.effectiveInput)}
+          delay={80}
+        />
+        <StatCard
+          label="Hit Rate"
+          value={loading ? '...' : pctFormatter(cacheSummaryHitRate)}
+          delay={120}
+        />
+        <StatCard
+          label="Net Savings"
+          value={loading ? '...' : signedCostFormatter(cacheSummary.netSavings)}
+          delay={160}
+        />
+      </div>
+
       {/* 1. Cost Trend — stacked BarChart by model */}
       <ChartCard title="Cost Trend" delay={0}>
         <div className="h-[240px]">
@@ -315,38 +381,39 @@ function CostTab({ range }: { range: TimeRange }) {
         </div>
       </ChartCard>
 
-      {/* 3. Model Distribution — PieChart */}
-      <ChartCard title="Model Distribution" delay={120}>
+      {/* 3. Cache Savings by Model */}
+      <ChartCard title="Cache Savings by Model" delay={120}>
         <div className="h-[240px]">
-          {loading || costByModel.length === 0 ? (
-            <ChartEmpty loading={loading} />
+          {loading || cacheSavingsData.length === 0 ? (
+            <ChartEmpty loading={loading} message="No cache savings data" />
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={costByModel}
-                  dataKey="totalCost"
-                  nameKey="model"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  label={({ name, percent }: { name: string; percent: number }) =>
-                    `${name} (${(percent * 100).toFixed(0)}%)`
-                  }
-                  labelLine={{ stroke: CHART_TEXT }}
-                >
-                  {costByModel.map((model, index) => (
+              <BarChart data={cacheSavingsData} layout="vertical" margin={{ left: 24 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID} />
+                <XAxis
+                  type="number"
+                  tick={{ fontSize: 10, fill: CHART_TEXT }}
+                  tickFormatter={(v: number) => signedCostFormatter(v)}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="model"
+                  width={120}
+                  tick={{ fontSize: 10, fill: CHART_TEXT }}
+                />
+                <Tooltip
+                  {...TOOLTIP_STYLE}
+                  formatter={(value: number) => signedCostFormatter(value)}
+                />
+                <Bar dataKey="netSavings" radius={[0, 4, 4, 0]}>
+                  {cacheSavingsData.map((row, index) => (
                     <Cell
-                      key={`${model.provider}-${model.model}`}
+                      key={`${row.provider}-${row.model}`}
                       fill={MODEL_COLORS[index % MODEL_COLORS.length]}
                     />
                   ))}
-                </Pie>
-                <Tooltip
-                  {...TOOLTIP_STYLE}
-                  formatter={(value: number) => `$${formatCost(value)}`}
-                />
-              </PieChart>
+                </Bar>
+              </BarChart>
             </ResponsiveContainer>
           )}
         </div>
@@ -381,9 +448,68 @@ function CostTab({ range }: { range: TimeRange }) {
         </div>
       </ChartCard>
 
-      {/* 5. Detail Records — HTML table */}
+      {/* 5. Cache By Provider / Model */}
       <div className="lg:col-span-2">
-        <ChartCard title="Detail Records" delay={240}>
+        <ChartCard title="Cache By Provider / Model" delay={220}>
+          {loading ? (
+            <div className="text-center text-[13px] text-[var(--color-text-muted)] py-6">
+              Loading...
+            </div>
+          ) : cacheByModel.length === 0 ? (
+            <div className="text-center text-[13px] text-[var(--color-text-muted)] py-6">
+              No cache data
+            </div>
+          ) : (
+            <div className="overflow-x-auto" style={{ maxHeight: 280 }}>
+              <table className="w-full text-[12px] font-mono">
+                <thead>
+                  <tr className="text-left text-[10px] text-[var(--color-text-disabled)] tracking-wide border-b border-[var(--color-border)]">
+                    <th className="pb-2 pr-4">Provider</th>
+                    <th className="pb-2 pr-4">Model</th>
+                    <th className="pb-2 pr-4 text-right">Requests</th>
+                    <th className="pb-2 pr-4 text-right">Cache Read</th>
+                    <th className="pb-2 pr-4 text-right">Cache Write</th>
+                    <th className="pb-2 pr-4 text-right">Eff Input</th>
+                    <th className="pb-2 pr-4 text-right">Hit Rate</th>
+                    <th className="pb-2 text-right">Net Savings</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cacheByModel.map((row) => (
+                    <tr
+                      key={`${row.provider}-${row.model}`}
+                      className="border-b border-[var(--color-border)] last:border-0 hover:bg-white/[0.03] transition-colors"
+                    >
+                      <td className="py-1.5 pr-4 text-[var(--color-text-muted)]">{row.provider}</td>
+                      <td className="py-1.5 pr-4 text-[var(--color-accent)]">{row.model}</td>
+                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-secondary)]">
+                        {formatNumber(row.requestCount)}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-secondary)]">
+                        {formatNumber(row.cacheRead)}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-secondary)]">
+                        {formatNumber(row.cacheWrite)}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-secondary)]">
+                        {formatNumber(row.effectiveInput)}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-muted)]">
+                        {pctFormatter(row.hitRate)}
+                      </td>
+                      <td className="py-1.5 text-right">{signedCostFormatter(row.netSavings)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ChartCard>
+      </div>
+
+      {/* 6. Detail Records — HTML table */}
+      <div className="lg:col-span-2">
+        <ChartCard title="Detail Records" delay={260}>
           {loading ? (
             <div className="text-center text-[13px] text-[var(--color-text-muted)] py-6">
               Loading...
@@ -398,21 +524,34 @@ function CostTab({ range }: { range: TimeRange }) {
                 <thead>
                   <tr className="text-left text-[10px] text-[var(--color-text-disabled)] tracking-wide border-b border-[var(--color-border)]">
                     <th className="pb-2 pr-4">Date</th>
+                    <th className="pb-2 pr-4">Provider</th>
                     <th className="pb-2 pr-4">Model</th>
+                    <th className="pb-2 pr-4 text-right">Requests</th>
                     <th className="pb-2 pr-4 text-right">Input Tokens</th>
                     <th className="pb-2 pr-4 text-right">Output Tokens</th>
+                    <th className="pb-2 pr-4 text-right">Cache Write</th>
                     <th className="pb-2 pr-4 text-right">Cache Read</th>
+                    <th className="pb-2 pr-4 text-right">Eff Input</th>
+                    <th className="pb-2 pr-4 text-right">Hit Rate</th>
+                    <th className="pb-2 pr-4 text-right">Read Cost</th>
+                    <th className="pb-2 pr-4 text-right">Write Cost</th>
+                    <th className="pb-2 pr-4 text-right">Avoided</th>
+                    <th className="pb-2 pr-4 text-right">Net</th>
                     <th className="pb-2 text-right">Cost</th>
                   </tr>
                 </thead>
                 <tbody>
                   {costDetail.map((d) => (
                     <tr
-                      key={`${d.date}-${d.model}-${d.input}-${d.output}-${d.cacheRead}-${d.cost}`}
+                      key={`${d.date}-${d.provider}-${d.model}-${d.input}-${d.output}-${d.cacheRead}-${d.cost}`}
                       className="border-b border-[var(--color-border)] last:border-0 hover:bg-white/[0.03] transition-colors"
                     >
                       <td className="py-1.5 pr-4 text-[var(--color-text-muted)]">{d.date}</td>
+                      <td className="py-1.5 pr-4 text-[var(--color-text-muted)]">{d.provider}</td>
                       <td className="py-1.5 pr-4 text-[var(--color-accent)]">{d.model}</td>
+                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-secondary)]">
+                        {formatNumber(d.requestCount)}
+                      </td>
                       <td className="py-1.5 pr-4 text-right text-[var(--color-text-secondary)]">
                         {formatNumber(d.input)}
                       </td>
@@ -420,7 +559,24 @@ function CostTab({ range }: { range: TimeRange }) {
                         {formatNumber(d.output)}
                       </td>
                       <td className="py-1.5 pr-4 text-right text-[var(--color-text-muted)]">
+                        {formatNumber(d.cacheWrite)}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-muted)]">
                         {formatNumber(d.cacheRead)}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-muted)]">
+                        {formatNumber(d.effectiveInput)}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right text-[var(--color-text-muted)]">
+                        {pctFormatter(d.hitRate)}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right">${formatCost(d.cacheReadCost)}</td>
+                      <td className="py-1.5 pr-4 text-right">${formatCost(d.cacheWriteCost)}</td>
+                      <td className="py-1.5 pr-4 text-right">
+                        ${formatCost(d.grossAvoidedInputCost)}
+                      </td>
+                      <td className="py-1.5 pr-4 text-right">
+                        {signedCostFormatter(d.netSavings)}
                       </td>
                       <td className="py-1.5 text-right">${formatCost(d.cost)}</td>
                     </tr>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import { toolColors } from '../../lib/colors'
-import { formatModelHistory, formatNumber, formatTimeAgo } from '../../lib/format'
+import { formatCost, formatModelHistory, formatNumber, formatTimeAgo } from '../../lib/format'
 import type { PersistedTaskClosureEvent } from './timeline'
 
 interface ModelHistoryEntry {
@@ -68,6 +68,14 @@ interface Props {
   totalTokens: number
   inputTokens?: number
   outputTokens?: number
+  cacheWriteTokens?: number
+  cacheReadTokens?: number
+  effectiveInputTokens?: number
+  cacheHitRate?: number
+  cacheReadCost?: number
+  cacheWriteCost?: number
+  grossAvoidedInputCost?: number
+  netSavings?: number
   llmRequests?: LlmRequestEntry[]
   selectedToolId: string | null
   traces?: TraceSpan[]
@@ -85,6 +93,14 @@ export function ContextPanel({
   totalTokens,
   inputTokens,
   outputTokens,
+  cacheWriteTokens,
+  cacheReadTokens,
+  effectiveInputTokens,
+  cacheHitRate,
+  cacheReadCost,
+  cacheWriteCost,
+  grossAvoidedInputCost,
+  netSavings,
   llmRequests = [],
   selectedToolId,
   traces = [],
@@ -117,6 +133,11 @@ export function ContextPanel({
     () => taskClosureEvents.map(mapPersistedTaskClosureEventToCard),
     [taskClosureEvents],
   )
+
+  const formattedNetSavings =
+    netSavings === undefined
+      ? undefined
+      : `${netSavings >= 0 ? '+' : '-'}$${formatCost(Math.abs(netSavings))}`
 
   if (selectedTool) {
     return (
@@ -245,6 +266,61 @@ export function ContextPanel({
                   />
                 </div>
               )}
+            </div>
+          </Section>
+
+          <Section title="Cache">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[12px]">
+                <span className="text-[var(--color-text-muted)]">Cache Read</span>
+                <span className="font-mono text-[var(--color-text-secondary)]">
+                  {formatNumber(cacheReadTokens ?? 0)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[12px]">
+                <span className="text-[var(--color-text-muted)]">Cache Write</span>
+                <span className="font-mono text-[var(--color-text-secondary)]">
+                  {formatNumber(cacheWriteTokens ?? 0)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[12px]">
+                <span className="text-[var(--color-text-muted)]">Effective Input</span>
+                <span className="font-mono text-[var(--color-text-secondary)]">
+                  {formatNumber(effectiveInputTokens ?? 0)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[12px]">
+                <span className="text-[var(--color-text-muted)]">Hit Rate</span>
+                <span className="font-mono text-[var(--color-text-secondary)]">
+                  {((cacheHitRate ?? 0) * 100).toFixed(0)}%
+                </span>
+              </div>
+              <div className="border-t border-[var(--color-border)] pt-2 mt-2 space-y-1">
+                <div className="flex items-center justify-between text-[12px]">
+                  <span className="text-[var(--color-text-muted)]">Read Cost</span>
+                  <span className="font-mono text-[var(--color-text-secondary)]">
+                    ${formatCost(cacheReadCost ?? 0)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[12px]">
+                  <span className="text-[var(--color-text-muted)]">Write Cost</span>
+                  <span className="font-mono text-[var(--color-text-secondary)]">
+                    ${formatCost(cacheWriteCost ?? 0)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[12px]">
+                  <span className="text-[var(--color-text-muted)]">Avoided Input Cost</span>
+                  <span className="font-mono text-[var(--color-text-secondary)]">
+                    ${formatCost(grossAvoidedInputCost ?? 0)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[12px]">
+                  <span className="text-[var(--color-text-muted)]">Net Savings</span>
+                  <span className="font-mono text-[var(--color-accent)]">
+                    {formattedNetSavings ?? '$0.0000'}
+                  </span>
+                </div>
+              </div>
             </div>
           </Section>
 

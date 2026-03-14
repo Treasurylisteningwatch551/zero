@@ -26,6 +26,31 @@ export interface CacheHitRate {
   hitRate: number
 }
 
+export interface SessionStatsSummary {
+  totalCost: number
+  totalTokens: number
+  inputTokens: number
+  outputTokens: number
+  cacheWriteTokens: number
+  cacheReadTokens: number
+  effectiveInputTokens: number
+  cacheHitRate: number
+  requestCount: number
+}
+
+export interface CacheByModelRecord {
+  provider: string
+  model: string
+  requestCount: number
+  input: number
+  output: number
+  cacheWrite: number
+  cacheRead: number
+  effectiveInput: number
+  hitRate: number
+  cost: number
+}
+
 export interface TaskSuccessRate {
   period: string
   successRate: number
@@ -59,10 +84,15 @@ export interface RepairByDay {
 
 export interface CostDetailRecord {
   date: string
+  provider: string
   model: string
+  requestCount: number
   input: number
   output: number
+  cacheWrite: number
   cacheRead: number
+  effectiveInput: number
+  hitRate: number
   cost: number
 }
 
@@ -290,6 +320,10 @@ export class MetricsDB {
     totalTokens: number
     inputTokens: number
     outputTokens: number
+    cacheWriteTokens: number
+    cacheReadTokens: number
+    effectiveInputTokens: number
+    cacheHitRate: number
     requestCount: number
   } {
     const row = this.db
@@ -298,6 +332,25 @@ export class MetricsDB {
                 COALESCE(SUM(input_tokens + output_tokens), 0) as totalTokens,
                 COALESCE(SUM(input_tokens), 0) as inputTokens,
                 COALESCE(SUM(output_tokens), 0) as outputTokens,
+                COALESCE(SUM(cache_write_tokens), 0) as cacheWriteTokens,
+                COALESCE(SUM(cache_read_tokens), 0) as cacheReadTokens,
+                COALESCE(SUM(
+                  CASE
+                    WHEN provider = 'anthropic'
+                      THEN input_tokens + cache_write_tokens + cache_read_tokens
+                    ELSE input_tokens
+                  END
+                ), 0) as effectiveInputTokens,
+                COALESCE(
+                  SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(
+                    CASE
+                      WHEN provider = 'anthropic'
+                        THEN input_tokens + cache_write_tokens + cache_read_tokens
+                      ELSE input_tokens
+                    END
+                  ), 0),
+                  0
+                ) as cacheHitRate,
                 COUNT(*) as requestCount
          FROM requests
          WHERE session_id = ?`,
@@ -307,6 +360,10 @@ export class MetricsDB {
       totalTokens: number
       inputTokens: number
       outputTokens: number
+      cacheWriteTokens: number
+      cacheReadTokens: number
+      effectiveInputTokens: number
+      cacheHitRate: number
       requestCount: number
     }
     return row
@@ -317,24 +374,9 @@ export class MetricsDB {
    */
   sessionStatsBatch(sessionIds: string[]): Map<
     string,
-    {
-      totalCost: number
-      totalTokens: number
-      inputTokens: number
-      outputTokens: number
-      requestCount: number
-    }
+    SessionStatsSummary
   > {
-    const result = new Map<
-      string,
-      {
-        totalCost: number
-        totalTokens: number
-        inputTokens: number
-        outputTokens: number
-        requestCount: number
-      }
-    >()
+    const result = new Map<string, SessionStatsSummary>()
     if (sessionIds.length === 0) return result
 
     const placeholders = sessionIds.map(() => '?').join(',')
@@ -345,6 +387,25 @@ export class MetricsDB {
                 COALESCE(SUM(input_tokens + output_tokens), 0) as totalTokens,
                 COALESCE(SUM(input_tokens), 0) as inputTokens,
                 COALESCE(SUM(output_tokens), 0) as outputTokens,
+                COALESCE(SUM(cache_write_tokens), 0) as cacheWriteTokens,
+                COALESCE(SUM(cache_read_tokens), 0) as cacheReadTokens,
+                COALESCE(SUM(
+                  CASE
+                    WHEN provider = 'anthropic'
+                      THEN input_tokens + cache_write_tokens + cache_read_tokens
+                    ELSE input_tokens
+                  END
+                ), 0) as effectiveInputTokens,
+                COALESCE(
+                  SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(
+                    CASE
+                      WHEN provider = 'anthropic'
+                        THEN input_tokens + cache_write_tokens + cache_read_tokens
+                      ELSE input_tokens
+                    END
+                  ), 0),
+                  0
+                ) as cacheHitRate,
                 COUNT(*) as requestCount
          FROM requests
          WHERE session_id IN (${placeholders})
@@ -356,6 +417,10 @@ export class MetricsDB {
       totalTokens: number
       inputTokens: number
       outputTokens: number
+      cacheWriteTokens: number
+      cacheReadTokens: number
+      effectiveInputTokens: number
+      cacheHitRate: number
       requestCount: number
     }[]
 
@@ -365,6 +430,10 @@ export class MetricsDB {
         totalTokens: row.totalTokens,
         inputTokens: row.inputTokens,
         outputTokens: row.outputTokens,
+        cacheWriteTokens: row.cacheWriteTokens,
+        cacheReadTokens: row.cacheReadTokens,
+        effectiveInputTokens: row.effectiveInputTokens,
+        cacheHitRate: row.cacheHitRate,
         requestCount: row.requestCount,
       })
     }
@@ -454,6 +523,43 @@ export class MetricsDB {
   }
 
   /**
+   * Cache usage grouped by provider and model.
+   */
+  cacheByModel(range = '30d'): CacheByModelRecord[] {
+    const since = rangeToCutoff(range)
+    return this.db
+      .query(
+        `SELECT provider,
+                model,
+                COUNT(*) as requestCount,
+                SUM(input_tokens) as input,
+                SUM(output_tokens) as output,
+                SUM(cache_write_tokens) as cacheWrite,
+                SUM(cache_read_tokens) as cacheRead,
+                SUM(
+                  CASE
+                    WHEN provider = 'anthropic'
+                      THEN input_tokens + cache_write_tokens + cache_read_tokens
+                    ELSE input_tokens
+                  END
+                ) as effectiveInput,
+                SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(
+                  CASE
+                    WHEN provider = 'anthropic'
+                      THEN input_tokens + cache_write_tokens + cache_read_tokens
+                    ELSE input_tokens
+                  END
+                ), 0) as hitRate,
+                SUM(cost) as cost
+         FROM requests
+         WHERE created_at >= ?
+         GROUP BY provider, model
+         ORDER BY cacheRead DESC, hitRate DESC, cost DESC`,
+      )
+      .all(since) as CacheByModelRecord[]
+  }
+
+  /**
    * Record a self-repair attempt.
    */
   recordRepair(entry: RepairEntry): void {
@@ -517,14 +623,31 @@ export class MetricsDB {
     return this.db
       .query(
         `SELECT substr(created_at, 1, 10) as date,
+                provider,
                 model,
+                COUNT(*) as requestCount,
                 SUM(input_tokens) as input,
                 SUM(output_tokens) as output,
+                SUM(cache_write_tokens) as cacheWrite,
                 SUM(cache_read_tokens) as cacheRead,
+                SUM(
+                  CASE
+                    WHEN provider = 'anthropic'
+                      THEN input_tokens + cache_write_tokens + cache_read_tokens
+                    ELSE input_tokens
+                  END
+                ) as effectiveInput,
+                SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(
+                  CASE
+                    WHEN provider = 'anthropic'
+                      THEN input_tokens + cache_write_tokens + cache_read_tokens
+                    ELSE input_tokens
+                  END
+                ), 0) as hitRate,
                 SUM(cost) as cost
          FROM requests
          WHERE created_at >= ?
-         GROUP BY date, model
+         GROUP BY date, provider, model
          ORDER BY date DESC, cost DESC`,
       )
       .all(since) as CostDetailRecord[]

@@ -22,6 +22,10 @@ interface Props {
   totalTokens: number
   inputTokens: number
   outputTokens: number
+  cacheWriteTokens: number
+  cacheReadTokens: number
+  effectiveInputTokens: number
+  cacheHitRate: number
   totalCost: number
   onArchived?: () => void
   onDeleted?: () => void
@@ -38,6 +42,10 @@ export function MetadataBar({
   totalTokens,
   inputTokens,
   outputTokens,
+  cacheWriteTokens,
+  cacheReadTokens,
+  effectiveInputTokens,
+  cacheHitRate,
   totalCost,
   onArchived,
   onDeleted,
@@ -106,6 +114,14 @@ export function MetadataBar({
             {' '}
             ({formatNumber(inputTokens)} in / {formatNumber(outputTokens)} out)
           </span>
+        </span>
+        <span className="text-[var(--color-text-disabled)]">·</span>
+        <span>
+          cache {formatNumber(cacheReadTokens)} read / {formatNumber(cacheWriteTokens)} write
+        </span>
+        <span className="text-[var(--color-text-disabled)]">·</span>
+        <span>
+          eff {formatNumber(effectiveInputTokens)} · {(cacheHitRate * 100).toFixed(0)}% hit
         </span>
         <span className="text-[var(--color-text-disabled)]">·</span>
         <span className="flex items-center gap-0.5">

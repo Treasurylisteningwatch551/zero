@@ -71,6 +71,14 @@ interface SessionDetail {
   totalTokens: number
   inputTokens: number
   outputTokens: number
+  cacheWriteTokens: number
+  cacheReadTokens: number
+  effectiveInputTokens: number
+  cacheHitRate: number
+  cacheReadCost: number
+  cacheWriteCost: number
+  grossAvoidedInputCost: number
+  netSavings: number
   totalCost: number
   requestCount: number
 }
@@ -361,6 +369,10 @@ export function SessionDetailScreen({
         totalTokens={session.totalTokens}
         inputTokens={session.inputTokens}
         outputTokens={session.outputTokens}
+        cacheWriteTokens={session.cacheWriteTokens}
+        cacheReadTokens={session.cacheReadTokens}
+        effectiveInputTokens={session.effectiveInputTokens}
+        cacheHitRate={session.cacheHitRate}
         totalCost={session.totalCost}
         onArchived={goBack}
         onDeleted={goBack}
@@ -396,6 +408,14 @@ export function SessionDetailScreen({
           totalTokens={session.totalTokens}
           inputTokens={session.inputTokens}
           outputTokens={session.outputTokens}
+          cacheWriteTokens={session.cacheWriteTokens}
+          cacheReadTokens={session.cacheReadTokens}
+          effectiveInputTokens={session.effectiveInputTokens}
+          cacheHitRate={session.cacheHitRate}
+          cacheReadCost={session.cacheReadCost}
+          cacheWriteCost={session.cacheWriteCost}
+          grossAvoidedInputCost={session.grossAvoidedInputCost}
+          netSavings={session.netSavings}
           llmRequests={llmRequests}
           selectedToolId={selectedToolId}
           traces={traces}

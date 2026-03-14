@@ -68,4 +68,29 @@ describe('TraceSummaryCard', () => {
     expect(html).toContain('h-full min-h-0 overflow-y-auto')
     expect(html).toContain('max-h-[320px] overflow-y-auto')
   })
+
+  test('renders cache summary and savings fields', () => {
+    const html = renderToStaticMarkup(
+      <ContextPanel
+        modelHistory={[]}
+        toolCalls={[]}
+        filesTouched={[]}
+        totalTokens={0}
+        cacheWriteTokens={120}
+        cacheReadTokens={480}
+        effectiveInputTokens={960}
+        cacheHitRate={0.5}
+        cacheReadCost={0.02}
+        cacheWriteCost={0.01}
+        grossAvoidedInputCost={0.08}
+        netSavings={0.07}
+        selectedToolId={null}
+      />,
+    )
+
+    expect(html).toContain('Cache')
+    expect(html).toContain('Effective Input')
+    expect(html).toContain('Net Savings')
+    expect(html).toContain('+$0.070')
+  })
 })

@@ -178,6 +178,84 @@ describe('API Routes (Real)', () => {
     expect(Array.isArray(data.data)).toBe(true)
   })
 
+  test('GET /api/metrics/cache-by-model returns cache analytics rows', async () => {
+    zero.metrics.recordRequest({
+      id: 'req_cache_metrics_001',
+      sessionId: 'sess_cache_metrics_001',
+      model: 'openai-codex/gpt-5.4-medium',
+      provider: 'openai-codex',
+      inputTokens: 1000,
+      outputTokens: 100,
+      cacheWriteTokens: 50,
+      cacheReadTokens: 400,
+      cost: 0.01,
+      durationMs: 100,
+      createdAt: new Date().toISOString(),
+    })
+
+    const res = await app.request('/api/metrics/cache-by-model?range=7d')
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(Array.isArray(data.data)).toBe(true)
+    expect(
+      data.data.some(
+        (row: { model: string; cacheRead: number; effectiveInput: number; netSavings: number }) =>
+          row.model === 'openai-codex/gpt-5.4-medium' &&
+          row.cacheRead === 400 &&
+          row.effectiveInput === 1000 &&
+          typeof row.netSavings === 'number',
+      ),
+    ).toBe(true)
+  })
+
+  test('GET /api/sessions/:id returns cache summary fields', async () => {
+    const session = zero.sessionManager.create('web')
+    const createdAt = new Date().toISOString()
+
+    zero.metrics.recordRequest({
+      id: 'req_cache_session_001',
+      sessionId: session.data.id,
+      model: 'openai-codex/gpt-5.4-medium',
+      provider: 'openai-codex',
+      inputTokens: 1000,
+      outputTokens: 100,
+      cacheWriteTokens: 50,
+      cacheReadTokens: 400,
+      cost: 0.01,
+      durationMs: 100,
+      createdAt,
+    })
+    zero.logger.logSessionRequest({
+      id: 'req_cache_session_001',
+      turnIndex: 1,
+      sessionId: session.data.id,
+      model: 'openai-codex/gpt-5.4-medium',
+      provider: 'openai-codex',
+      userPrompt: 'test cache',
+      response: 'ok',
+      stopReason: 'end_turn',
+      toolUseCount: 0,
+      tokens: {
+        input: 1000,
+        output: 100,
+        cacheWrite: 50,
+        cacheRead: 400,
+      },
+      cost: 0.01,
+      durationMs: 100,
+    })
+
+    const res = await app.request(`/api/sessions/${session.data.id}`)
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.cacheWriteTokens).toBe(50)
+    expect(data.cacheReadTokens).toBe(400)
+    expect(data.effectiveInputTokens).toBe(1000)
+    expect(data.cacheHitRate).toBeCloseTo(0.4, 5)
+    expect(typeof data.cacheReadCost).toBe('number')
+    expect(typeof data.netSavings).toBe('number')
+  })
+
   test('POST /api/chat creates session and returns reply', async () => {
     const res = await app.request('/api/chat', {
       method: 'POST',
