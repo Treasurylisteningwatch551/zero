@@ -372,6 +372,7 @@ describe('Agent streaming callback', () => {
     expect(visibleText).toBe('visible answer')
     expect(entries).toHaveLength(1)
     expect(entries[0].reasoningContent).toBe('step 1. step 2.')
+    expect(entries[0].toolCalls).toEqual([])
     expect((entries[0].tokens as Record<string, unknown>).reasoning).toBe(7)
   })
 
@@ -425,5 +426,10 @@ describe('Agent streaming callback', () => {
       'resp_tool_2',
     ])
     expect(entries.map((entry) => entry.id)).toEqual(['resp_tool_1', 'resp_tool_2', 'resp_final'])
+    expect(entries.map((entry) => entry.toolCalls)).toEqual([
+      [{ id: 'call_1', name: 'noop', input: {} }],
+      [{ id: 'call_2', name: 'noop', input: {} }],
+      [],
+    ])
   })
 })

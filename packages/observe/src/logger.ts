@@ -29,6 +29,12 @@ export interface LogEntry {
   [key: string]: unknown
 }
 
+export interface RequestToolCallEntry {
+  id: string
+  name: string
+  input: Record<string, unknown>
+}
+
 export interface RequestLogEntry {
   id: string
   turnIndex: number
@@ -42,6 +48,7 @@ export interface RequestLogEntry {
   reasoningContent?: string
   stopReason: StopReason
   toolUseCount: number
+  toolCalls: RequestToolCallEntry[]
   tokens: {
     input: number
     output: number
@@ -52,6 +59,10 @@ export interface RequestLogEntry {
   cost: number
   durationMs?: number
   ts: string
+}
+
+type RequestLogEntryInput = Omit<RequestLogEntry, 'ts' | 'toolCalls'> & {
+  toolCalls?: RequestToolCallEntry[]
 }
 
 export interface SnapshotEntry {
@@ -228,18 +239,35 @@ export class JsonlLogger {
   /**
    * Log an LLM request.
    */
-  logRequest(entry: Omit<RequestLogEntry, 'ts'>): void {
-    this.appendLine('requests.jsonl', { ...entry, ts: now() })
+  logRequest(entry: RequestLogEntryInput): void {
+    this.appendLine('requests.jsonl', { ...this.normalizeRequestEntryInput(entry), ts: now() })
   }
 
   /**
    * Log an LLM request to the session-scoped ledger.
    */
-  logSessionRequest(entry: Omit<RequestLogEntry, 'ts'>): void {
+  logSessionRequest(entry: RequestLogEntryInput): void {
     this.appendLine(join(getSessionLogRelativeDir(entry.sessionId), 'requests.jsonl'), {
-      ...entry,
+      ...this.normalizeRequestEntryInput(entry),
       ts: now(),
     })
+  }
+
+  /**
+   * Log trace spans for a session (flat span list from Tracer flush).
+   */
+  logTraceSpans(sessionId: string, spans: import('./trace').FlatSpan[]): void {
+    const relativePath = join(getSessionLogRelativeDir(sessionId), 'traces.jsonl')
+    for (const span of spans) {
+      this.appendLine(relativePath, span)
+    }
+  }
+
+  /**
+   * Read trace spans for a session.
+   */
+  readSessionTraces(sessionId: string): import('./trace').FlatSpan[] {
+    return this.readSessionEntries<import('./trace').FlatSpan>(sessionId, 'traces.jsonl')
   }
 
   /**
@@ -294,11 +322,14 @@ export class JsonlLogger {
    * Read requests for a session, falling back to legacy global requests.jsonl.
    */
   readSessionRequests(sessionId: string): RequestLogEntry[] {
-    const entries = this.readSessionEntries<RequestLogEntry>(sessionId, 'requests.jsonl')
+    const entries = this.readSessionEntries<RequestLogEntry>(sessionId, 'requests.jsonl').map(
+      (entry) => this.normalizeStoredRequestEntry(entry),
+    )
     if (entries.length > 0) return entries
 
     return this.readEntries<RequestLogEntry>('requests.jsonl')
       .filter((entry) => entry.sessionId === sessionId)
+      .map((entry) => this.normalizeStoredRequestEntry(entry))
       .sort((left, right) => left.ts.localeCompare(right.ts))
   }
 
@@ -330,12 +361,12 @@ export class JsonlLogger {
     const deduped = new Map<string, RequestLogEntry>()
 
     for (const entry of this.readEntries<RequestLogEntry>('requests.jsonl')) {
-      deduped.set(entry.id, entry)
+      deduped.set(entry.id, this.normalizeStoredRequestEntry(entry))
     }
 
     for (const sessionDir of this.listSessionDirectories()) {
       for (const entry of this.readJsonlFile<RequestLogEntry>(join(sessionDir, 'requests.jsonl'))) {
-        deduped.set(entry.id, entry)
+        deduped.set(entry.id, this.normalizeStoredRequestEntry(entry))
       }
     }
 
@@ -370,6 +401,39 @@ export class JsonlLogger {
       .split('\n')
       .filter((line) => line.length > 0)
       .map((line) => JSON.parse(line) as T)
+  }
+
+  private normalizeRequestEntryInput(
+    entry: RequestLogEntryInput,
+  ): RequestLogEntryInput & { toolCalls: RequestToolCallEntry[] } {
+    return {
+      ...entry,
+      toolCalls: this.normalizeToolCalls(entry.toolCalls),
+    }
+  }
+
+  private normalizeStoredRequestEntry(entry: RequestLogEntry): RequestLogEntry {
+    return {
+      ...entry,
+      toolCalls: this.normalizeToolCalls(entry.toolCalls),
+    }
+  }
+
+  private normalizeToolCalls(toolCalls: unknown): RequestToolCallEntry[] {
+    if (!Array.isArray(toolCalls)) return []
+
+    return toolCalls.filter(
+      (toolCall): toolCall is RequestToolCallEntry =>
+        Boolean(
+          toolCall &&
+            typeof toolCall === 'object' &&
+            typeof (toolCall as RequestToolCallEntry).id === 'string' &&
+            typeof (toolCall as RequestToolCallEntry).name === 'string' &&
+            (toolCall as RequestToolCallEntry).input &&
+            typeof (toolCall as RequestToolCallEntry).input === 'object' &&
+            !Array.isArray((toolCall as RequestToolCallEntry).input),
+        ),
+    )
   }
 
   private getClosureEntryKey(entry: ClosureLogEntryInput | ClosureLogEntry): string {

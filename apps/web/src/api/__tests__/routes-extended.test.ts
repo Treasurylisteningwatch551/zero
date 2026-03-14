@@ -237,6 +237,7 @@ describe('API Routes Extended', () => {
       response: 'full response for session route',
       stopReason: 'end_turn',
       toolUseCount: 0,
+      toolCalls: [{ id: 'call_route_1', name: 'read', input: { path: '/tmp/demo.txt' } }],
       tokens: { input: 10, output: 20 },
       cost: 0.42,
       durationMs: 900,
@@ -249,6 +250,9 @@ describe('API Routes Extended', () => {
     expect(Array.isArray(data.requests)).toBe(true)
     expect(data.requests[0].id).toBe('req_session_route_001')
     expect(data.requests[0].durationMs).toBe(900)
+    expect(data.requests[0].toolCalls).toEqual([
+      { id: 'call_route_1', name: 'read', input: { path: '/tmp/demo.txt' } },
+    ])
   })
 
   test('GET /api/sessions/:id/requests falls back to legacy global requests log', async () => {

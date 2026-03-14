@@ -4,6 +4,7 @@ import type {
   ClosureLogEntryInput,
   JsonlLogger,
   MetricsDB,
+  RequestToolCallEntry,
   TaskClosureClassifierResponse,
   Tracer,
 } from '@zero-os/observe'
@@ -393,6 +394,7 @@ export class Agent {
           sessionId: this.toolContext.sessionId,
           tool: block.name,
           toolUseId: block.id,
+          input: this.filterToolInput(block.input),
         })
 
         // Start tool trace span
@@ -456,6 +458,7 @@ export class Agent {
 
         if (toolSpan) {
           this.obs.tracer?.endSpan(toolSpan.id, result.success ? 'success' : 'error', {
+            toolName: block.name,
             outputSummary: result.outputSummary,
           })
         }
@@ -1109,7 +1112,8 @@ export class Agent {
       .filter((b) => b.type === 'text')
       .map((b) => (b as { text: string }).text)
       .join('')
-    const toolUseCount = response.content.filter((b) => b.type === 'tool_use').length
+    const toolCalls = this.extractToolCalls(response.content)
+    const toolUseCount = toolCalls.length
     const safeUserPrompt = filter ? filter.filter(userPrompt) : userPrompt
     const safeResponseText = filter ? filter.filter(responseText) : responseText
     const safeReasoningContent = response.reasoningContent
@@ -1131,6 +1135,7 @@ export class Agent {
       reasoningContent: safeReasoningContent,
       stopReason: response.stopReason,
       toolUseCount,
+      toolCalls,
       tokens: {
         input: response.usage.input,
         output: response.usage.output,
@@ -1155,6 +1160,47 @@ export class Agent {
       durationMs,
       createdAt: now(),
     })
+  }
+
+  private extractToolCalls(content: ContentBlock[]): RequestToolCallEntry[] {
+    return content.flatMap((block) => {
+      if (block.type !== 'tool_use') return []
+      return [
+        {
+          id: block.id,
+          name: block.name,
+          input: this.filterToolInput(block.input),
+        },
+      ]
+    })
+  }
+
+  private filterToolInput(input: Record<string, unknown>): Record<string, unknown> {
+    const filtered = this.filterToolInputValue(input)
+    return filtered && typeof filtered === 'object' && !Array.isArray(filtered)
+      ? (filtered as Record<string, unknown>)
+      : {}
+  }
+
+  private filterToolInputValue(value: unknown): unknown {
+    if (typeof value === 'string') {
+      return this.obs.secretFilter ? this.obs.secretFilter.filter(value) : value
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => this.filterToolInputValue(item))
+    }
+
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [
+          key,
+          this.filterToolInputValue(nestedValue),
+        ]),
+      )
+    }
+
+    return value
   }
 
   private logTaskClosureEvent(entry: ClosureLogEntryInput): void {

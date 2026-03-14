@@ -264,6 +264,12 @@ describe('Agent', () => {
     expect(toolCalls.length).toBeGreaterThanOrEqual(1)
     expect(toolCalls[0].data.sessionId).toBe('test-session')
     expect(toolCalls[0].data.tool).toBeDefined()
+    expect(toolCalls[0].data.input).toBeDefined()
+    if (toolCalls[0].data.tool === 'read') {
+      expect((toolCalls[0].data.input as Record<string, unknown>).path).toBe(
+        '/Users/v1ki/Desktop/test4_zero/package.json',
+      )
+    }
   }, 30000)
 
   test('run: tracer creates spans', async () => {

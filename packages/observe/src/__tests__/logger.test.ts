@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { existsSync, readlinkSync, rmSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { JsonlLogger } from '../logger'
 
@@ -56,6 +56,7 @@ describe('JsonlLogger', () => {
       reasoningContent: 'checked prompt first',
       stopReason: 'end_turn',
       toolUseCount: 0,
+      toolCalls: [],
       tokens: { input: 100, output: 50, reasoning: 25 },
       cost: 0.001,
       durationMs: 123,
@@ -84,6 +85,7 @@ describe('JsonlLogger', () => {
       response: 'full response',
       stopReason: 'end_turn',
       toolUseCount: 1,
+      toolCalls: [{ id: 'call_1', name: 'read', input: { path: '/tmp/file.txt' } }],
       tokens: { input: 10, output: 20 },
       cost: 0.123,
       durationMs: 456,
@@ -93,6 +95,7 @@ describe('JsonlLogger', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0].id).toBe('req_session_001')
     expect(entries[0].durationMs).toBe(456)
+    expect(entries[0].toolCalls).toEqual([{ id: 'call_1', name: 'read', input: { path: '/tmp/file.txt' } }])
   })
 
   test('logSessionRequest uses dated layout for generated-style session ids', () => {
@@ -138,6 +141,39 @@ describe('JsonlLogger', () => {
     const entries = logger.readSessionRequests('sess_legacy')
     expect(entries).toHaveLength(1)
     expect(entries[0].id).toBe('req_legacy_001')
+    expect(entries[0].toolCalls).toEqual([])
+  })
+
+  test('readSessionRequests normalizes missing toolCalls from legacy lines', () => {
+    const logger = new JsonlLogger(testDir)
+    const sessionId = 'sess_20260313_0000_leg_abcd'
+    const sessionDir = join(testDir, 'sessions', '2026-03-13', sessionId)
+    const filePath = join(sessionDir, 'requests.jsonl')
+    mkdirSync(sessionDir, {
+      recursive: true,
+    })
+    appendFileSync(
+      filePath,
+      `${JSON.stringify({
+        id: 'req_missing_toolcalls',
+        turnIndex: 1,
+        sessionId,
+        model: 'gpt-5.4',
+        provider: 'openai-codex',
+        userPrompt: 'legacy prompt',
+        response: 'legacy response',
+        stopReason: 'end_turn',
+        toolUseCount: 0,
+        tokens: { input: 1, output: 2 },
+        cost: 0.01,
+        ts: '2026-03-13T00:00:00.000Z',
+      })}\n`,
+      'utf-8',
+    )
+
+    const entries = logger.readSessionRequests(sessionId)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].toolCalls).toEqual([])
   })
 
   test('readAllRequests merges legacy and session-scoped ledgers', () => {
