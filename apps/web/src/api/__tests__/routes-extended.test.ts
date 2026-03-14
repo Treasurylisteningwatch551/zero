@@ -173,6 +173,21 @@ describe('API Routes Extended', () => {
     expect(webCh.status).toBe('online')
   })
 
+  test('GET /api/status reflects degraded heartbeat state', async () => {
+    zero.heartbeat.setHealthMetrics({
+      errorCount: 3,
+      channels: [],
+    })
+    zero.heartbeat.write()
+
+    const res = await app.request('/api/status')
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.status).toBe('degraded')
+    expect(typeof data.heartbeatAge).toBe('number')
+    expect(data.heartbeatAge).toBeGreaterThanOrEqual(0)
+  })
+
   test('GET /api/metrics/health returns repair stats', async () => {
     const res = await app.request('/api/metrics/health')
     expect(res.status).toBe(200)

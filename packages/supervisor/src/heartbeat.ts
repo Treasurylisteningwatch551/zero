@@ -8,8 +8,16 @@ const ERROR_THRESHOLD_DEGRADED = 3
 
 export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy'
 
+export interface ChannelHealthMetrics {
+  name: string
+  type: string
+  connected: boolean
+  configured: boolean
+}
+
 export interface HealthMetrics {
   errorCount: number
+  channels: ChannelHealthMetrics[]
 }
 
 export interface HeartbeatData {
@@ -20,7 +28,15 @@ export interface HeartbeatData {
     memoryUsageMB: number
     errorCount: number
     status: HealthStatus
+    channels: {
+      total: number
+      configured: number
+      connected: number
+      disconnected: number
+      offline: string[]
+    }
   }
+  channels: ChannelHealthMetrics[]
 }
 
 /**
@@ -29,7 +45,10 @@ export interface HeartbeatData {
 export class HeartbeatWriter {
   private filePath: string
   private timer: ReturnType<typeof setInterval> | null = null
-  private healthMetrics: HealthMetrics = { errorCount: 0 }
+  private healthMetrics: HealthMetrics = { errorCount: 0, channels: [] }
+  private metricsProvider: (() => Partial<HealthMetrics>) | null = null
+  private onWrite: ((data: HeartbeatData) => void) | null = null
+  private lastHeartbeat: HeartbeatData | null = null
 
   constructor(filePath: string) {
     this.filePath = filePath
@@ -42,8 +61,33 @@ export class HeartbeatWriter {
   /**
    * Update health metrics from the main process.
    */
-  setHealthMetrics(metrics: HealthMetrics): void {
-    this.healthMetrics = metrics
+  setHealthMetrics(metrics: Partial<HealthMetrics>): void {
+    this.healthMetrics = {
+      ...this.healthMetrics,
+      ...metrics,
+      channels: metrics.channels ?? this.healthMetrics.channels,
+    }
+  }
+
+  /**
+   * Register a callback that can provide live metrics right before each write.
+   */
+  setHealthMetricsProvider(provider: (() => Partial<HealthMetrics>) | null): void {
+    this.metricsProvider = provider
+  }
+
+  /**
+   * Register a callback fired after each heartbeat write.
+   */
+  setOnWrite(callback: ((data: HeartbeatData) => void) | null): void {
+    this.onWrite = callback
+  }
+
+  /**
+   * Return the latest heartbeat snapshot written by this process.
+   */
+  getLastHeartbeat(): HeartbeatData | null {
+    return this.lastHeartbeat
   }
 
   /**
@@ -68,11 +112,17 @@ export class HeartbeatWriter {
    * Write a single heartbeat.
    */
   write(): void {
-    const errorCount = this.healthMetrics.errorCount
+    const liveMetrics = this.metricsProvider?.() ?? {}
+    const channels = liveMetrics.channels ?? this.healthMetrics.channels
+    const errorCount = liveMetrics.errorCount ?? this.healthMetrics.errorCount
+    const configuredChannels = channels.filter((channel) => channel.configured)
+    const offlineChannels = configuredChannels
+      .filter((channel) => !channel.connected)
+      .map((channel) => channel.name)
     let status: HealthStatus = 'healthy'
     if (errorCount >= ERROR_THRESHOLD_UNHEALTHY) {
       status = 'unhealthy'
-    } else if (errorCount >= ERROR_THRESHOLD_DEGRADED) {
+    } else if (errorCount >= ERROR_THRESHOLD_DEGRADED || offlineChannels.length > 0) {
       status = 'degraded'
     }
 
@@ -84,9 +134,20 @@ export class HeartbeatWriter {
         memoryUsageMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
         errorCount,
         status,
+        channels: {
+          total: channels.length,
+          configured: configuredChannels.length,
+          connected: configuredChannels.filter((channel) => channel.connected).length,
+          disconnected: offlineChannels.length,
+          offline: offlineChannels,
+        },
       },
+      channels,
     }
+
+    this.lastHeartbeat = data
     writeFileSync(this.filePath, JSON.stringify(data), 'utf-8')
+    this.onWrite?.(data)
   }
 }
 

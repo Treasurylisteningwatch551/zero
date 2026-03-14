@@ -95,6 +95,10 @@ interface FeishuTestHarness {
     }
   } | null
   buildIncomingMessage(payload: FeishuIncomingPayload): Promise<IncomingMessage | null>
+  updateConnectionStateFromSdkLog(
+    level: 'error' | 'warn' | 'info' | 'debug' | 'trace',
+    message: string,
+  ): void
 }
 
 function getTelegramHarness(channel: TelegramChannel): TelegramTestHarness {
@@ -458,6 +462,23 @@ describe('FeishuChannel contract', () => {
 
   test('initial isConnected is false', () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
+    expect(channel.isConnected()).toBe(false)
+  })
+
+  test('connection state follows websocket sdk log transitions', () => {
+    const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
+    const harness = getFeishuHarness(channel)
+
+    harness.updateConnectionStateFromSdkLog('debug', '[ws] | ws connect success')
+    expect(channel.isConnected()).toBe(true)
+
+    harness.updateConnectionStateFromSdkLog('error', '[ws] | timeout of 15000ms exceeded')
+    expect(channel.isConnected()).toBe(false)
+
+    harness.updateConnectionStateFromSdkLog('debug', '[ws] | reconnect success')
+    expect(channel.isConnected()).toBe(true)
+
+    harness.updateConnectionStateFromSdkLog('debug', '[ws] | client closed')
     expect(channel.isConnected()).toBe(false)
   })
 

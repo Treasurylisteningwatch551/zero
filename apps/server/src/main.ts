@@ -53,6 +53,7 @@ export interface StartOptions {
 interface ChannelRuntimeDefinition {
   name: string
   type: 'web' | 'feishu' | 'telegram'
+  configured: boolean
   receiveNotifications: boolean
   secretRefs: string[]
 }
@@ -283,6 +284,25 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
   // 13. Scheduler — trigger handler (scheduler + handles created in step 10)
   const channels = new Map<string, Channel>()
+  const channelDefinitions = new Map<string, ChannelRuntimeDefinition>()
+
+  heartbeat.setHealthMetricsProvider(() => ({
+    channels: Array.from(channels.entries()).map(([name, channel]) => ({
+      name,
+      type: channel.type,
+      connected: channel.isConnected(),
+      configured: channelDefinitions.get(name)?.configured ?? channel.type === 'web',
+    })),
+  }))
+  heartbeat.setOnWrite((data) => {
+    globalBus.emit('heartbeat', {
+      status: data.health.status,
+      channels: data.channels,
+      disconnectedChannels: data.health.channels.offline,
+      timestamp: data.timestamp,
+    })
+  })
+  heartbeat.write()
 
   scheduler.setTriggerHandler(async (schedConfig) => {
     const binding = schedConfig.channel
@@ -370,7 +390,6 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   // 14. Notification store
   const notifications: Notification[] = []
   const notificationsPath = join(ZERO_DIR, 'logs', 'notifications.jsonl')
-  const channelDefinitions = new Map<string, ChannelRuntimeDefinition>()
 
   // Load persisted notifications
   if (existsSync(notificationsPath)) {
@@ -490,9 +509,11 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   channelDefinitions.set('web', {
     name: 'web',
     type: 'web',
+    configured: true,
     receiveNotifications: false,
     secretRefs: [],
   })
+  heartbeat.write()
 
   let shuttingDown = false
   const shutdown = async () => {
@@ -716,6 +737,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
       }
 
       channels.set(definition.name, feishuChannel)
+      heartbeat.write()
       continue
     }
 
@@ -927,13 +949,20 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     }
 
     channels.set(definition.name, telegramChannel)
+    heartbeat.write()
   }
 
   console.log(`[ZeRo OS] ${channels.size} channels registered`)
 
   // 16. Event bus — wildcard logging
   globalBus.on('*', (payload) => {
-    if (payload.topic === 'tool:call' || payload.topic === 'tool:result') return
+    if (
+      payload.topic === 'tool:call' ||
+      payload.topic === 'tool:result' ||
+      payload.topic === 'heartbeat'
+    ) {
+      return
+    }
     logger.log('info', payload.topic, payload.data)
   })
 
@@ -987,6 +1016,7 @@ function buildExternalChannelDefinitions(
         definitions.push({
           name: channel.name,
           type: 'feishu' as const,
+          configured: !!(appId && appSecret),
           receiveNotifications: channel.receiveNotifications ?? false,
           secretRefs: [
             channel.appIdRef,
@@ -1017,6 +1047,7 @@ function buildExternalChannelDefinitions(
       definitions.push({
         name: channel.name,
         type: 'telegram' as const,
+        configured: !!botToken,
         receiveNotifications: channel.receiveNotifications ?? false,
         secretRefs: [channel.botTokenRef],
         credentials: botToken ? { botToken } : undefined,
@@ -1033,6 +1064,7 @@ function buildExternalChannelDefinitions(
     {
       name: 'feishu',
       type: 'feishu',
+      configured: !!(feishuAppId && feishuAppSecret),
       receiveNotifications: false,
       secretRefs: [
         'feishu_app_id',
@@ -1053,6 +1085,7 @@ function buildExternalChannelDefinitions(
     {
       name: 'telegram',
       type: 'telegram',
+      configured: !!telegramToken,
       receiveNotifications: false,
       secretRefs: ['telegram_bot_token'],
       credentials: telegramToken ? { botToken: telegramToken } : undefined,

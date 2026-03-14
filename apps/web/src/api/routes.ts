@@ -66,12 +66,18 @@ export function createRoutes(zero: ZeroOS) {
     // System status
     .get('/api/status', (c) => {
       const activeSessions = zero.sessionManager.listActive()
+      const heartbeat = zero.heartbeat.getLastHeartbeat()
+      const heartbeatAge = heartbeat
+        ? Math.max(0, Math.floor((Date.now() - new Date(heartbeat.timestamp).getTime()) / 1000))
+        : 0
+      const status = heartbeat && heartbeat.health.status !== 'healthy' ? 'degraded' : 'running'
+
       return c.json({
-        status: 'running',
+        status,
         uptime: process.uptime(),
         currentModel: zero.sessionManager.getPreferredModel('web'),
         version: '0.1.0',
-        heartbeatAge: 3,
+        heartbeatAge,
         activeSessions: activeSessions.length,
       })
     })

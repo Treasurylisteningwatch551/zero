@@ -46,4 +46,32 @@ describe('Heartbeat', () => {
 
     writer.stop()
   })
+
+  test('configured offline channels degrade heartbeat health', () => {
+    mkdirSync(testDir, { recursive: true })
+    const file = join(testDir, 'heartbeat-channel-health.json')
+    const writer = new HeartbeatWriter(file)
+    const checker = new HeartbeatChecker(file)
+
+    writer.setHealthMetrics({
+      errorCount: 0,
+      channels: [
+        { name: 'web', type: 'web', connected: true, configured: true },
+        { name: 'feishu', type: 'feishu', connected: false, configured: true },
+        { name: 'telegram', type: 'telegram', connected: false, configured: false },
+      ],
+    })
+    writer.write()
+
+    const result = checker.check()
+    expect(result.alive).toBe(true)
+    expect(result.health?.status).toBe('degraded')
+    expect(result.health?.channels).toEqual({
+      total: 3,
+      configured: 2,
+      connected: 1,
+      disconnected: 1,
+      offline: ['feishu'],
+    })
+  })
 })

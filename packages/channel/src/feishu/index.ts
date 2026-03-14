@@ -146,13 +146,10 @@ export class FeishuChannel implements Channel {
     this.wsClient = new lark.WSClient({
       appId: this.config.appId,
       appSecret: this.config.appSecret,
-      loggerLevel: lark.LoggerLevel.error,
+      loggerLevel: lark.LoggerLevel.trace,
       logger: sdkLogger,
     })
     await this.wsClient.start({ eventDispatcher: this.eventDispatcher })
-    console.log('[FeishuChannel] WSClient connected')
-
-    this.connected = true
   }
 
   async stop(): Promise<void> {
@@ -617,9 +614,14 @@ export class FeishuChannel implements Channel {
   }
 
   private createSdkLogger() {
-    const report = (level: 'error' | 'warn', args: unknown[]) => {
+    const report = (
+      level: 'error' | 'warn' | 'info' | 'debug' | 'trace',
+      args: unknown[],
+    ) => {
       const message = this.describeLogValue(args)
       if (!message) return
+      this.updateConnectionStateFromSdkLog(level, message)
+      if (level !== 'error' && level !== 'warn') return
       const log = level === 'error' ? console.error : console.warn
       log('[FeishuSDK]', message)
     }
@@ -627,9 +629,40 @@ export class FeishuChannel implements Channel {
     return {
       error: (...msg: unknown[]) => report('error', msg),
       warn: (...msg: unknown[]) => report('warn', msg),
-      info: () => {},
-      debug: () => {},
-      trace: () => {},
+      info: (...msg: unknown[]) => report('info', msg),
+      debug: (...msg: unknown[]) => report('debug', msg),
+      trace: (...msg: unknown[]) => report('trace', msg),
+    }
+  }
+
+  private updateConnectionStateFromSdkLog(
+    level: 'error' | 'warn' | 'info' | 'debug' | 'trace',
+    message: string,
+  ): void {
+    if (!message.includes('[ws]')) return
+
+    const normalized = message.toLowerCase()
+    if (normalized.includes('ws connect success') || normalized.includes('reconnect success')) {
+      if (!this.connected) {
+        console.log('[FeishuChannel] WSClient connected')
+      }
+      this.connected = true
+      return
+    }
+
+    if (level === 'error') {
+      this.connected = false
+      return
+    }
+
+    if (
+      normalized.includes('client closed') ||
+      normalized.includes('ws error') ||
+      normalized.includes('ws connect failed') ||
+      normalized.includes('connect failed') ||
+      normalized.includes('reconnect')
+    ) {
+      this.connected = false
     }
   }
 
