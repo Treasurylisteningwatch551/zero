@@ -254,23 +254,6 @@ export class JsonlLogger {
   }
 
   /**
-   * Log trace spans for a session (flat span list from Tracer flush).
-   */
-  logTraceSpans(sessionId: string, spans: import('./trace').FlatSpan[]): void {
-    const relativePath = join(getSessionLogRelativeDir(sessionId), 'traces.jsonl')
-    for (const span of spans) {
-      this.appendLine(relativePath, span)
-    }
-  }
-
-  /**
-   * Read trace spans for a session.
-   */
-  readSessionTraces(sessionId: string): import('./trace').FlatSpan[] {
-    return this.readSessionEntries<import('./trace').FlatSpan>(sessionId, 'traces.jsonl')
-  }
-
-  /**
    * Log a context snapshot.
    */
   logSnapshot(entry: Omit<SnapshotEntry, 'ts'>): void {

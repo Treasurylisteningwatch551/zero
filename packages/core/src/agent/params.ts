@@ -80,7 +80,7 @@ export const CONTEXT_PARAMS = {
 
   /** Ordinary end_turn task closure */
   completion: {
-    maxTaskClosureRetries: 1,
+    maxTaskClosureRetries: 100,
     maxEmptyResponseRetries: 1,
   },
 } as const

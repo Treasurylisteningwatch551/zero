@@ -27,5 +27,5 @@ export type {
 export { SessionDB } from './session-db'
 export type { SessionRow } from './session-db'
 export { Tracer } from './trace'
-export type { TraceSpan, FlatSpan, TraceFlushListener } from './trace'
+export type { TraceSpan } from './trace'
 export { createFilteredWriter, filterLogEntry } from './secret-filter'
