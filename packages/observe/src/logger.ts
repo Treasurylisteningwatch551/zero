@@ -49,6 +49,12 @@ export interface RequestLogEntry {
   stopReason: StopReason
   toolUseCount: number
   toolCalls: RequestToolCallEntry[]
+  toolNames?: string[]
+  toolDefinitionsHash?: string
+  systemHash?: string
+  staticPrefixHash?: string
+  hasToolResultInRequest?: boolean
+  messageCount?: number
   tokens: {
     input: number
     output: number

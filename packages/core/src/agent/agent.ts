@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { ProviderAdapter } from '@zero-os/model'
 import { computeCost } from '@zero-os/model'
 import type {
@@ -234,7 +235,7 @@ export class Agent {
       const llmDurationMs = Date.now() - llmStart
 
       // Log LLM request to observability
-      this.logLLMRequest(response, userMessage, llmDurationMs, {
+      this.logLLMRequest(request, response, userMessage, llmDurationMs, {
         turnIndex,
         parentId: pendingParentRequestId,
       })
@@ -538,7 +539,7 @@ export class Agent {
         const finalStart = Date.now()
         const finalResponse = await this.completeWithStreamFallback(finalRequest, onTextDelta)
         const finalDurationMs = Date.now() - finalStart
-        this.logLLMRequest(finalResponse, userMessage, finalDurationMs, {
+        this.logLLMRequest(finalRequest, finalResponse, userMessage, finalDurationMs, {
           turnIndex,
           parentId: pendingParentRequestId,
         })
@@ -1098,6 +1099,7 @@ export class Agent {
    * Log an LLM request to the observability layer.
    */
   private logLLMRequest(
+    request: CompletionRequest,
     response: CompletionResponse,
     userPrompt: string,
     durationMs: number,
@@ -1108,6 +1110,7 @@ export class Agent {
   ): void {
     const cost = computeCost(response.usage, this.obs.pricing)
     const filter = this.obs.secretFilter
+    const requestMetadata = this.buildRequestMetadata(request)
     const responseText = response.content
       .filter((b) => b.type === 'text')
       .map((b) => (b as { text: string }).text)
@@ -1136,6 +1139,12 @@ export class Agent {
       stopReason: response.stopReason,
       toolUseCount,
       toolCalls,
+      toolNames: requestMetadata.toolNames,
+      toolDefinitionsHash: requestMetadata.toolDefinitionsHash,
+      systemHash: requestMetadata.systemHash,
+      staticPrefixHash: requestMetadata.staticPrefixHash,
+      hasToolResultInRequest: requestMetadata.hasToolResultInRequest,
+      messageCount: request.messages.length,
       tokens: {
         input: response.usage.input,
         output: response.usage.output,
@@ -1160,6 +1169,40 @@ export class Agent {
       durationMs,
       createdAt: now(),
     })
+  }
+
+  private buildRequestMetadata(request: CompletionRequest): {
+    toolNames: string[]
+    toolDefinitionsHash?: string
+    systemHash?: string
+    staticPrefixHash?: string
+    hasToolResultInRequest: boolean
+  } {
+    const toolNames = request.tools?.map((tool) => tool.name) ?? []
+    const toolDefinitionsHash =
+      request.tools && request.tools.length > 0 ? this.hashValue(request.tools) : undefined
+    const systemHash = request.system ? this.hashValue(request.system) : undefined
+    const staticPrefixHash =
+      request.system || request.tools?.length
+        ? this.hashValue({
+            system: request.system,
+            tools: request.tools ?? [],
+          })
+        : undefined
+
+    return {
+      toolNames,
+      toolDefinitionsHash,
+      systemHash,
+      staticPrefixHash,
+      hasToolResultInRequest: request.messages.some((message) =>
+        message.content.some((block) => block.type === 'tool_result'),
+      ),
+    }
+  }
+
+  private hashValue(value: unknown): string {
+    return createHash('sha256').update(JSON.stringify(value)).digest('hex')
   }
 
   private extractToolCalls(content: ContentBlock[]): RequestToolCallEntry[] {
