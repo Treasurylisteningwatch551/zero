@@ -16,7 +16,7 @@ export class AnthropicAdapter implements ProviderAdapter {
   readonly apiType = 'anthropic_messages'
   private static readonly DEFAULT_THINKING_TOKENS = 512
   private static readonly MIN_THINKING_TOKENS = 1024
-  private static readonly PROMPT_CACHE_CONTROL = { type: 'ephemeral' } as const
+  private static readonly REQUEST_CACHE_CONTROL = { type: 'ephemeral' } as const
   private client: Anthropic
   private modelId: string
   private thinkingTokens?: number
@@ -146,6 +146,7 @@ export class AnthropicAdapter implements ProviderAdapter {
 
     return {
       model: req.model ?? this.modelId,
+      cache_control: AnthropicAdapter.REQUEST_CACHE_CONTROL,
       system: this.buildSystem(req.system),
       messages: this.convertMessages(req),
       tools: req.tools ? this.convertTools(req.tools) : undefined,
@@ -161,7 +162,6 @@ export class AnthropicAdapter implements ProviderAdapter {
       {
         type: 'text',
         text: system,
-        cache_control: AnthropicAdapter.PROMPT_CACHE_CONTROL,
       },
     ]
   }
@@ -217,13 +217,10 @@ export class AnthropicAdapter implements ProviderAdapter {
 
   private convertTools(tools: CompletionRequest['tools']): Anthropic.Tool[] | undefined {
     if (!tools || tools.length === 0) return undefined
-    return tools.map((t, index) => ({
+    return tools.map((t) => ({
       name: t.name,
       description: t.description,
       input_schema: t.parameters as Anthropic.Tool.InputSchema,
-      ...(index === tools.length - 1
-        ? { cache_control: AnthropicAdapter.PROMPT_CACHE_CONTROL }
-        : {}),
     }))
   }
 

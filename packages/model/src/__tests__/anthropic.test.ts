@@ -420,7 +420,7 @@ describe('Anthropic Adapter (Pure Logic)', () => {
     expect(calls[0].thinking).toEqual({ type: 'enabled', budget_tokens: 2048 })
   })
 
-  test('complete adds prompt caching breakpoints to system and the last tool', async () => {
+  test('complete uses top-level automatic prompt caching', async () => {
     const cachingAdapter = createAdapter()
     const calls: Array<Record<string, unknown>> = []
     getAnthropicHarness(cachingAdapter).client = {
@@ -458,11 +458,11 @@ describe('Anthropic Adapter (Pure Logic)', () => {
     })
 
     expect(calls).toHaveLength(1)
+    expect(calls[0].cache_control).toEqual({ type: 'ephemeral' })
     expect(calls[0].system).toEqual([
       {
         type: 'text',
         text: 'You are a cached assistant.',
-        cache_control: { type: 'ephemeral' },
       },
     ])
     expect(calls[0].tools).toEqual([
@@ -475,12 +475,11 @@ describe('Anthropic Adapter (Pure Logic)', () => {
         name: 'bash',
         description: 'Run shell commands',
         input_schema: { type: 'object', properties: { cmd: { type: 'string' } } },
-        cache_control: { type: 'ephemeral' },
       },
     ])
   })
 
-  test('stream reuses the same prompt caching request shape', async () => {
+  test('stream reuses the same automatic prompt caching request shape', async () => {
     const cachingAdapter = createAdapter()
     const calls: Array<Record<string, unknown>> = []
     getAnthropicHarness(cachingAdapter).client = {
@@ -537,11 +536,11 @@ describe('Anthropic Adapter (Pure Logic)', () => {
     ])
     expect(calls).toHaveLength(1)
     expect(calls[0].stream).toBe(true)
+    expect(calls[0].cache_control).toEqual({ type: 'ephemeral' })
     expect(calls[0].system).toEqual([
       {
         type: 'text',
         text: 'You are a cached assistant.',
-        cache_control: { type: 'ephemeral' },
       },
     ])
     expect(calls[0].tools).toEqual([
@@ -549,12 +548,11 @@ describe('Anthropic Adapter (Pure Logic)', () => {
         name: 'read',
         description: 'Read files',
         input_schema: { type: 'object', properties: { path: { type: 'string' } } },
-        cache_control: { type: 'ephemeral' },
       },
     ])
   })
 
-  test('does not inject prompt caching config when system and tools are absent', async () => {
+  test('applies automatic prompt caching even when system and tools are absent', async () => {
     const cachingAdapter = createAdapter()
     const calls: Array<Record<string, unknown>> = []
     getAnthropicHarness(cachingAdapter).client = {
@@ -579,6 +577,7 @@ describe('Anthropic Adapter (Pure Logic)', () => {
     })
 
     expect(calls).toHaveLength(1)
+    expect(calls[0].cache_control).toEqual({ type: 'ephemeral' })
     expect(calls[0].system).toBeUndefined()
     expect(calls[0].tools).toBeUndefined()
   })
