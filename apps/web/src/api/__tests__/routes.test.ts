@@ -182,9 +182,9 @@ describe('API Routes (Real)', () => {
     zero.metrics.recordRequest({
       id: 'req_cache_metrics_001',
       sessionId: 'sess_cache_metrics_001',
-      model: 'openai-codex/gpt-5.4-medium',
-      provider: 'openai-codex',
-      inputTokens: 1000,
+      model: 'anthropic/claude-opus-4-6',
+      provider: 'anthropic',
+      inputTokens: 550,
       outputTokens: 100,
       cacheWriteTokens: 50,
       cacheReadTokens: 400,
@@ -200,10 +200,10 @@ describe('API Routes (Real)', () => {
     expect(
       data.data.some(
         (row: { model: string; cacheRead: number; effectiveInput: number; netSavings: number }) =>
-          row.model === 'openai-codex/gpt-5.4-medium' &&
+          row.model === 'anthropic/claude-opus-4-6' &&
           row.cacheRead === 400 &&
           row.effectiveInput === 1000 &&
-          typeof row.netSavings === 'number',
+          Math.abs(row.netSavings - 0.0017375) < 1e-12,
       ),
     ).toBe(true)
   })
@@ -215,9 +215,9 @@ describe('API Routes (Real)', () => {
     zero.metrics.recordRequest({
       id: 'req_cache_session_001',
       sessionId: session.data.id,
-      model: 'openai-codex/gpt-5.4-medium',
-      provider: 'openai-codex',
-      inputTokens: 1000,
+      model: 'anthropic/claude-opus-4-6',
+      provider: 'anthropic',
+      inputTokens: 550,
       outputTokens: 100,
       cacheWriteTokens: 50,
       cacheReadTokens: 400,
@@ -229,14 +229,14 @@ describe('API Routes (Real)', () => {
       id: 'req_cache_session_001',
       turnIndex: 1,
       sessionId: session.data.id,
-      model: 'openai-codex/gpt-5.4-medium',
-      provider: 'openai-codex',
+      model: 'anthropic/claude-opus-4-6',
+      provider: 'anthropic',
       userPrompt: 'test cache',
       response: 'ok',
       stopReason: 'end_turn',
       toolUseCount: 0,
       tokens: {
-        input: 1000,
+        input: 550,
         output: 100,
         cacheWrite: 50,
         cacheRead: 400,
@@ -253,7 +253,7 @@ describe('API Routes (Real)', () => {
     expect(data.effectiveInputTokens).toBe(1000)
     expect(data.cacheHitRate).toBeCloseTo(0.4, 5)
     expect(typeof data.cacheReadCost).toBe('number')
-    expect(typeof data.netSavings).toBe('number')
+    expect(data.netSavings).toBeCloseTo(0.0017375, 12)
   })
 
   test('POST /api/chat creates session and returns reply', async () => {

@@ -62,7 +62,7 @@ describe('MetricsDB', () => {
       sessionId: 'sess_001',
       model: 'gpt-5.3-codex-medium',
       provider: 'openai-codex',
-      inputTokens: 1000,
+      inputTokens: 500,
       outputTokens: 200,
       cacheWriteTokens: 100,
       cacheReadTokens: 400,
@@ -132,7 +132,7 @@ describe('MetricsDB', () => {
       sessionId: 'sess_003',
       model: 'gpt-5.3-codex-medium',
       provider: 'openai-codex',
-      inputTokens: 1000,
+      inputTokens: 600,
       outputTokens: 500,
       cacheReadTokens: 400,
       cost: 0.01,
@@ -150,7 +150,7 @@ describe('MetricsDB', () => {
     cacheDb.close()
   })
 
-  test('cacheHitRate uses effective input for anthropic requests', () => {
+  test('cacheHitRate uses effective input across providers', () => {
     const cacheDb = MetricsDB.createInMemory()
     const createdAt = new Date().toISOString()
 
@@ -177,7 +177,7 @@ describe('MetricsDB', () => {
     cacheDb.close()
   })
 
-  test('cacheHitRate keeps legacy denominator for non-anthropic requests', () => {
+  test('cacheHitRate uses normalized effective input for non-anthropic requests', () => {
     const cacheDb = MetricsDB.createInMemory()
     const createdAt = new Date().toISOString()
 
@@ -186,7 +186,7 @@ describe('MetricsDB', () => {
       sessionId: 'sess_005',
       model: 'gpt-5.3-codex-medium',
       provider: 'openai-codex',
-      inputTokens: 1000,
+      inputTokens: 400,
       outputTokens: 500,
       cacheWriteTokens: 200,
       cacheReadTokens: 400,

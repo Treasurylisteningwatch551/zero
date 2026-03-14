@@ -306,11 +306,17 @@ export class OpenAIChatAdapter implements ProviderAdapter {
   private parseUsage(usage?: OpenAI.CompletionUsage | null): TokenUsage {
     const raw = usage as Record<string, unknown> | undefined | null
     const details = raw?.prompt_tokens_details as Record<string, number> | undefined
+    const cacheWrite = details?.cache_creation_input_tokens
+    const cacheRead = details?.cached_tokens
+    const totalInput = usage?.prompt_tokens ?? 0
     return {
-      input: usage?.prompt_tokens ?? 0,
+      // OpenAI reports cached token details as a subset of prompt_tokens.
+      // Normalize to the same bucket semantics used elsewhere:
+      // input = non-cached tail, cacheWrite = newly cached prefix, cacheRead = reused prefix.
+      input: Math.max(totalInput - (cacheWrite ?? 0) - (cacheRead ?? 0), 0),
       output: usage?.completion_tokens ?? 0,
-      cacheWrite: details?.cache_creation_input_tokens,
-      cacheRead: details?.cached_tokens,
+      cacheWrite,
+      cacheRead,
       reasoning: (raw?.completion_tokens_details as Record<string, number> | undefined)
         ?.reasoning_tokens,
     }

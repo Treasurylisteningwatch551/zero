@@ -334,21 +334,9 @@ export class MetricsDB {
                 COALESCE(SUM(output_tokens), 0) as outputTokens,
                 COALESCE(SUM(cache_write_tokens), 0) as cacheWriteTokens,
                 COALESCE(SUM(cache_read_tokens), 0) as cacheReadTokens,
-                COALESCE(SUM(
-                  CASE
-                    WHEN provider = 'anthropic'
-                      THEN input_tokens + cache_write_tokens + cache_read_tokens
-                    ELSE input_tokens
-                  END
-                ), 0) as effectiveInputTokens,
+                COALESCE(SUM(input_tokens + cache_write_tokens + cache_read_tokens), 0) as effectiveInputTokens,
                 COALESCE(
-                  SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(
-                    CASE
-                      WHEN provider = 'anthropic'
-                        THEN input_tokens + cache_write_tokens + cache_read_tokens
-                      ELSE input_tokens
-                    END
-                  ), 0),
+                  SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(input_tokens + cache_write_tokens + cache_read_tokens), 0),
                   0
                 ) as cacheHitRate,
                 COUNT(*) as requestCount
@@ -389,21 +377,9 @@ export class MetricsDB {
                 COALESCE(SUM(output_tokens), 0) as outputTokens,
                 COALESCE(SUM(cache_write_tokens), 0) as cacheWriteTokens,
                 COALESCE(SUM(cache_read_tokens), 0) as cacheReadTokens,
-                COALESCE(SUM(
-                  CASE
-                    WHEN provider = 'anthropic'
-                      THEN input_tokens + cache_write_tokens + cache_read_tokens
-                    ELSE input_tokens
-                  END
-                ), 0) as effectiveInputTokens,
+                COALESCE(SUM(input_tokens + cache_write_tokens + cache_read_tokens), 0) as effectiveInputTokens,
                 COALESCE(
-                  SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(
-                    CASE
-                      WHEN provider = 'anthropic'
-                        THEN input_tokens + cache_write_tokens + cache_read_tokens
-                      ELSE input_tokens
-                    END
-                  ), 0),
+                  SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(input_tokens + cache_write_tokens + cache_read_tokens), 0),
                   0
                 ) as cacheHitRate,
                 COUNT(*) as requestCount
@@ -442,7 +418,7 @@ export class MetricsDB {
 
   /**
    * Cache hit rate by day.
-   * Anthropic uses effective input = input + cache_write + cache_read.
+   * Effective input is normalized to input + cache_write + cache_read across providers.
    */
   cacheHitRate(range = '30d'): CacheHitRate[] {
     const since = rangeToCutoff(range)
@@ -454,11 +430,7 @@ export class MetricsDB {
            SELECT substr(created_at, 1, 10) as period,
                   provider,
                   SUM(cache_read_tokens) as cacheRead,
-                  CASE
-                    WHEN provider = 'anthropic'
-                      THEN SUM(input_tokens + cache_write_tokens + cache_read_tokens)
-                    ELSE SUM(input_tokens)
-                  END as denominator
+                  SUM(input_tokens + cache_write_tokens + cache_read_tokens) as denominator
            FROM requests
            WHERE created_at >= ?
            GROUP BY period, provider
@@ -536,20 +508,8 @@ export class MetricsDB {
                 SUM(output_tokens) as output,
                 SUM(cache_write_tokens) as cacheWrite,
                 SUM(cache_read_tokens) as cacheRead,
-                SUM(
-                  CASE
-                    WHEN provider = 'anthropic'
-                      THEN input_tokens + cache_write_tokens + cache_read_tokens
-                    ELSE input_tokens
-                  END
-                ) as effectiveInput,
-                SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(
-                  CASE
-                    WHEN provider = 'anthropic'
-                      THEN input_tokens + cache_write_tokens + cache_read_tokens
-                    ELSE input_tokens
-                  END
-                ), 0) as hitRate,
+                SUM(input_tokens + cache_write_tokens + cache_read_tokens) as effectiveInput,
+                SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(input_tokens + cache_write_tokens + cache_read_tokens), 0) as hitRate,
                 SUM(cost) as cost
          FROM requests
          WHERE created_at >= ?
@@ -630,20 +590,8 @@ export class MetricsDB {
                 SUM(output_tokens) as output,
                 SUM(cache_write_tokens) as cacheWrite,
                 SUM(cache_read_tokens) as cacheRead,
-                SUM(
-                  CASE
-                    WHEN provider = 'anthropic'
-                      THEN input_tokens + cache_write_tokens + cache_read_tokens
-                    ELSE input_tokens
-                  END
-                ) as effectiveInput,
-                SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(
-                  CASE
-                    WHEN provider = 'anthropic'
-                      THEN input_tokens + cache_write_tokens + cache_read_tokens
-                    ELSE input_tokens
-                  END
-                ), 0) as hitRate,
+                SUM(input_tokens + cache_write_tokens + cache_read_tokens) as effectiveInput,
+                SUM(cache_read_tokens) * 1.0 / NULLIF(SUM(input_tokens + cache_write_tokens + cache_read_tokens), 0) as hitRate,
                 SUM(cost) as cost
          FROM requests
          WHERE created_at >= ?

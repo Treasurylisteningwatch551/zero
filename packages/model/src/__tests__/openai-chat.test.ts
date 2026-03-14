@@ -31,6 +31,13 @@ type ConvertedChatMessage = {
 
 interface OpenAIChatAdapterTestHarness {
   convertMessages(req: CompletionRequest): OpenAI.ChatCompletionMessageParam[]
+  parseUsage(usage?: OpenAI.CompletionUsage | null): {
+    input: number
+    output: number
+    cacheWrite?: number
+    cacheRead?: number
+    reasoning?: number
+  }
 }
 
 function getConvertedMessages(
@@ -236,6 +243,26 @@ describe('OpenAI Chat Completions Adapter (Real API)', () => {
 })
 
 describe('OpenAI Chat Completions Adapter (Pure Logic)', () => {
+  test('parseUsage normalizes cached tokens into cache buckets', () => {
+    const result = (adapter as unknown as OpenAIChatAdapterTestHarness).parseUsage({
+      prompt_tokens: 120,
+      completion_tokens: 40,
+      prompt_tokens_details: {
+        cached_tokens: 50,
+        cache_creation_input_tokens: 20,
+      },
+      completion_tokens_details: {
+        reasoning_tokens: 8,
+      },
+    } as unknown as OpenAI.CompletionUsage)
+
+    expect(result.input).toBe(50)
+    expect(result.output).toBe(40)
+    expect(result.cacheWrite).toBe(20)
+    expect(result.cacheRead).toBe(50)
+    expect(result.reasoning).toBe(8)
+  })
+
   test('convertMessages: empty tool_result content falls back to outputSummary', () => {
     const toolCallId = `call_${generateId()}`
     const messages: Message[] = [

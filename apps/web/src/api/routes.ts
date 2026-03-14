@@ -76,12 +76,16 @@ export function createRoutes(zero: ZeroOS) {
       pricing?.cacheWrite !== undefined ? (cacheWriteTokens * pricing.cacheWrite) / perMillion : 0
     const grossAvoidedInputCost =
       pricing?.input !== undefined ? (cacheReadTokens * pricing.input) / perMillion : 0
+    const uncachedBaselineCost =
+      pricing?.input !== undefined
+        ? ((cacheReadTokens + cacheWriteTokens) * pricing.input) / perMillion
+        : 0
 
     return {
       cacheReadCost,
       cacheWriteCost,
       grossAvoidedInputCost,
-      netSavings: grossAvoidedInputCost - cacheWriteCost,
+      netSavings: uncachedBaselineCost - cacheReadCost - cacheWriteCost,
     }
   }
 

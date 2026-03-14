@@ -38,6 +38,12 @@ type ChatGptBodyLike = {
 
 type ResponseUsageLike = {
   input_tokens?: number
+  input_tokens_details?: {
+    cached_tokens?: number
+    cached_tokens_details?: {
+      cache_creation_input_tokens?: number
+    }
+  }
   output_tokens?: number
   output_tokens_details?: {
     reasoning_tokens?: number
@@ -422,14 +428,22 @@ describe('OpenAI Responses API Adapter (Pure Logic)', () => {
   test('parseUsage: token counts extracted correctly', () => {
     const usage = {
       input_tokens: 100,
+      input_tokens_details: {
+        cached_tokens: 30,
+        cached_tokens_details: {
+          cache_creation_input_tokens: 20,
+        },
+      },
       output_tokens: 50,
       output_tokens_details: { reasoning_tokens: 10 },
     }
 
     const result = getResponsesHarness(adapter).parseUsage(usage)
 
-    expect(result.input).toBe(100)
+    expect(result.input).toBe(50)
     expect(result.output).toBe(50)
+    expect(result.cacheWrite).toBe(20)
+    expect(result.cacheRead).toBe(30)
     expect(result.reasoning).toBe(10)
   })
 

@@ -756,11 +756,18 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
   }
 
   private parseUsage(usage?: ResponseUsageLike | null): TokenUsage {
+    const cacheWrite = usage?.input_tokens_details?.cached_tokens_details?.cache_creation_input_tokens
+    const cacheRead = usage?.input_tokens_details?.cached_tokens
+    const totalInput = usage?.input_tokens ?? 0
+
     return {
-      input: usage?.input_tokens ?? 0,
+      // OpenAI reports cached token details as a subset of input_tokens.
+      // Normalize to the same bucket semantics used elsewhere:
+      // input = non-cached tail, cacheWrite = newly cached prefix, cacheRead = reused prefix.
+      input: Math.max(totalInput - (cacheWrite ?? 0) - (cacheRead ?? 0), 0),
       output: usage?.output_tokens ?? 0,
-      cacheWrite: usage?.input_tokens_details?.cached_tokens_details?.cache_creation_input_tokens,
-      cacheRead: usage?.input_tokens_details?.cached_tokens,
+      cacheWrite,
+      cacheRead,
       reasoning: usage?.output_tokens_details?.reasoning_tokens,
     }
   }
