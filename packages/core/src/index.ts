@@ -14,6 +14,7 @@ export { MemoryTool } from './tool/memory'
 export { MemorySearchTool } from './tool/memory-search'
 export { MemoryGetTool } from './tool/memory-get'
 export { ScheduleTool } from './tool/schedule'
+export { CodexTool } from './tool/codex'
 export { ToolRegistry } from './tool/registry'
 
 // Agent
