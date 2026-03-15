@@ -57,6 +57,7 @@ describe('TraceSummaryCard', () => {
             name: 'bash',
             input: { command: 'echo test' },
             result: 'done',
+            durationMs: 1250,
           },
         ]}
         filesTouched={[]}
@@ -67,6 +68,8 @@ describe('TraceSummaryCard', () => {
 
     expect(html).toContain('h-full min-h-0 overflow-y-auto')
     expect(html).toContain('max-h-[320px] overflow-y-auto')
+    expect(html).toContain('DURATION')
+    expect(html).toContain('1.3s')
   })
 
   test('renders cache summary and savings fields', () => {

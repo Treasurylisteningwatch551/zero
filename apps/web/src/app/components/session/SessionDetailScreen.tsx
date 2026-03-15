@@ -228,6 +228,7 @@ export function SessionDetailScreen({
           input: toolCall.input,
           result: toolCall.result,
           isError: toolCall.isError,
+          durationMs: toolCall.durationMs,
         })),
     [timelineItems],
   )

@@ -16,6 +16,7 @@ interface ToolCallInfo {
   input: Record<string, unknown>
   result?: string
   isError?: boolean
+  durationMs?: number
 }
 
 interface MemoryResult {
@@ -165,6 +166,16 @@ export function ContextPanel({
               {selectedTool.name}
             </p>
           </div>
+          {selectedTool.durationMs !== undefined && (
+            <div>
+              <span className="text-[10px] font-semibold text-[var(--color-text-disabled)] tracking-wide">
+                DURATION
+              </span>
+              <p className="text-[12px] font-mono mt-0.5 text-[var(--color-text-secondary)]">
+                {formatDuration(selectedTool.durationMs)}
+              </p>
+            </div>
+          )}
           <div>
             <span className="text-[10px] font-semibold text-[var(--color-text-disabled)] tracking-wide">
               INPUT
@@ -673,6 +684,10 @@ function TracePreview({ label, value }: { label: string; value: string }) {
       </pre>
     </div>
   )
+}
+
+function formatDuration(durationMs: number): string {
+  return durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(1)}s`
 }
 
 function TraceTree({ span, depth }: { span: TraceSpan; depth: number }) {

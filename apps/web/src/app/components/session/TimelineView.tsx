@@ -65,6 +65,7 @@ export function TimelineView({
                 input={item.input}
                 result={item.result}
                 isError={item.isError}
+                durationMs={item.durationMs}
                 selected={selectedToolId === item.id}
                 onSelect={(id) => onSelectTool(selectedToolId === id ? null : id)}
               />

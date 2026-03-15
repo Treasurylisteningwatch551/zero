@@ -59,6 +59,7 @@ export type TimelineItem =
       input: Record<string, unknown>
       result?: string
       isError?: boolean
+      durationMs?: number
       createdAt: string
     }
   | { type: 'system-event'; variant: 'warning' | 'info'; text: string; createdAt: string }
@@ -70,6 +71,7 @@ export function buildTimeline(
 ): TimelineItem[] {
   const items: TimelineItem[] = []
   const toolResults = new Map<string, { content: string; isError: boolean }>()
+  const toolDurations = extractToolDurations(traces)
 
   for (const msg of messages) {
     if (msg.role === 'user' || msg.role === 'system') {
@@ -145,6 +147,7 @@ export function buildTimeline(
             input: (block.input as Record<string, unknown>) ?? {},
             result: result?.content,
             isError: result?.isError,
+            durationMs: toolDurations.get(block.id as string),
             createdAt: msg.createdAt,
           })
         }
@@ -262,6 +265,20 @@ function mapTaskClosureFailed(span: TraceSpan): TimelineItem {
 
 export function flattenTraceSpans(traces: TraceSpan[]): TraceSpan[] {
   return traces.flatMap((span) => [span, ...flattenTraceSpans(span.children ?? [])])
+}
+
+function extractToolDurations(traces: TraceSpan[]): Map<string, number> {
+  const toolDurations = new Map<string, number>()
+
+  for (const span of flattenTraceSpans(traces)) {
+    if (!span.name.startsWith('tool:') || typeof span.durationMs !== 'number') continue
+    const toolUseId =
+      span.metadata && typeof span.metadata.toolUseId === 'string' ? span.metadata.toolUseId : null
+    if (!toolUseId) continue
+    toolDurations.set(toolUseId, span.durationMs)
+  }
+
+  return toolDurations
 }
 
 function getTaskClosureTraceKey(span: TraceSpan): string | null {

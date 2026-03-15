@@ -288,4 +288,23 @@ describe('Agent', () => {
     expect(rootSpan.status).toBe('success')
     expect(rootSpan.endTime).toBeDefined()
   }, 30000)
+
+  test('run: tool trace span stores toolUseId metadata', async () => {
+    const tracer = new Tracer()
+
+    const { agent, registry } = createAgent({}, { tracer })
+    const context = createContext(registry)
+
+    await agent.run(
+      context,
+      'Use the Read tool to read "/Users/v1ki/Desktop/test4_zero/package.json". Then summarize.',
+    )
+
+    const spans = tracer.getSessionTraces('test-session')
+    const rootSpan = expectDefined(spans[0])
+    const toolSpan = rootSpan.children.find((span) => span.name === 'tool:read')
+
+    expect(toolSpan).toBeDefined()
+    expect(toolSpan?.metadata?.toolUseId).toBeTypeOf('string')
+  }, 30000)
 })

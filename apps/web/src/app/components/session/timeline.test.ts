@@ -87,6 +87,62 @@ describe('buildTimeline', () => {
       expect(items[0].text).toContain('Task closure failed')
     }
   })
+
+  test('attaches tool duration from trace metadata to matching tool call', () => {
+    const messages: Message[] = [
+      {
+        id: 'msg_tool_assistant',
+        role: 'assistant',
+        messageType: 'message',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'read', input: { path: '/tmp/demo' } }],
+        createdAt: '2026-03-08T00:00:01.000Z',
+      },
+      {
+        id: 'msg_tool_result',
+        role: 'user',
+        messageType: 'message',
+        content: [{ type: 'tool_result', toolUseId: 'call_1', content: 'demo contents' }],
+        createdAt: '2026-03-08T00:00:01.100Z',
+      },
+    ]
+
+    const traces: TraceSpan[] = [
+      {
+        id: 'span_root',
+        sessionId: 'sess_1',
+        name: 'agent.run:test',
+        startTime: '2026-03-08T00:00:00.000Z',
+        endTime: '2026-03-08T00:00:02.000Z',
+        durationMs: 2000,
+        status: 'success',
+        children: [
+          {
+            id: 'span_tool',
+            parentId: 'span_root',
+            sessionId: 'sess_1',
+            name: 'tool:read',
+            startTime: '2026-03-08T00:00:01.000Z',
+            endTime: '2026-03-08T00:00:01.125Z',
+            durationMs: 125,
+            status: 'success',
+            metadata: {
+              toolUseId: 'call_1',
+              toolName: 'read',
+            },
+            children: [],
+          },
+        ],
+      },
+    ]
+
+    const items = buildTimeline(messages, traces)
+    const toolCall = items.find((item) => item.type === 'tool-call')
+
+    expect(toolCall).toBeDefined()
+    if (toolCall?.type === 'tool-call') {
+      expect(toolCall.durationMs).toBe(125)
+    }
+  })
 })
 
 test('adds persisted task closure event when traces are unavailable', () => {
@@ -188,5 +244,41 @@ test('deduplicates persisted task closure events when matching trace spans exist
   expect(items[0].type).toBe('system-event')
   if (items[0].type === 'system-event') {
     expect(items[0].text).toBe('Task closure failed: invalid_classifier_output')
+  }
+})
+
+test('does not infer tool duration without toolUseId metadata', () => {
+  const messages: Message[] = [
+    {
+      id: 'msg_tool_assistant',
+      role: 'assistant',
+      messageType: 'message',
+      content: [{ type: 'tool_use', id: 'call_1', name: 'read', input: { path: '/tmp/demo' } }],
+      createdAt: '2026-03-08T00:00:01.000Z',
+    },
+  ]
+
+  const traces: TraceSpan[] = [
+    {
+      id: 'span_tool',
+      sessionId: 'sess_1',
+      name: 'tool:read',
+      startTime: '2026-03-08T00:00:01.000Z',
+      endTime: '2026-03-08T00:00:01.125Z',
+      durationMs: 125,
+      status: 'success',
+      metadata: {
+        toolName: 'read',
+      },
+      children: [],
+    },
+  ]
+
+  const items = buildTimeline(messages, traces)
+  const toolCall = items.find((item) => item.type === 'tool-call')
+
+  expect(toolCall).toBeDefined()
+  if (toolCall?.type === 'tool-call') {
+    expect(toolCall.durationMs).toBeUndefined()
   }
 })

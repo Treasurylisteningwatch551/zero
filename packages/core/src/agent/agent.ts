@@ -469,6 +469,7 @@ export class Agent {
 
         if (toolSpan) {
           this.obs.tracer?.endSpan(toolSpan.id, result.success ? 'success' : 'error', {
+            toolUseId: block.id,
             toolName: block.name,
             outputSummary: result.outputSummary,
           })
