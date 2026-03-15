@@ -336,6 +336,103 @@ describe('Agent streaming callback', () => {
     })
   })
 
+  test('empty stream content retries streaming before giving up', async () => {
+    let streamCalls = 0
+    const adapter: ProviderAdapter = {
+      apiType: 'anthropic_messages',
+      async complete() {
+        return {
+          id: 'resp-should-not-run',
+          content: [{ type: 'text', text: 'unexpected' }],
+          stopReason: 'end_turn',
+          usage: { input: 1, output: 1 },
+          model: 'claude-test',
+        }
+      },
+      async *stream() {
+        streamCalls++
+        if (streamCalls === 1) {
+          // First attempt: empty content (no text_delta, just done)
+          yield {
+            type: 'done' as const,
+            data: { finishReason: 'end_turn', usage: { input: 1, output: 0 }, model: 'claude-test' },
+          }
+          return
+        }
+        // Second attempt: success
+        yield { type: 'text_delta' as const, data: { text: 'recovered' } }
+        yield {
+          type: 'done' as const,
+          data: { finishReason: 'end_turn', usage: { input: 1, output: 1 }, model: 'claude-test' },
+        }
+      },
+      async healthCheck() {
+        return true
+      },
+    }
+
+    const warnings: Array<{ event: string; data?: Record<string, unknown> }> = []
+    const agent = createAgent(adapter, {
+      info: () => {},
+      warn: (event, data) => warnings.push({ event, data }),
+      error: () => {},
+    })
+
+    const messages = await agent.run(createContext(), 'say hi')
+    const assistant = messages.find((m) => m.role === 'assistant')
+    const text = assistant?.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { text: string }).text)
+      .join('')
+
+    expect(streamCalls).toBe(2)
+    expect(text).toBe('recovered')
+    // Should log the retry warning, not the fallback warning
+    expect(warnings.some((w) => w.event === 'llm_stream_empty_retry')).toBe(true)
+    expect(warnings.some((w) => w.event === 'llm_stream_fallback_to_complete')).toBe(false)
+  })
+
+  test('Anthropic empty stream exhausts retries then throws', async () => {
+    const adapter: ProviderAdapter = {
+      apiType: 'anthropic_messages',
+      async complete() {
+        return {
+          id: 'resp-should-not-run',
+          content: [{ type: 'text', text: 'unexpected' }],
+          stopReason: 'end_turn',
+          usage: { input: 1, output: 1 },
+          model: 'claude-test',
+        }
+      },
+      async *stream() {
+        // Always return empty
+        yield {
+          type: 'done' as const,
+          data: { finishReason: 'end_turn', usage: { input: 1, output: 0 }, model: 'claude-test' },
+        }
+      },
+      async healthCheck() {
+        return true
+      },
+    }
+
+    const warnings: Array<{ event: string; data?: Record<string, unknown> }> = []
+    const agent = createAgent(adapter, {
+      info: () => {},
+      warn: (event, data) => warnings.push({ event, data }),
+      error: () => {},
+    })
+
+    await expect(agent.run(createContext(), 'say hi')).rejects.toThrow('stream returned empty content')
+    // Retry warning logged, then fallback warning with fallbackSkipped=true
+    expect(warnings.some((w) => w.event === 'llm_stream_empty_retry')).toBe(true)
+    expect(
+      warnings.some(
+        (w) => w.event === 'llm_stream_fallback_to_complete' && w.data?.fallbackSkipped === true,
+      ),
+    ).toBe(true)
+  })
+
   test('reasoning deltas are aggregated and logged to session requests', async () => {
     const entries: Array<Record<string, unknown>> = []
     const adapter = new ReasoningStreamingAdapter()

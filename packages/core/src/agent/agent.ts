@@ -597,28 +597,46 @@ export class Agent {
     request: CompletionRequest,
     onTextDelta?: (delta: string, meta: { role: 'assistant'; turnId: string }) => void,
   ): Promise<CompletionResponse> {
-    try {
-      const streamed = await this.completeFromStream(request, onTextDelta)
-      if (streamed.content.length === 0) {
-        throw new Error('stream returned empty content')
+    const maxStreamRetries = 1
+    let lastStreamErr: unknown
+
+    for (let attempt = 0; attempt <= maxStreamRetries; attempt++) {
+      try {
+        const streamed = await this.completeFromStream(request, onTextDelta)
+        if (streamed.content.length === 0) {
+          throw new Error('stream returned empty content')
+        }
+        return streamed
+      } catch (streamErr) {
+        lastStreamErr = streamErr
+        const errorDetails = this.getStreamErrorDetails(streamErr)
+
+        if (attempt < maxStreamRetries && errorDetails.message === 'stream returned empty content') {
+          this.toolContext.logger.warn('llm_stream_empty_retry', {
+            sessionId: this.toolContext.sessionId,
+            apiType: this.adapter.apiType,
+            attempt: attempt + 1,
+          })
+          continue
+        }
+
+        const fallbackSkipped = this.shouldSkipStreamFallback(streamErr)
+        this.toolContext.logger.warn('llm_stream_fallback_to_complete', {
+          sessionId: this.toolContext.sessionId,
+          apiType: this.adapter.apiType,
+          error: errorDetails.message,
+          status: errorDetails.status,
+          requestId: errorDetails.requestId,
+          fallbackSkipped,
+        })
+        if (fallbackSkipped) {
+          throw streamErr
+        }
+        return await this.adapter.complete({ ...request, stream: false })
       }
-      return streamed
-    } catch (streamErr) {
-      const errorDetails = this.getStreamErrorDetails(streamErr)
-      const fallbackSkipped = this.shouldSkipStreamFallback(streamErr)
-      this.toolContext.logger.warn('llm_stream_fallback_to_complete', {
-        sessionId: this.toolContext.sessionId,
-        apiType: this.adapter.apiType,
-        error: errorDetails.message,
-        status: errorDetails.status,
-        requestId: errorDetails.requestId,
-        fallbackSkipped,
-      })
-      if (fallbackSkipped) {
-        throw streamErr
-      }
-      return await this.adapter.complete({ ...request, stream: false })
     }
+
+    throw lastStreamErr
   }
 
   private async completeFromStream(
@@ -1068,23 +1086,14 @@ export class Agent {
   }
 
   private shouldSkipStreamFallback(streamErr: unknown): boolean {
-    if (this.adapter.apiType !== 'anthropic_messages') {
-      return false
-    }
-
-    const data = this.toRecord(streamErr)
-    if (this.toNumber(data.status) !== undefined) {
+    // Anthropic API: always skip non-streaming fallback.
+    // The SDK rejects non-streaming requests estimated >10 min, and network idle
+    // timeouts make non-streaming unreliable for long responses regardless.
+    if (this.adapter.apiType === 'anthropic_messages') {
       return true
     }
 
-    const message = streamErr instanceof Error ? streamErr.message : String(streamErr)
-    if (this.parseAnthropicStreamErrorPayload(message)) {
-      return true
-    }
-
-    return message.includes(
-      'Streaming is strongly recommended for operations that may take longer than 10 minutes',
-    )
+    return false
   }
 
   private parseAnthropicStreamErrorPayload(
