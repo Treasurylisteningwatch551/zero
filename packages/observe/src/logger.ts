@@ -56,7 +56,6 @@ export interface RequestLogEntry {
   toolDefinitionsHash?: string
   systemHash?: string
   staticPrefixHash?: string
-  hasToolResultInRequest?: boolean
   messageCount?: number
   tokens: {
     input: number

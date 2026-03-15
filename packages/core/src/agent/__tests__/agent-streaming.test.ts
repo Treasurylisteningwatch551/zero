@@ -378,7 +378,6 @@ describe('Agent streaming callback', () => {
     expect(entries[0].systemHash).toBeDefined()
     expect(entries[0].staticPrefixHash).toBeDefined()
     expect(entries[0].toolResults).toEqual([])
-    expect(entries[0].hasToolResultInRequest).toBe(false)
     expect(entries[0].messageCount).toBe(1)
     expect((entries[0].tokens as Record<string, unknown>).reasoning).toBe(7)
   })
@@ -441,11 +440,7 @@ describe('Agent streaming callback', () => {
     expect(entries.map((entry) => entry.toolResults)).toEqual([
       [],
       [{ type: 'tool_result', toolUseId: 'call_1', content: 'ok', isError: false, outputSummary: 'ok' }],
-      [
-        { type: 'tool_result', toolUseId: 'call_1', content: 'ok', isError: false, outputSummary: 'ok' },
-        { type: 'tool_result', toolUseId: 'call_2', content: 'ok', isError: false, outputSummary: 'ok' },
-      ],
+      [{ type: 'tool_result', toolUseId: 'call_2', content: 'ok', isError: false, outputSummary: 'ok' }],
     ])
-    expect(entries.map((entry) => entry.hasToolResultInRequest)).toEqual([false, true, true])
   })
 })

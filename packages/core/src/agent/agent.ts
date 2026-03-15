@@ -220,6 +220,7 @@ export class Agent {
 
     let hadQueuedMessages = false
     let pendingParentRequestId: string | undefined
+    let currentRequestToolResults: RequestToolResultEntry[] = []
     const turnIndex = requestLogMeta?.turnIndex ?? 1
 
     while (true) {
@@ -236,10 +237,18 @@ export class Agent {
       const llmDurationMs = Date.now() - llmStart
 
       // Log LLM request to observability
-      this.logLLMRequest(request, response, userMessage, llmDurationMs, {
-        turnIndex,
-        parentId: pendingParentRequestId,
-      })
+      this.logLLMRequest(
+        request,
+        response,
+        userMessage,
+        llmDurationMs,
+        {
+          turnIndex,
+          parentId: pendingParentRequestId,
+        },
+        currentRequestToolResults,
+      )
+      currentRequestToolResults = []
       pendingParentRequestId = response.stopReason === 'tool_use' ? response.id : undefined
 
       if (response.content.length === 0) {
@@ -497,6 +506,7 @@ export class Agent {
         newMessages.push(toolResultMsg)
         onNewMessage?.(toolResultMsg)
       }
+      currentRequestToolResults = this.toRequestToolResults(toolResultBlocks)
 
       // Budget check + compression
       if (context.maxContext && context.maxOutput) {
@@ -540,10 +550,18 @@ export class Agent {
         const finalStart = Date.now()
         const finalResponse = await this.completeWithStreamFallback(finalRequest, onTextDelta)
         const finalDurationMs = Date.now() - finalStart
-        this.logLLMRequest(finalRequest, finalResponse, userMessage, finalDurationMs, {
-          turnIndex,
-          parentId: pendingParentRequestId,
-        })
+        this.logLLMRequest(
+          finalRequest,
+          finalResponse,
+          userMessage,
+          finalDurationMs,
+          {
+            turnIndex,
+            parentId: pendingParentRequestId,
+          },
+          currentRequestToolResults,
+        )
+        currentRequestToolResults = []
         pendingParentRequestId =
           finalResponse.stopReason === 'tool_use' ? finalResponse.id : undefined
 
@@ -1108,6 +1126,7 @@ export class Agent {
       turnIndex: number
       parentId?: string
     },
+    requestToolResults: RequestToolResultEntry[],
   ): void {
     const cost = computeCost(response.usage, this.obs.pricing)
     const filter = this.obs.secretFilter
@@ -1117,7 +1136,6 @@ export class Agent {
       .map((b) => (b as { text: string }).text)
       .join('')
     const toolCalls = this.extractToolCalls(response.content)
-    const toolResults = this.extractToolResults(request.messages)
     const toolUseCount = toolCalls.length
     const safeUserPrompt = filter ? filter.filter(userPrompt) : userPrompt
     const safeResponseText = filter ? filter.filter(responseText) : responseText
@@ -1141,12 +1159,11 @@ export class Agent {
       stopReason: response.stopReason,
       toolUseCount,
       toolCalls,
-      toolResults,
+      toolResults: requestToolResults,
       toolNames: requestMetadata.toolNames,
       toolDefinitionsHash: requestMetadata.toolDefinitionsHash,
       systemHash: requestMetadata.systemHash,
       staticPrefixHash: requestMetadata.staticPrefixHash,
-      hasToolResultInRequest: toolResults.length > 0,
       messageCount: request.messages.length,
       tokens: {
         input: response.usage.input,
@@ -1217,21 +1234,19 @@ export class Agent {
     })
   }
 
-  private extractToolResults(messages: Message[]): RequestToolResultEntry[] {
-    return messages.flatMap((message) =>
-      message.content.flatMap((block) => {
-        if (block.type !== 'tool_result') return []
-        return [
-          {
-            type: 'tool_result',
-            toolUseId: block.toolUseId,
-            content: block.content,
-            isError: block.isError,
-            outputSummary: block.outputSummary,
-          },
-        ]
-      }),
-    )
+  private toRequestToolResults(content: ContentBlock[]): RequestToolResultEntry[] {
+    return content.flatMap((block) => {
+      if (block.type !== 'tool_result') return []
+      return [
+        {
+          type: 'tool_result',
+          toolUseId: block.toolUseId,
+          content: block.content,
+          isError: block.isError,
+          outputSummary: block.outputSummary,
+        },
+      ]
+    })
   }
 
   private filterToolInput(input: Record<string, unknown>): Record<string, unknown> {

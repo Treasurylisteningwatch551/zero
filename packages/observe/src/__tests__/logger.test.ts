@@ -69,7 +69,6 @@ describe('JsonlLogger', () => {
       toolDefinitionsHash: 'tools-hash',
       systemHash: 'system-hash',
       staticPrefixHash: 'prefix-hash',
-      hasToolResultInRequest: true,
       messageCount: 3,
       tokens: { input: 100, output: 50, reasoning: 25 },
       cost: 0.001,
@@ -88,7 +87,6 @@ describe('JsonlLogger', () => {
     expect(last.toolDefinitionsHash).toBe('tools-hash')
     expect(last.systemHash).toBe('system-hash')
     expect(last.staticPrefixHash).toBe('prefix-hash')
-    expect(last.hasToolResultInRequest).toBe(true)
     expect(last.messageCount).toBe(3)
     expect(last.toolResults).toEqual([
       {
