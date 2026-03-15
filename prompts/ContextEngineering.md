@@ -412,7 +412,7 @@ function truncateToolOutput(
     head,
     '',
     `... (输出已截断: 原始 ${tokens} tokens, 保留头尾约 ${limit} tokens)`,
-    `... (完整输出已写入 operations.jsonl, 可用 Read 工具查看日志)`,
+    `... (该内容作为 tool_result 写入会话消息，并会记录到后续请求的 requests.jsonl)`,
     '',
     tail,
   ].join('\n')

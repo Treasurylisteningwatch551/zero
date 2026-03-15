@@ -17,7 +17,7 @@ import {
   now,
   type SessionStatus,
 } from '@zero-os/shared'
-import type { CompletionResponse, StopReason } from '@zero-os/shared'
+import type { CompletionResponse, StopReason, ToolResultBlock } from '@zero-os/shared'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -35,6 +35,8 @@ export interface RequestToolCallEntry {
   input: Record<string, unknown>
 }
 
+export interface RequestToolResultEntry extends ToolResultBlock {}
+
 export interface RequestLogEntry {
   id: string
   turnIndex: number
@@ -49,6 +51,7 @@ export interface RequestLogEntry {
   stopReason: StopReason
   toolUseCount: number
   toolCalls: RequestToolCallEntry[]
+  toolResults: RequestToolResultEntry[]
   toolNames?: string[]
   toolDefinitionsHash?: string
   systemHash?: string
@@ -67,8 +70,9 @@ export interface RequestLogEntry {
   ts: string
 }
 
-type RequestLogEntryInput = Omit<RequestLogEntry, 'ts' | 'toolCalls'> & {
+type RequestLogEntryInput = Omit<RequestLogEntry, 'ts' | 'toolCalls' | 'toolResults'> & {
   toolCalls?: RequestToolCallEntry[]
+  toolResults?: RequestToolResultEntry[]
 }
 
 export interface SnapshotEntry {
@@ -394,10 +398,14 @@ export class JsonlLogger {
 
   private normalizeRequestEntryInput(
     entry: RequestLogEntryInput,
-  ): RequestLogEntryInput & { toolCalls: RequestToolCallEntry[] } {
+  ): RequestLogEntryInput & {
+    toolCalls: RequestToolCallEntry[]
+    toolResults: RequestToolResultEntry[]
+  } {
     return {
       ...entry,
       toolCalls: this.normalizeToolCalls(entry.toolCalls),
+      toolResults: this.normalizeToolResults(entry.toolResults),
     }
   }
 
@@ -405,6 +413,7 @@ export class JsonlLogger {
     return {
       ...entry,
       toolCalls: this.normalizeToolCalls(entry.toolCalls),
+      toolResults: this.normalizeToolResults(entry.toolResults),
     }
   }
 
@@ -421,6 +430,25 @@ export class JsonlLogger {
             (toolCall as RequestToolCallEntry).input &&
             typeof (toolCall as RequestToolCallEntry).input === 'object' &&
             !Array.isArray((toolCall as RequestToolCallEntry).input),
+        ),
+    )
+  }
+
+  private normalizeToolResults(toolResults: unknown): RequestToolResultEntry[] {
+    if (!Array.isArray(toolResults)) return []
+
+    return toolResults.filter(
+      (toolResult): toolResult is RequestToolResultEntry =>
+        Boolean(
+          toolResult &&
+            typeof toolResult === 'object' &&
+            (toolResult as RequestToolResultEntry).type === 'tool_result' &&
+            typeof (toolResult as RequestToolResultEntry).toolUseId === 'string' &&
+            typeof (toolResult as RequestToolResultEntry).content === 'string' &&
+            ((toolResult as RequestToolResultEntry).isError === undefined ||
+              typeof (toolResult as RequestToolResultEntry).isError === 'boolean') &&
+            ((toolResult as RequestToolResultEntry).outputSummary === undefined ||
+              typeof (toolResult as RequestToolResultEntry).outputSummary === 'string'),
         ),
     )
   }

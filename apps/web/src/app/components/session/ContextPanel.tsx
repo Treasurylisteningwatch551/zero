@@ -25,6 +25,14 @@ interface MemoryResult {
   snippet: string
 }
 
+interface ToolResultEntry {
+  type: 'tool_result'
+  toolUseId: string
+  content: string
+  isError?: boolean
+  outputSummary?: string
+}
+
 interface LlmRequestEntry {
   id: string
   turnIndex?: number
@@ -35,6 +43,7 @@ interface LlmRequestEntry {
   response: string
   stopReason: string
   toolUseCount: number
+  toolResults?: ToolResultEntry[]
   tokens: {
     input: number
     output: number

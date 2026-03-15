@@ -6,6 +6,7 @@ import type {
   JsonlLogger,
   MetricsDB,
   RequestToolCallEntry,
+  RequestToolResultEntry,
   TaskClosureClassifierResponse,
   Tracer,
 } from '@zero-os/observe'
@@ -1116,6 +1117,7 @@ export class Agent {
       .map((b) => (b as { text: string }).text)
       .join('')
     const toolCalls = this.extractToolCalls(response.content)
+    const toolResults = this.extractToolResults(request.messages)
     const toolUseCount = toolCalls.length
     const safeUserPrompt = filter ? filter.filter(userPrompt) : userPrompt
     const safeResponseText = filter ? filter.filter(responseText) : responseText
@@ -1139,11 +1141,12 @@ export class Agent {
       stopReason: response.stopReason,
       toolUseCount,
       toolCalls,
+      toolResults,
       toolNames: requestMetadata.toolNames,
       toolDefinitionsHash: requestMetadata.toolDefinitionsHash,
       systemHash: requestMetadata.systemHash,
       staticPrefixHash: requestMetadata.staticPrefixHash,
-      hasToolResultInRequest: requestMetadata.hasToolResultInRequest,
+      hasToolResultInRequest: toolResults.length > 0,
       messageCount: request.messages.length,
       tokens: {
         input: response.usage.input,
@@ -1176,7 +1179,6 @@ export class Agent {
     toolDefinitionsHash?: string
     systemHash?: string
     staticPrefixHash?: string
-    hasToolResultInRequest: boolean
   } {
     const toolNames = request.tools?.map((tool) => tool.name) ?? []
     const toolDefinitionsHash =
@@ -1195,9 +1197,6 @@ export class Agent {
       toolDefinitionsHash,
       systemHash,
       staticPrefixHash,
-      hasToolResultInRequest: request.messages.some((message) =>
-        message.content.some((block) => block.type === 'tool_result'),
-      ),
     }
   }
 
@@ -1216,6 +1215,23 @@ export class Agent {
         },
       ]
     })
+  }
+
+  private extractToolResults(messages: Message[]): RequestToolResultEntry[] {
+    return messages.flatMap((message) =>
+      message.content.flatMap((block) => {
+        if (block.type !== 'tool_result') return []
+        return [
+          {
+            type: 'tool_result',
+            toolUseId: block.toolUseId,
+            content: block.content,
+            isError: block.isError,
+            outputSummary: block.outputSummary,
+          },
+        ]
+      }),
+    )
   }
 
   private filterToolInput(input: Record<string, unknown>): Record<string, unknown> {

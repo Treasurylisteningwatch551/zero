@@ -35,6 +35,14 @@ interface ModelHistoryEntry {
   to: string | null
 }
 
+interface ToolResultEntry {
+  type: 'tool_result'
+  toolUseId: string
+  content: string
+  isError?: boolean
+  outputSummary?: string
+}
+
 interface SessionRequestEntry {
   id: string
   turnIndex?: number
@@ -45,6 +53,7 @@ interface SessionRequestEntry {
   response: string
   stopReason: string
   toolUseCount: number
+  toolResults?: ToolResultEntry[]
   tokens: {
     input: number
     output: number

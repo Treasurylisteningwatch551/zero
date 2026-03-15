@@ -4,6 +4,7 @@ export type {
   LogEntry,
   RequestLogEntry,
   RequestToolCallEntry,
+  RequestToolResultEntry,
   SnapshotEntry,
   ClosureLogEntry,
   ClosureLogEntryInput,

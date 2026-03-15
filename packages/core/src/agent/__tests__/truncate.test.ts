@@ -24,7 +24,7 @@ describe('truncateToolOutput', () => {
     const output = 'x\n'.repeat(20000)
     const result = truncateToolOutput('bash', output)
     expect(result).toContain('输出已截断')
-    expect(result).toContain('完整输出已写入 operations.jsonl')
+    expect(result).toContain('会记录到后续请求的 requests.jsonl')
   })
 
   test('truncated output contains head and tail sections', () => {

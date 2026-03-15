@@ -253,6 +253,14 @@ describe('API Routes Extended', () => {
       stopReason: 'end_turn',
       toolUseCount: 0,
       toolCalls: [{ id: 'call_route_1', name: 'read', input: { path: '/tmp/demo.txt' } }],
+      toolResults: [
+        {
+          type: 'tool_result',
+          toolUseId: 'call_route_1',
+          content: 'demo file contents',
+          outputSummary: 'demo file contents',
+        },
+      ],
       tokens: { input: 10, output: 20 },
       cost: 0.42,
       durationMs: 900,
@@ -267,6 +275,14 @@ describe('API Routes Extended', () => {
     expect(data.requests[0].durationMs).toBe(900)
     expect(data.requests[0].toolCalls).toEqual([
       { id: 'call_route_1', name: 'read', input: { path: '/tmp/demo.txt' } },
+    ])
+    expect(data.requests[0].toolResults).toEqual([
+      {
+        type: 'tool_result',
+        toolUseId: 'call_route_1',
+        content: 'demo file contents',
+        outputSummary: 'demo file contents',
+      },
     ])
   })
 

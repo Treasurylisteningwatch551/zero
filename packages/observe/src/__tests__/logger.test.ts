@@ -57,6 +57,14 @@ describe('JsonlLogger', () => {
       stopReason: 'end_turn',
       toolUseCount: 0,
       toolCalls: [],
+      toolResults: [
+        {
+          type: 'tool_result',
+          toolUseId: 'call_0',
+          content: 'tool output passed to next request',
+          outputSummary: 'tool output passed to next request',
+        },
+      ],
       toolNames: ['read', 'bash'],
       toolDefinitionsHash: 'tools-hash',
       systemHash: 'system-hash',
@@ -82,6 +90,14 @@ describe('JsonlLogger', () => {
     expect(last.staticPrefixHash).toBe('prefix-hash')
     expect(last.hasToolResultInRequest).toBe(true)
     expect(last.messageCount).toBe(3)
+    expect(last.toolResults).toEqual([
+      {
+        type: 'tool_result',
+        toolUseId: 'call_0',
+        content: 'tool output passed to next request',
+        outputSummary: 'tool output passed to next request',
+      },
+    ])
     expect((last.tokens as Record<string, unknown>).reasoning).toBe(25)
   })
 
@@ -98,6 +114,14 @@ describe('JsonlLogger', () => {
       stopReason: 'end_turn',
       toolUseCount: 1,
       toolCalls: [{ id: 'call_1', name: 'read', input: { path: '/tmp/file.txt' } }],
+      toolResults: [
+        {
+          type: 'tool_result',
+          toolUseId: 'call_1',
+          content: 'file contents here',
+          outputSummary: 'file contents here',
+        },
+      ],
       tokens: { input: 10, output: 20 },
       cost: 0.123,
       durationMs: 456,
@@ -108,6 +132,14 @@ describe('JsonlLogger', () => {
     expect(entries[0].id).toBe('req_session_001')
     expect(entries[0].durationMs).toBe(456)
     expect(entries[0].toolCalls).toEqual([{ id: 'call_1', name: 'read', input: { path: '/tmp/file.txt' } }])
+    expect(entries[0].toolResults).toEqual([
+      {
+        type: 'tool_result',
+        toolUseId: 'call_1',
+        content: 'file contents here',
+        outputSummary: 'file contents here',
+      },
+    ])
   })
 
   test('logSessionRequest uses dated layout for generated-style session ids', () => {
@@ -154,9 +186,10 @@ describe('JsonlLogger', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0].id).toBe('req_legacy_001')
     expect(entries[0].toolCalls).toEqual([])
+    expect(entries[0].toolResults).toEqual([])
   })
 
-  test('readSessionRequests normalizes missing toolCalls from legacy lines', () => {
+  test('readSessionRequests normalizes missing toolCalls and toolResults from legacy lines', () => {
     const logger = new JsonlLogger(testDir)
     const sessionId = 'sess_20260313_0000_leg_abcd'
     const sessionDir = join(testDir, 'sessions', '2026-03-13', sessionId)
@@ -186,6 +219,7 @@ describe('JsonlLogger', () => {
     const entries = logger.readSessionRequests(sessionId)
     expect(entries).toHaveLength(1)
     expect(entries[0].toolCalls).toEqual([])
+    expect(entries[0].toolResults).toEqual([])
   })
 
   test('readAllRequests merges legacy and session-scoped ledgers', () => {
