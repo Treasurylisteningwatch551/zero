@@ -1,8 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { ModelRouter } from '@zero-os/model'
-import type { SystemConfig } from '@zero-os/shared'
+import { ModelRouter, type ProviderAdapter } from '@zero-os/model'
+import type {
+  CompletionRequest,
+  CompletionResponse,
+  StreamEvent,
+  SystemConfig,
+} from '@zero-os/shared'
 import { BashTool } from '../bash'
 import { ReadTool } from '../read'
 import { ToolRegistry } from '../registry'
@@ -55,6 +60,44 @@ const ctx = {
     warn: () => {},
     error: () => {},
   },
+}
+
+class StaticResponseAdapter implements ProviderAdapter {
+  readonly apiType = 'fake-task-subagent'
+
+  async complete(_req: CompletionRequest): Promise<CompletionResponse> {
+    return {
+      id: 'resp_subagent_001',
+      content: [{ type: 'text', text: 'subagent complete' }],
+      stopReason: 'end_turn',
+      usage: { input: 5, output: 3 },
+      model: 'fake-task-subagent-model',
+    }
+  }
+
+  async *stream(_req: CompletionRequest): AsyncIterable<StreamEvent> {
+    yield* []
+    throw new Error('stream unsupported in test')
+  }
+
+  async healthCheck(): Promise<boolean> {
+    return true
+  }
+}
+
+function createStubRouter(adapter: ProviderAdapter): ModelRouter {
+  const resolved = {
+    adapter,
+    providerName: 'test-provider',
+    modelConfig: {},
+  }
+
+  return {
+    getCurrentModel: () => resolved,
+    resolveModel: () => resolved,
+    getAdapter: () => adapter,
+    getModelLabel: () => 'test-provider/fake-task-subagent-model',
+  } as unknown as ModelRouter
 }
 
 function createToolRegistry(): ToolRegistry {
@@ -212,4 +255,40 @@ describe('TaskTool', () => {
     expect(result.success).toBe(true)
     expect(result.output).toContain('custom')
   }, 60_000)
+
+  test('subagent requests include agentName and spawnedByRequestId', async () => {
+    const entries: Array<Record<string, unknown>> = []
+    const registry = new ToolRegistry()
+    const taskTool = new TaskTool(createStubRouter(new StaticResponseAdapter()), registry)
+
+    const result = await taskTool.run(
+      {
+        ...ctx,
+        currentRequestId: 'req_parent_001',
+        requestLogger: {
+          logSessionRequest(entry: Record<string, unknown>) {
+            entries.push(entry)
+          },
+          logSessionClosure() {},
+        },
+      },
+      {
+        tasks: [
+          {
+            id: 'research',
+            name: 'Researcher',
+            agentInstruction: 'Investigate and summarize findings briefly.',
+            instruction: 'Return a one-line confirmation that the task finished.',
+            tools: [],
+          },
+        ],
+      },
+    )
+
+    expect(result.success).toBe(true)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].sessionId).toBe('test_task_session')
+    expect(entries[0].agentName).toBe('Researcher')
+    expect(entries[0].spawnedByRequestId).toBe('req_parent_001')
+  })
 })

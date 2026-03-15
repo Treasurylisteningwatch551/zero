@@ -49,6 +49,7 @@ describe('JsonlLogger', () => {
       id: 'req_001',
       turnIndex: 1,
       sessionId: 'sess_test',
+      agentName: 'zero',
       model: 'gpt-5.3-codex-medium',
       provider: 'openai-codex',
       userPrompt: 'hello',
@@ -78,6 +79,7 @@ describe('JsonlLogger', () => {
     const entries = logger.readEntries('requests.jsonl')
     expect(entries.length).toBeGreaterThanOrEqual(1)
     const last = entries[entries.length - 1] as Record<string, unknown>
+    expect(last.agentName).toBe('zero')
     expect(last.model).toBe('gpt-5.3-codex-medium')
     expect(last.stopReason).toBe('end_turn')
     expect(last.toolUseCount).toBe(0)
@@ -105,6 +107,8 @@ describe('JsonlLogger', () => {
       id: 'req_session_001',
       turnIndex: 1,
       sessionId: 'sess_scoped',
+      agentName: 'Explorer',
+      spawnedByRequestId: 'req_parent_001',
       model: 'gpt-5.4',
       provider: 'openai-codex',
       userPrompt: 'full prompt',
@@ -128,8 +132,12 @@ describe('JsonlLogger', () => {
     const entries = logger.readSessionRequests('sess_scoped')
     expect(entries).toHaveLength(1)
     expect(entries[0].id).toBe('req_session_001')
+    expect(entries[0].agentName).toBe('Explorer')
+    expect(entries[0].spawnedByRequestId).toBe('req_parent_001')
     expect(entries[0].durationMs).toBe(456)
-    expect(entries[0].toolCalls).toEqual([{ id: 'call_1', name: 'read', input: { path: '/tmp/file.txt' } }])
+    expect(entries[0].toolCalls).toEqual([
+      { id: 'call_1', name: 'read', input: { path: '/tmp/file.txt' } },
+    ])
     expect(entries[0].toolResults).toEqual([
       {
         type: 'tool_result',

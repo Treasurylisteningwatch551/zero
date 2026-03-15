@@ -191,6 +191,7 @@ export class Session {
         error: (event: string, data?: Record<string, unknown>) =>
           console.error(`[${this.data.id}] ${event}`, data ?? ''),
       },
+      requestLogger: this.deps.logger,
       secretFilter: this.deps.secretFilter,
       observability: observabilityHandle,
       secretResolver: this.deps.secretResolver,

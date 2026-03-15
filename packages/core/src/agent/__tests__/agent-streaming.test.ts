@@ -355,7 +355,11 @@ describe('Agent streaming callback', () => {
           // First attempt: empty content (no text_delta, just done)
           yield {
             type: 'done' as const,
-            data: { finishReason: 'end_turn', usage: { input: 1, output: 0 }, model: 'claude-test' },
+            data: {
+              finishReason: 'end_turn',
+              usage: { input: 1, output: 0 },
+              model: 'claude-test',
+            },
           }
           return
         }
@@ -423,7 +427,9 @@ describe('Agent streaming callback', () => {
       error: () => {},
     })
 
-    await expect(agent.run(createContext(), 'say hi')).rejects.toThrow('stream returned empty content')
+    await expect(agent.run(createContext(), 'say hi')).rejects.toThrow(
+      'stream returned empty content',
+    )
     // Retry warning logged, then fallback warning with fallbackSkipped=true
     expect(warnings.some((w) => w.event === 'llm_stream_empty_retry')).toBe(true)
     expect(
@@ -468,6 +474,7 @@ describe('Agent streaming callback', () => {
 
     expect(visibleText).toBe('visible answer')
     expect(entries).toHaveLength(1)
+    expect(entries[0].agentName).toBe('stream-agent')
     expect(entries[0].reasoningContent).toBe('step 1. step 2.')
     expect(entries[0].toolCalls).toEqual([])
     expect(entries[0].toolNames).toEqual([])
@@ -522,6 +529,11 @@ describe('Agent streaming callback', () => {
 
     expect(messages.at(-1)?.role).toBe('assistant')
     expect(entries).toHaveLength(3)
+    expect(entries.map((entry) => entry.agentName)).toEqual([
+      'stream-agent',
+      'stream-agent',
+      'stream-agent',
+    ])
     expect(entries.map((entry) => entry.turnIndex)).toEqual([4, 4, 4])
     expect(entries.map((entry) => entry.parentId ?? null)).toEqual([
       null,
@@ -536,8 +548,24 @@ describe('Agent streaming callback', () => {
     ])
     expect(entries.map((entry) => entry.toolResults)).toEqual([
       [],
-      [{ type: 'tool_result', toolUseId: 'call_1', content: 'ok', isError: false, outputSummary: 'ok' }],
-      [{ type: 'tool_result', toolUseId: 'call_2', content: 'ok', isError: false, outputSummary: 'ok' }],
+      [
+        {
+          type: 'tool_result',
+          toolUseId: 'call_1',
+          content: 'ok',
+          isError: false,
+          outputSummary: 'ok',
+        },
+      ],
+      [
+        {
+          type: 'tool_result',
+          toolUseId: 'call_2',
+          content: 'ok',
+          isError: false,
+          outputSummary: 'ok',
+        },
+      ],
     ])
   })
 })

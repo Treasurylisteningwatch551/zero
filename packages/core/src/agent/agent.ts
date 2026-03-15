@@ -78,7 +78,7 @@ export interface AgentContext {
  * Optional observability dependencies for the agent.
  */
 export interface AgentObservability {
-  logger?: JsonlLogger
+  logger?: Pick<JsonlLogger, 'logSessionRequest' | 'logSessionClosure'>
   metrics?: MetricsDB
   tracer?: Tracer
   secretFilter?: SecretFilter
@@ -395,6 +395,10 @@ export class Agent {
       // Process tool calls
       const toolUseBlocks = response.content.filter((b) => b.type === 'tool_use')
       const toolResultBlocks: ContentBlock[] = []
+      const toolContext: ToolContext = {
+        ...this.toolContext,
+        currentRequestId: response.id,
+      }
 
       for (const block of toolUseBlocks) {
         if (block.type !== 'tool_use') continue
@@ -457,7 +461,7 @@ export class Agent {
 
         let result: ToolResult
         try {
-          result = await tool.run(this.toolContext, block.input)
+          result = await tool.run(toolContext, block.input)
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
           result = {
@@ -611,7 +615,10 @@ export class Agent {
         lastStreamErr = streamErr
         const errorDetails = this.getStreamErrorDetails(streamErr)
 
-        if (attempt < maxStreamRetries && errorDetails.message === 'stream returned empty content') {
+        if (
+          attempt < maxStreamRetries &&
+          errorDetails.message === 'stream returned empty content'
+        ) {
           this.toolContext.logger.warn('llm_stream_empty_retry', {
             sessionId: this.toolContext.sessionId,
             apiType: this.adapter.apiType,
@@ -1085,7 +1092,7 @@ export class Agent {
     }
   }
 
-  private shouldSkipStreamFallback(streamErr: unknown): boolean {
+  private shouldSkipStreamFallback(_streamErr: unknown): boolean {
     // Anthropic API: always skip non-streaming fallback.
     // The SDK rejects non-streaming requests estimated >10 min, and network idle
     // timeouts make non-streaming unreliable for long responses regardless.
@@ -1160,6 +1167,8 @@ export class Agent {
       turnIndex: meta.turnIndex,
       parentId: meta.parentId,
       sessionId: this.toolContext.sessionId,
+      agentName: this.config.name,
+      spawnedByRequestId: this.toolContext.spawnedByRequestId,
       snapshotId: this.obs.getCurrentSnapshotId?.(),
       model: this.obs.modelLabel ?? response.model,
       provider: this.obs.providerName ?? 'unknown',

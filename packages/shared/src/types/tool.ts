@@ -27,9 +27,15 @@ export interface ObservabilityHandle {
 export interface ToolContext {
   sessionId: string
   currentModel?: string
+  currentRequestId?: string
+  spawnedByRequestId?: string
   workDir: string
   projectRoot?: string
   logger: ToolLogger
+  requestLogger?: {
+    logSessionRequest(entry: Record<string, unknown>): void
+    logSessionClosure(entry: Record<string, unknown>): void
+  }
   secretFilter?: SecretFilter
   observability?: ObservabilityHandle
   secretResolver?: (ref: string) => string | undefined

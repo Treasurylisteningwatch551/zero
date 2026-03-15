@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ModelRouter } from '@zero-os/model'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
-import { Agent, type AgentConfig, type AgentContext } from '../agent/agent'
+import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
 import { buildSubAgentPrompt } from '../agent/prompt'
 import { type TaskNode, TaskOrchestrator, type TaskResult } from '../task/orchestrator'
 import { BaseTool } from './base'
@@ -170,17 +170,29 @@ export class TaskTool extends BaseTool {
         mkdirSync(subWorkDir, { recursive: true })
       }
       const toolContext: ToolContext = {
-        sessionId: `${ctx.sessionId}_sub_${node.id}`,
+        sessionId: ctx.sessionId,
         currentModel: resolvedModel
           ? this.modelRouter.getModelLabel(resolvedModel)
           : ctx.currentModel,
+        spawnedByRequestId: ctx.currentRequestId,
         workDir: subWorkDir,
         projectRoot: ctx.projectRoot,
         logger: ctx.logger,
+        requestLogger: ctx.requestLogger,
         secretFilter: ctx.secretFilter,
       }
 
-      const agent = new Agent(node.agentConfig, adapter, scopedRegistry, toolContext)
+      const agentObs: AgentObservability = {
+        logger: ctx.requestLogger,
+        secretFilter: ctx.secretFilter,
+        providerName: resolvedModel?.providerName,
+        modelLabel: resolvedModel
+          ? this.modelRouter.getModelLabel(resolvedModel)
+          : ctx.currentModel,
+        pricing: resolvedModel?.modelConfig.pricing,
+      }
+
+      const agent = new Agent(node.agentConfig, adapter, scopedRegistry, toolContext, agentObs)
 
       // Build structured SubAgent prompt with upstream results
       const subAgentSystemPrompt = buildSubAgentPrompt(
