@@ -232,7 +232,7 @@ describe('API Routes Extended', () => {
     expect(data.events[0].assistantMessageId).toBe('msg_trace_001')
   })
 
-  test('GET /api/sessions/:id/task-closure-events falls back to session closure ledger', async () => {
+  test('GET /api/sessions/:id/task-closure-events falls back to legacy session closure file', async () => {
     const session = zero.sessionManager.create('web')
     zero.logger.logSessionClosure({
       sessionId: session.data.id,
@@ -338,7 +338,7 @@ describe('API Routes Extended', () => {
     )
   })
 
-  test('GET /api/logs?type=requests reads merged request ledgers', async () => {
+  test('GET /api/logs?type=requests reads merged request sources', async () => {
     const session = zero.sessionManager.create('web')
     zero.logger.logSessionRequest({
       id: 'req_logs_route_001',

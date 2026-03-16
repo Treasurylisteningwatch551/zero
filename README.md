@@ -77,7 +77,7 @@ product source.
 - `.zero/fuse_list.yaml`: safety rules for shell execution
 - `.zero/memory/**`: long-term memory files
 - `.zero/workspace/**`: bootstrap files and agent workspace state
-- `.zero/logs/**`: logs, metrics, and persisted session data
+- `.zero/logs/**`: observability data, including `events.jsonl`, metrics, and per-session traces
 - `.zero/heartbeat.json`: liveness signal for supervisor/restart flows
 
 Do not commit `.zero/`, `dist/`, `node_modules/`, or `test-results/`.
@@ -290,7 +290,9 @@ e2e/            Playwright end-to-end coverage
 - secrets are filtered before they are written to logs or emitted in tool/model output
 - shell execution is guarded by fuse-list rules
 - long-term memory is stored as local files under `.zero/memory`
-- schedule state and session state are persisted through the observability layer
+- schedule state and session state are persisted through the observability layer, with global
+  events in `.zero/logs/events.jsonl` and session execution traces in
+  `.zero/logs/sessions/<date>/<session>/trace.jsonl`
 - the supervisor is optional for local development, but it is the intended path for
   self-healing restart behavior
 

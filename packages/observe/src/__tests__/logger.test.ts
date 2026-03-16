@@ -248,16 +248,16 @@ describe('JsonlLogger', () => {
     expect(entries[0].toolResults).toEqual([])
   })
 
-  test('readSessionRequests prefers trace.jsonl over request ledgers', () => {
+  test('readSessionRequests prefers trace.jsonl over legacy request files', () => {
     const logger = new JsonlLogger(testDir)
     const sessionId = 'sess_20260316_0100_web_trace'
 
     logger.logSessionRequest({
-      id: 'req_ledger_001',
+      id: 'req_legacy_001',
       turnIndex: 1,
       sessionId,
-      model: 'ledger-model',
-      provider: 'ledger-provider',
+      model: 'legacy-model',
+      provider: 'legacy-provider',
       userPrompt: 'legacy prompt',
       response: 'legacy response',
       stopReason: 'end_turn',
@@ -430,7 +430,7 @@ describe('JsonlLogger', () => {
     expect(existsSync(linkPath)).toBe(false)
   })
 
-  test('logSessionClosure writes to session-scoped closure ledger', () => {
+  test('logSessionClosure writes to the legacy session closure file', () => {
     const logger = new JsonlLogger(testDir)
     logger.logSessionClosure({
       sessionId: 'sess_closure',
@@ -520,7 +520,7 @@ describe('JsonlLogger', () => {
     expect(entries).toHaveLength(0)
   })
 
-  test('readSessionClosures prefers trace.jsonl over closure ledgers', () => {
+  test('readSessionClosures prefers trace.jsonl over the legacy closure file', () => {
     const logger = new JsonlLogger(testDir)
     const sessionId = 'sess_20260316_0120_web_trace'
 
@@ -588,15 +588,15 @@ describe('JsonlLogger', () => {
     expect(last.compressedRange).toBe('0..3')
   })
 
-  test('readSessionSnapshots prefers trace.jsonl over snapshot ledgers', () => {
+  test('readSessionSnapshots prefers trace.jsonl over legacy snapshot files', () => {
     const logger = new JsonlLogger(testDir)
     const sessionId = 'sess_20260316_0130_web_trace'
 
     logger.logSnapshot({
-      id: 'snap_ledger_001',
+      id: 'snap_legacy_001',
       sessionId,
       trigger: 'session_start',
-      model: 'ledger-model',
+      model: 'legacy-model',
       systemPrompt: 'legacy system prompt',
     })
 

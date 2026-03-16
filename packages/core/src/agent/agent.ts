@@ -112,13 +112,13 @@ interface TaskClosureClassifierRequest {
 
 interface TaskClosureEvaluation {
   decision: TaskClosureDecision | null
-  eventPayload: PersistedTaskClosureEvent | null
+  eventPayload: SessionTaskClosureEvent | null
   traceSpanId?: string
   traceSpanStatus?: 'success' | 'error'
   trimmedContent?: ContentBlock[]
 }
 
-type PersistedTaskClosureEvent =
+type SessionTaskClosureEvent =
   | {
       sessionId: string
       event: 'task_closure_decision'
@@ -377,14 +377,14 @@ export class Agent {
       }
 
       if (taskClosureEvaluation.eventPayload) {
-        const persistedEvent: ClosureLogEntryInput = {
+        const sessionEvent: ClosureLogEntryInput = {
           ...taskClosureEvaluation.eventPayload,
           assistantMessageId: assistantMsg.id,
           assistantMessageCreatedAt: assistantMsg.createdAt,
         }
 
-        this.logTaskClosureEvent(persistedEvent)
-        this.obs.bus?.emit('session:update', persistedEvent)
+        this.logTaskClosureEvent(sessionEvent)
+        this.obs.bus?.emit('session:update', sessionEvent)
       }
 
       // Emit session update event

@@ -31,8 +31,6 @@ export interface SessionTaskClosureEvent {
   error?: string
 }
 
-export type PersistedTaskClosureEvent = SessionTaskClosureEvent
-
 export interface TraceSpan {
   id: string
   parentId?: string
