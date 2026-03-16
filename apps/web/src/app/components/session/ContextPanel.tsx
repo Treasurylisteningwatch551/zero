@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { SessionJudgeResponse } from '../../../eval/types'
+import type {
+  SessionJudgeHistoryResponse,
+  SessionJudgeResponse,
+  StoredSessionJudgeEntry,
+} from '../../../eval/types'
 import { apiFetch, apiPost } from '../../lib/api'
 import { toolColors } from '../../lib/colors'
 import { formatCost, formatModelHistory, formatNumber, formatTimeAgo } from '../../lib/format'
@@ -116,8 +120,11 @@ export function ContextPanel({
   const [tab, setTab] = useState<'summary' | 'trace'>('summary')
   const [promptExpanded, setPromptExpanded] = useState(false)
   const [relatedMemory, setRelatedMemory] = useState<MemoryResult[]>([])
-  const [judgeResult, setJudgeResult] = useState<SessionJudgeResponse | null>(null)
+  const [judgeHistory, setJudgeHistory] = useState<StoredSessionJudgeEntry[]>([])
+  const [selectedJudgeSavedAt, setSelectedJudgeSavedAt] = useState<string | null>(null)
   const [judgeLoading, setJudgeLoading] = useState(false)
+  const [judgeHistoryLoading, setJudgeHistoryLoading] = useState(false)
+  const [judgeHistoryError, setJudgeHistoryError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!summary) return
@@ -127,17 +134,6 @@ export function ContextPanel({
       .then((res) => setRelatedMemory(res.results ?? []))
       .catch(() => {})
   }, [summary])
-
-  useEffect(() => {
-    if (sessionId === undefined) {
-      setJudgeResult(null)
-      setJudgeLoading(false)
-      return
-    }
-
-    setJudgeResult(null)
-    setJudgeLoading(false)
-  }, [sessionId])
 
   const selectedTool = selectedToolId ? toolCalls.find((t) => t.id === selectedToolId) : null
 
@@ -161,6 +157,66 @@ export function ContextPanel({
     [llmRequests, taskClosureEvents, traces],
   )
 
+  const selectedJudgeEntry = useMemo(() => {
+    if (judgeHistory.length === 0) return null
+    if (!selectedJudgeSavedAt) return judgeHistory[0] ?? null
+    return judgeHistory.find((entry) => entry.savedAt === selectedJudgeSavedAt) ?? judgeHistory[0] ?? null
+  }, [judgeHistory, selectedJudgeSavedAt])
+  const judgeResult: SessionJudgeResponse | null = selectedJudgeEntry?.run ?? null
+
+  const loadJudgeHistory = useCallback(
+    async (preferredSavedAt?: string) => {
+      if (!sessionId) {
+        setJudgeHistory([])
+        setSelectedJudgeSavedAt(null)
+        setJudgeHistoryError(null)
+        setJudgeHistoryLoading(false)
+        return
+      }
+
+      setJudgeHistoryLoading(true)
+      setJudgeHistoryError(null)
+      try {
+        const response = await apiFetch<SessionJudgeHistoryResponse>(`/api/sessions/${sessionId}/llm-judge`)
+        const history = response.history ?? []
+        setJudgeHistory(history)
+        setSelectedJudgeSavedAt((current) => {
+          if (preferredSavedAt && history.some((entry) => entry.savedAt === preferredSavedAt)) {
+            return preferredSavedAt
+          }
+          if (current && history.some((entry) => entry.savedAt === current)) {
+            return current
+          }
+          return history[0]?.savedAt ?? null
+        })
+      } catch (error) {
+        setJudgeHistory([])
+        setSelectedJudgeSavedAt(null)
+        setJudgeHistoryError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setJudgeHistoryLoading(false)
+      }
+    },
+    [sessionId],
+  )
+
+  useEffect(() => {
+    if (sessionId === undefined) {
+      setJudgeHistory([])
+      setSelectedJudgeSavedAt(null)
+      setJudgeHistoryError(null)
+      setJudgeLoading(false)
+      setJudgeHistoryLoading(false)
+      return
+    }
+
+    setJudgeHistory([])
+    setSelectedJudgeSavedAt(null)
+    setJudgeHistoryError(null)
+    setJudgeLoading(false)
+    void loadJudgeHistory()
+  }, [loadJudgeHistory, sessionId])
+
   const formattedNetSavings =
     netSavings === undefined
       ? undefined
@@ -171,10 +227,11 @@ export function ContextPanel({
     setJudgeLoading(true)
     try {
       const result = await apiPost<SessionJudgeResponse>(`/api/sessions/${sessionId}/llm-judge`, {})
-      setJudgeResult(result)
-    } catch {}
-    setJudgeLoading(false)
-  }, [judgeLoading, sessionId])
+      await loadJudgeHistory(result.generatedAt)
+    } catch {} finally {
+      setJudgeLoading(false)
+    }
+  }, [judgeLoading, loadJudgeHistory, sessionId])
 
   if (selectedTool) {
     return (
@@ -252,8 +309,13 @@ export function ContextPanel({
               report={traceEval}
               loading={traceLoading}
               judgeResult={judgeResult}
+              judgeHistory={judgeHistory}
+              selectedJudgeEntry={selectedJudgeEntry}
               judgeLoading={judgeLoading}
+              judgeHistoryLoading={judgeHistoryLoading}
+              judgeHistoryError={judgeHistoryError}
               onRunJudge={sessionId ? runJudge : undefined}
+              onSelectJudgeEntry={setSelectedJudgeSavedAt}
             />
           </Section>
 
@@ -637,14 +699,24 @@ function TraceEvalCard({
   report,
   loading,
   judgeResult,
+  judgeHistory,
+  selectedJudgeEntry,
   judgeLoading,
+  judgeHistoryLoading,
+  judgeHistoryError,
   onRunJudge,
+  onSelectJudgeEntry,
 }: {
   report: ReturnType<typeof evaluateTraceSession>
   loading: boolean
   judgeResult: SessionJudgeResponse | null
+  judgeHistory: StoredSessionJudgeEntry[]
+  selectedJudgeEntry: StoredSessionJudgeEntry | null
   judgeLoading: boolean
+  judgeHistoryLoading: boolean
+  judgeHistoryError: string | null
   onRunJudge?: () => void
+  onSelectJudgeEntry?: (savedAt: string) => void
 }) {
   if (
     loading &&
@@ -734,8 +806,8 @@ function TraceEvalCard({
               LLM Judge
             </div>
             <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
-              Evaluates context use, memory usage, duplicate tools, cost discipline, grounding, and
-              recovery honesty.
+              Evaluates context use, memory usage, duplicate tools, cost discipline, grounding,
+              human intervention judgment, and recovery honesty.
             </p>
           </div>
 
@@ -751,19 +823,77 @@ function TraceEvalCard({
           )}
         </div>
 
-        {judgeResult ? (
-          <JudgeResultCard response={judgeResult} />
-        ) : (
+        {judgeHistoryLoading && judgeHistory.length === 0 && (
           <p className="mt-3 text-[11px] text-[var(--color-text-disabled)]">
-            Run on demand to avoid unnecessary model cost.
+            Loading saved judge runs…
           </p>
+        )}
+
+        {judgeHistoryError && (
+          <p className="mt-3 text-[11px] text-amber-300">{judgeHistoryError}</p>
+        )}
+
+        {judgeHistory.length > 0 && (
+          <div className="mt-3 space-y-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--color-text-disabled)]">
+              History
+            </div>
+            <div className="space-y-1.5">
+              {judgeHistory.map((entry, index) => {
+                const isSelected = selectedJudgeEntry?.savedAt === entry.savedAt
+
+                return (
+                  <button
+                    key={`${entry.savedAt}-${index}`}
+                    type="button"
+                    onClick={() => onSelectJudgeEntry?.(entry.savedAt)}
+                    className={`w-full rounded border px-2.5 py-2 text-left transition-colors ${
+                      isSelected
+                        ? 'border-[var(--color-accent)] bg-[var(--color-accent-glow)]/20'
+                        : 'border-white/8 bg-black/15 hover:border-[var(--color-accent)]/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-medium text-[var(--color-text-secondary)]">
+                        {entry.run.result.overallScore}/100 · {formatJudgeVerdict(entry.run.result.verdict)}
+                      </span>
+                      <span className="text-[10px] text-[var(--color-text-disabled)]" title={entry.savedAt}>
+                        {index === 0 ? 'latest' : formatTimeAgo(entry.savedAt)}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-[var(--color-text-muted)]">
+                      <span>{entry.run.model}</span>
+                      <span>{entry.run.result.confidence}</span>
+                      <span>{entry.run.generatedAt}</span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {judgeResult ? (
+          <JudgeResultCard response={judgeResult} entry={selectedJudgeEntry} />
+        ) : (
+          !judgeHistoryLoading && (
+            <p className="mt-3 text-[11px] text-[var(--color-text-disabled)]">
+              Run on demand to avoid unnecessary model cost.
+            </p>
+          )
         )}
       </div>
     </div>
   )
 }
 
-function JudgeResultCard({ response }: { response: SessionJudgeResponse }) {
+function JudgeResultCard({
+  response,
+  entry,
+}: {
+  response: SessionJudgeResponse
+  entry: StoredSessionJudgeEntry | null
+}) {
   const { result } = response
 
   return (
@@ -803,6 +933,11 @@ function JudgeResultCard({ response }: { response: SessionJudgeResponse }) {
         <span className="rounded bg-black/15 px-2 py-1">
           ${result.signals.totalCost.toFixed(3)} total
         </span>
+        {entry && (
+          <span className="rounded bg-black/15 px-2 py-1" title={entry.savedAt}>
+            saved {formatTimeAgo(entry.savedAt)}
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-2">
@@ -835,6 +970,71 @@ function JudgeResultCard({ response }: { response: SessionJudgeResponse }) {
             </div>
           ))}
         </div>
+      )}
+
+      {entry && <JudgeArtifactsPanel entry={entry} />}
+    </div>
+  )
+}
+
+function JudgeArtifactsPanel({ entry }: { entry: StoredSessionJudgeEntry }) {
+  return (
+    <div className="space-y-2">
+      <details className="rounded bg-black/15 p-2">
+        <summary className="cursor-pointer text-[10px] text-[var(--color-accent)] select-none">
+          Judge Prompt
+        </summary>
+        <div className="mt-2 space-y-2">
+          <TracePreview label="system_prompt" value={entry.artifacts.primary.request.systemPrompt} />
+          <TracePreview label="user_prompt" value={entry.artifacts.primary.request.userPrompt} />
+          <TracePreview
+            label="request_meta"
+            value={JSON.stringify(entry.artifacts.primary.request, null, 2)}
+          />
+        </div>
+      </details>
+
+      <details className="rounded bg-black/15 p-2">
+        <summary className="cursor-pointer text-[10px] text-[var(--color-accent)] select-none">
+          Judge Response
+        </summary>
+        <div className="mt-2 space-y-2">
+          <TracePreview label="primary_response_raw" value={entry.artifacts.primary.response.rawText} />
+          <TracePreview
+            label="primary_completion"
+            value={JSON.stringify(entry.artifacts.primary.response.completion, null, 2)}
+          />
+        </div>
+      </details>
+
+      {entry.artifacts.repair && (
+        <details className="rounded bg-black/15 p-2">
+          <summary className="cursor-pointer text-[10px] text-[var(--color-accent)] select-none">
+            Repair Exchange
+          </summary>
+          <div className="mt-2 space-y-2">
+            <TracePreview
+              label="repair_system_prompt"
+              value={entry.artifacts.repair.request.systemPrompt}
+            />
+            <TracePreview
+              label="repair_user_prompt"
+              value={entry.artifacts.repair.request.userPrompt}
+            />
+            <TracePreview
+              label="repair_request_meta"
+              value={JSON.stringify(entry.artifacts.repair.request, null, 2)}
+            />
+            <TracePreview
+              label="repair_response_raw"
+              value={entry.artifacts.repair.response.rawText}
+            />
+            <TracePreview
+              label="repair_completion"
+              value={JSON.stringify(entry.artifacts.repair.response.completion, null, 2)}
+            />
+          </div>
+        </details>
       )}
     </div>
   )

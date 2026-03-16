@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { appendFileSync, existsSync, mkdirSync, readlinkSync, rmSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { getSessionLogRelativeDir } from '@zero-os/shared'
 import { ObservabilityStore } from '../observability-store'
@@ -406,6 +406,112 @@ describe('ObservabilityStore', () => {
     expect(entries[0].status).toBe('success')
     expect(entries[0].durationMs).toBe(2000)
     expect(store.readSessionRequests(sessionId)[0].response).toBe('done')
+  })
+
+  test('appendSessionJudge writes history into the session log directory', () => {
+    const store = new ObservabilityStore(testDir)
+    const sessionId = 'sess_20260316_0220_web_judge'
+    const entry = {
+      version: 1,
+      savedAt: '2026-03-16T02:20:05.000Z',
+      sessionId,
+      run: {
+        sessionId,
+        model: 'openai/gpt-test',
+        generatedAt: '2026-03-16T02:20:05.000Z',
+        result: {
+          overallScore: 88,
+          verdict: 'strong',
+          confidence: 'high',
+          summary: 'good run',
+          dimensions: [],
+          findings: [],
+          signals: {
+            totalCost: 0.1,
+            requestCount: 1,
+            toolCallCount: 0,
+            duplicateToolCallCount: 0,
+            memorySearchCount: 0,
+            memoryGetCount: 0,
+            memoryWriteCount: 0,
+            closureCount: 1,
+          },
+        },
+      },
+      artifacts: {
+        primary: {
+          request: {
+            systemPrompt: 'judge-system',
+            userPrompt: 'judge-user',
+            model: 'gpt-test',
+            maxTokens: 1600,
+            stream: false,
+          },
+          response: {
+            completion: {
+              id: 'judge_resp_1',
+              content: [{ type: 'text', text: '{"overallScore":88}' }],
+              stopReason: 'end_turn',
+              usage: { input: 10, output: 20 },
+              model: 'gpt-test',
+            },
+            rawText: '{"overallScore":88}',
+          },
+        },
+        repair: {
+          request: {
+            systemPrompt: 'repair-system',
+            userPrompt: 'repair-user',
+            model: 'gpt-test',
+            maxTokens: 1800,
+            stream: false,
+          },
+          response: {
+            completion: {
+              id: 'judge_resp_2',
+              content: [{ type: 'text', text: '{"overallScore":88}' }],
+              stopReason: 'end_turn',
+              usage: { input: 5, output: 8 },
+              model: 'gpt-test',
+            },
+            rawText: '{"overallScore":88}',
+          },
+        },
+      },
+    }
+
+    store.appendSessionJudge(sessionId, entry)
+
+    const filePath = join(testDir, getSessionLogRelativeDir(sessionId), 'llm-judge.jsonl')
+    expect(existsSync(filePath)).toBe(true)
+    expect(readFileSync(filePath, 'utf-8')).toContain('judge-system')
+
+    const history = store.readSessionJudges<typeof entry>(sessionId)
+    expect(history).toHaveLength(1)
+    expect(history[0].artifacts.primary.request.userPrompt).toBe('judge-user')
+    expect(history[0].artifacts.repair?.response.rawText).toBe('{"overallScore":88}')
+  })
+
+  test('readSessionJudges skips malformed lines and returns latest first', () => {
+    const store = new ObservabilityStore(testDir)
+    const sessionId = 'oc_session_judge_history'
+    const sessionDir = join(testDir, getSessionLogRelativeDir(sessionId))
+    mkdirSync(sessionDir, { recursive: true })
+    appendFileSync(
+      join(sessionDir, 'llm-judge.jsonl'),
+      [
+        JSON.stringify({ savedAt: '2026-03-16T02:00:00.000Z', run: { result: { overallScore: 60 } } }),
+        '{not-json',
+        JSON.stringify({ savedAt: '2026-03-16T03:00:00.000Z', run: { result: { overallScore: 90 } } }),
+      ].join('\n') + '\n',
+      'utf-8',
+    )
+
+    const history = store.readSessionJudges<{ savedAt: string; run: { result: { overallScore: number } } }>(sessionId)
+    expect(history).toHaveLength(2)
+    expect(history[0].savedAt).toBe('2026-03-16T03:00:00.000Z')
+    expect(history[0].run.result.overallScore).toBe(90)
+    expect(history[1].savedAt).toBe('2026-03-16T02:00:00.000Z')
   })
 
   test('readEntries returns empty array for missing file', () => {

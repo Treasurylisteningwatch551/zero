@@ -1,13 +1,16 @@
 import type { RequestLogEntry, SnapshotEntry, TraceSpan } from '@zero-os/observe'
-import type { Message } from '@zero-os/shared'
+import type { CompletionResponse, Message } from '@zero-os/shared'
 import { now } from '@zero-os/shared'
 import type { ZeroOS } from '../../../server/src/main'
 import type {
+  SessionJudgeArtifacts,
   SessionJudgeDimension,
   SessionJudgeDimensionKey,
+  SessionJudgeExchangeArtifacts,
   SessionJudgeFinding,
   SessionJudgeResponse,
   SessionJudgeResult,
+  SessionJudgeRunOutput,
   SessionJudgeSignals,
 } from '../eval/types'
 
@@ -71,16 +74,20 @@ type JudgeCompletionAdapter = {
     system?: string
     stream: boolean
     maxTokens?: number
-  }): Promise<{
-    content: Array<{ type: string; text?: string }>
-  }>
+    model?: string
+  }): Promise<CompletionResponse>
+}
+
+interface ParsedJudgeArtifacts {
+  parsed: Omit<SessionJudgeResult, 'signals'>
+  repair?: SessionJudgeExchangeArtifacts
 }
 
 export async function runSessionJudge(
   zero: ZeroOS,
   sessionId: string,
   options?: { model?: string },
-): Promise<SessionJudgeResponse> {
+): Promise<SessionJudgeRunOutput> {
   const session = zero.sessionManager.get(sessionId)
   const row = session ? null : zero.sessionManager.getFromDB(sessionId)
   if (!session && !row) {
@@ -111,36 +118,63 @@ export async function runSessionJudge(
     signals,
   })
 
-  const response = await resolved.adapter.complete({
+  const primarySystemPrompt = JUDGE_SYSTEM_PROMPT
+  const primaryUserPrompt = buildJudgePrompt(payload)
+  const primaryCompletion = await resolved.adapter.complete({
     messages: [
       {
         id: `judge_${sessionId}`,
         sessionId,
         role: 'user',
         messageType: 'message',
-        content: [{ type: 'text', text: buildJudgePrompt(payload) }],
+        content: [{ type: 'text', text: primaryUserPrompt }],
         createdAt: now(),
       },
     ],
-    system: JUDGE_SYSTEM_PROMPT,
+    system: primarySystemPrompt,
     stream: false,
     maxTokens: 1600,
   })
+  const primaryRawText = extractResponseText(primaryCompletion)
 
-  const parsed = await parseOrRepairJudgeResponse(
+  const { parsed, repair } = await parseOrRepairJudgeResponse(
     resolved.adapter,
     sessionId,
-    extractResponseText(response),
+    primaryRawText,
+    resolved.modelConfig.modelId,
   )
 
-  return {
+  const generatedAt = now()
+  const run = {
     sessionId,
     model: modelLabel,
-    generatedAt: now(),
+    generatedAt,
     result: {
       ...parsed,
       signals,
     },
+  } satisfies SessionJudgeResponse
+
+  const artifacts: SessionJudgeArtifacts = {
+    primary: {
+      request: {
+        systemPrompt: primarySystemPrompt,
+        userPrompt: primaryUserPrompt,
+        model: resolved.modelConfig.modelId,
+        maxTokens: 1600,
+        stream: false,
+      },
+      response: {
+        completion: primaryCompletion,
+        rawText: primaryRawText,
+      },
+    },
+    ...(repair ? { repair } : {}),
+  }
+
+  return {
+    run,
+    artifacts,
   }
 }
 
@@ -274,10 +308,12 @@ async function parseOrRepairJudgeResponse(
   adapter: JudgeCompletionAdapter,
   sessionId: string,
   raw: string,
-): Promise<Omit<SessionJudgeResult, 'signals'>> {
+  model?: string,
+): Promise<ParsedJudgeArtifacts> {
   try {
-    return parseJudgeResponse(raw)
+    return { parsed: parseJudgeResponse(raw) }
   } catch (parseError) {
+    const repairUserPrompt = buildJudgeRepairPrompt(raw, parseError)
     const repaired = await adapter.complete({
       messages: [
         {
@@ -288,7 +324,7 @@ async function parseOrRepairJudgeResponse(
           content: [
             {
               type: 'text',
-              text: buildJudgeRepairPrompt(raw, parseError),
+              text: repairUserPrompt,
             },
           ],
           createdAt: now(),
@@ -298,8 +334,24 @@ async function parseOrRepairJudgeResponse(
       stream: false,
       maxTokens: 1800,
     })
+    const repairRawText = extractResponseText(repaired)
 
-    return parseJudgeResponse(extractResponseText(repaired))
+    return {
+      parsed: parseJudgeResponse(repairRawText),
+      repair: {
+        request: {
+          systemPrompt: JUDGE_REPAIR_SYSTEM_PROMPT,
+          userPrompt: repairUserPrompt,
+          model,
+          maxTokens: 1800,
+          stream: false,
+        },
+        response: {
+          completion: repaired,
+          rawText: repairRawText,
+        },
+      },
+    }
   }
 }
 

@@ -10,6 +10,7 @@ import {
   getConfigPath,
 } from '../../../server/src/chatgpt-provider'
 import type { ZeroOS } from '../../../server/src/main'
+import type { SessionJudgeHistoryResponse, StoredSessionJudgeEntry } from '../eval/types'
 import { runSessionJudge } from './session-judge'
 
 export function createRoutes(zero: ZeroOS) {
@@ -464,6 +465,20 @@ export function createRoutes(zero: ZeroOS) {
       return c.json({ events: entries })
     })
 
+    .get('/api/sessions/:id/llm-judge', (c) => {
+      const id = c.req.param('id')
+      const history = zero.observability.readSessionJudges<StoredSessionJudgeEntry>(id)
+      const session = getSessionRow(id)
+      if (!session && history.length === 0) {
+        return c.json({ error: 'Session not found' }, 404)
+      }
+
+      return c.json({
+        sessionId: id,
+        history,
+      } satisfies SessionJudgeHistoryResponse)
+    })
+
     .post('/api/sessions/:id/llm-judge', async (c) => {
       const id = c.req.param('id')
       const session = getSessionRow(id)
@@ -481,7 +496,17 @@ export function createRoutes(zero: ZeroOS) {
 
       try {
         const result = await runSessionJudge(zero, id, { model: body.model })
-        return c.json(result)
+        const entry = {
+          version: 1,
+          savedAt: result.run.generatedAt,
+          sessionId: id,
+          run: result.run,
+          artifacts: result.artifacts,
+        } satisfies StoredSessionJudgeEntry
+
+        zero.observability.appendSessionJudge(id, entry)
+
+        return c.json(result.run)
       } catch (error) {
         return c.json({ error: error instanceof Error ? error.message : String(error) }, 500)
       }

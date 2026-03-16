@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { getSessionLogRelativeDir } from '@zero-os/shared'
 import { startZeroOS } from '../../../../server/src/main'
 import type { ZeroOS } from '../../../../server/src/main'
 import { createRoutes } from '../routes'
@@ -545,6 +546,34 @@ describe('API Routes Extended', () => {
       expect(capturedPrompt).toContain('totalCost')
       expect(capturedPrompt).toContain('interventionSignals')
       expect(capturedPrompt).toContain('blockDecisionCount')
+
+      const judgeFile = join(
+        testDataDir,
+        'logs',
+        getSessionLogRelativeDir(session.data.id),
+        'llm-judge.jsonl',
+      )
+      expect(existsSync(judgeFile)).toBe(true)
+      const persisted = readFileSync(judgeFile, 'utf-8')
+      expect(persisted).toContain('You are a strict evaluator for agent execution traces.')
+      expect(persisted).toContain('Evaluate this ZeRo OS session package.')
+      expect(persisted).toContain('judge_resp_001')
+      expect(persisted).toContain('Memory usage was appropriate, but duplicate bash checks added cost.')
+
+      const historyRes = await app.request(`/api/sessions/${session.data.id}/llm-judge`)
+      expect(historyRes.status).toBe(200)
+      const historyData = await historyRes.json()
+      expect(historyData.history).toHaveLength(1)
+      expect(historyData.history[0].run.result.overallScore).toBe(82)
+      expect(historyData.history[0].artifacts.primary.request.systemPrompt).toContain(
+        'strict evaluator',
+      )
+      expect(historyData.history[0].artifacts.primary.request.userPrompt).toContain(
+        'Evaluate this ZeRo OS session package.',
+      )
+      expect(historyData.history[0].artifacts.primary.response.rawText).toContain(
+        'duplicate bash checks added cost',
+      )
     } finally {
       ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete =
         originalComplete
@@ -837,10 +866,83 @@ describe('API Routes Extended', () => {
           (dimension: { key: string }) => dimension.key === 'human_intervention',
         ),
       ).toBe(true)
+
+      const historyRes = await app.request(`/api/sessions/${session.data.id}/llm-judge`)
+      expect(historyRes.status).toBe(200)
+      const historyData = await historyRes.json()
+      expect(historyData.history).toHaveLength(1)
+      expect(historyData.history[0].artifacts.primary.response.completion.id).toBe(
+        'judge_resp_retry_raw_001',
+      )
+      expect(historyData.history[0].artifacts.repair.request.userPrompt).toContain('Parse error:')
+      expect(historyData.history[0].artifacts.repair.response.completion.id).toBe(
+        'judge_resp_retry_fixed_001',
+      )
+      expect(historyData.history[0].artifacts.repair.response.rawText).toContain(
+        'Recovered by repair pass.',
+      )
     } finally {
       ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete =
         originalComplete
     }
+  })
+
+  test('GET /api/sessions/:id/llm-judge returns saved history for log-only sessions', async () => {
+    const sessionId = 'oc_history_only_session'
+    zero.observability.appendSessionJudge(sessionId, {
+      version: 1,
+      savedAt: '2026-03-16T09:00:00.000Z',
+      sessionId,
+      run: {
+        sessionId,
+        model: 'openai/gpt-test',
+        generatedAt: '2026-03-16T09:00:00.000Z',
+        result: {
+          overallScore: 91,
+          verdict: 'strong',
+          confidence: 'high',
+          summary: 'persisted history',
+          dimensions: [],
+          findings: [],
+          signals: {
+            totalCost: 0.01,
+            requestCount: 1,
+            toolCallCount: 0,
+            duplicateToolCallCount: 0,
+            memorySearchCount: 0,
+            memoryGetCount: 0,
+            memoryWriteCount: 0,
+            closureCount: 1,
+          },
+        },
+      },
+      artifacts: {
+        primary: {
+          request: {
+            systemPrompt: 'judge system',
+            userPrompt: 'judge user',
+            stream: false,
+          },
+          response: {
+            completion: {
+              id: 'judge_history_001',
+              content: [{ type: 'text', text: '{"ok":true}' }],
+              stopReason: 'end_turn',
+              usage: { input: 1, output: 1 },
+              model: 'gpt-test',
+            },
+            rawText: '{"ok":true}',
+          },
+        },
+      },
+    })
+
+    const res = await app.request(`/api/sessions/${sessionId}/llm-judge`)
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.history).toHaveLength(1)
+    expect(data.history[0].run.result.overallScore).toBe(91)
+    expect(data.history[0].artifacts.primary.request.userPrompt).toBe('judge user')
   })
 
   test('GET /api/logs?type=requests reads merged request sources', async () => {

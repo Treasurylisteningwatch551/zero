@@ -1,3 +1,5 @@
+import type { CompletionResponse } from '@zero-os/shared'
+
 export type SessionJudgeDimensionKey =
   | 'task_completion'
   | 'context_management'
@@ -48,4 +50,45 @@ export interface SessionJudgeResponse {
   model: string
   generatedAt: string
   result: SessionJudgeResult
+}
+
+export interface SessionJudgeExchangeRequest {
+  systemPrompt: string
+  userPrompt: string
+  model?: string
+  maxTokens?: number
+  stream: false
+}
+
+export interface SessionJudgeExchangeResponse {
+  completion: CompletionResponse
+  rawText: string
+}
+
+export interface SessionJudgeExchangeArtifacts {
+  request: SessionJudgeExchangeRequest
+  response: SessionJudgeExchangeResponse
+}
+
+export interface SessionJudgeArtifacts {
+  primary: SessionJudgeExchangeArtifacts
+  repair?: SessionJudgeExchangeArtifacts
+}
+
+export interface SessionJudgeRunOutput {
+  run: SessionJudgeResponse
+  artifacts: SessionJudgeArtifacts
+}
+
+export interface StoredSessionJudgeEntry {
+  version: 1
+  savedAt: string
+  sessionId: string
+  run: SessionJudgeResponse
+  artifacts: SessionJudgeArtifacts
+}
+
+export interface SessionJudgeHistoryResponse {
+  sessionId: string
+  history: StoredSessionJudgeEntry[]
 }

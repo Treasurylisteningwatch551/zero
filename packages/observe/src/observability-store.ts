@@ -258,6 +258,18 @@ export class ObservabilityStore {
     return []
   }
 
+  appendSessionJudge(sessionId: string, entry: unknown): void {
+    this.appendLine(join(getSessionLogRelativeDir(sessionId), 'llm-judge.jsonl'), entry)
+  }
+
+  readSessionJudges<T = Record<string, unknown>>(sessionId: string): T[] {
+    const filePath = join(this.basePath, getSessionLogRelativeDir(sessionId), 'llm-judge.jsonl')
+
+    return this.readJsonlFileSafely<T>(filePath).sort((left, right) =>
+      this.getSessionJudgeSortKey(right).localeCompare(this.getSessionJudgeSortKey(left)),
+    )
+  }
+
   /**
    * Read requests for a session from trace.jsonl.
    */
@@ -342,6 +354,31 @@ export class ObservabilityStore {
       .split('\n')
       .filter((line) => line.length > 0)
       .map((line) => JSON.parse(line) as T)
+  }
+
+  private readJsonlFileSafely<T>(filePath: string): T[] {
+    if (!existsSync(filePath)) return []
+    const content = readFileSync(filePath, 'utf-8')
+    if (content.trim().length === 0) return []
+
+    const entries: T[] = []
+
+    for (const line of content.split('\n')) {
+      if (line.trim().length === 0) continue
+
+      try {
+        entries.push(JSON.parse(line) as T)
+      } catch {}
+    }
+
+    return entries
+  }
+
+  private getSessionJudgeSortKey(entry: unknown): string {
+    if (!entry || typeof entry !== 'object') return ''
+
+    const savedAt = (entry as { savedAt?: unknown }).savedAt
+    return typeof savedAt === 'string' ? savedAt : ''
   }
 
   private normalizeStoredRequestEntry(entry: RequestLogEntry): RequestLogEntry {
