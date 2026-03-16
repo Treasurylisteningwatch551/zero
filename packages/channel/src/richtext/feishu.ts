@@ -31,6 +31,13 @@ function optimizeMarkdownForFeishu(
     return `__CODE_BLOCK_${codeBlocks.push(match) - 1}__`
   })
 
+  // Convert Obsidian wikilink images ![[path]] to standard markdown ![alt](path)
+  // This must happen before the image reference processing below
+  result = result.replace(/!\[\[([^\]]+)\]\]/g, (_match, path: string) => {
+    const fileName = path.split('/').pop()?.replace(/\.[^.]+$/, '') ?? 'image'
+    return `![${fileName}](${path})`
+  })
+
   if (/^#{1,3} /m.test(result)) {
     result = result.replace(/^#{2,6} (.+)$/gm, '##### $1')
     result = result.replace(/^# (.+)$/gm, '#### $1')
