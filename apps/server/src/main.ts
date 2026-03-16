@@ -698,6 +698,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
             )
             activeSessionId = session.data.id
             if (isNew) {
+              session.setChannelCapabilities(feishuChannel.getCapabilities())
               session.initAgent({
                 name: agentName,
                 agentInstruction:
@@ -1027,6 +1028,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
           )
           activeSessionId = session.data.id
           if (isNew) {
+            session.setChannelCapabilities(telegramChannel.getCapabilities())
             session.initAgent({
               name: agentName,
               agentInstruction:

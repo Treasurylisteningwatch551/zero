@@ -100,6 +100,8 @@ export class Session {
   private currentSnapshotId?: string
   private lastSnapshotContext: SnapshotContext | null = null
   private nextTurnIndex = 1
+  /** Channel capabilities for system prompt injection */
+  private channelCapabilities?: Record<string, unknown>
 
   constructor(
     source: SessionSource,
@@ -151,6 +153,15 @@ export class Session {
   /**
    * Initialize the agent for this session.
    */
+  /**
+   * Set channel capabilities to be injected into the agent's system prompt.
+   * Call before initAgent() or handleMessage() so the agent knows what the channel supports.
+   */
+  setChannelCapabilities(capabilities: Record<string, unknown>): void {
+    this.channelCapabilities = capabilities
+    this.cachedSystemPrompt = null // Force re-build on next turn
+  }
+
   initAgent(config: AgentConfig): void {
     this.lastAgentConfig = config
     this.cachedSystemPrompt = null
@@ -325,7 +336,9 @@ export class Session {
         os: `${process.platform} (${process.arch})`,
         model: currentModel ? this.modelRouter.getModelLabel(currentModel) : undefined,
         shell: process.env.SHELL ?? 'zsh',
+        channel: this.data.source,
         projectRoot,
+        channelCapabilities: this.channelCapabilities,
       }
 
       this.cachedSystemPrompt = buildSystemPrompt({

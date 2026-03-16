@@ -246,6 +246,25 @@ export class FeishuChannel implements Channel {
     this.messageHandler = handler
   }
 
+  getCapabilities() {
+    return {
+      streaming: true,
+      inlineImages: true,
+      imageMessages: true,
+      fileMessages: true,
+      interactiveCards: true,
+      mentions: true,
+      reactions: true,
+      threadReply: true,
+      markdownNotes:
+        'Feishu cards use a non-standard Markdown dialect. H1-H3 are not supported (use H4+). ' +
+        'Images must use Feishu image keys (img_xxx), not URLs. ' +
+        'Use standard ![alt](url) syntax for images — they will be auto-uploaded and converted. ' +
+        'Obsidian wikilink images ![[path]] are also supported and auto-converted.',
+      maxMessageLength: 30000,
+    }
+  }
+
   private async buildIncomingMessage(data: unknown): Promise<IncomingMessage | null> {
     const event =
       typeof data === 'object' && data !== null

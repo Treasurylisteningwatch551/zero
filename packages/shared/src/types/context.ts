@@ -41,6 +41,8 @@ export interface RuntimeInfo {
   shell?: string
   channel?: string
   projectRoot?: string
+  /** Channel capability hints — auto-injected into system prompt */
+  channelCapabilities?: Record<string, unknown>
 }
 
 /**

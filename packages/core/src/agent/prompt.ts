@@ -252,8 +252,30 @@ export function buildRuntimeBlock(info: RuntimeInfo): string {
   if (parts.length === 0) return ''
 
   const line = `Runtime: ${parts.join(' | ')}`
+
+  // Append channel capabilities if available
+  let capabilitiesBlock = ''
+  if (info.channelCapabilities && Object.keys(info.channelCapabilities).length > 0) {
+    const caps = info.channelCapabilities
+    const capLines: string[] = []
+    if (caps.streaming) capLines.push('- Streaming output: supported (text appears progressively)')
+    if (caps.inlineImages) capLines.push('- Inline images: supported (use ![alt](url) in markdown — auto-uploaded)')
+    else capLines.push('- Inline images: NOT supported (send images as separate messages)')
+    if (caps.imageMessages) capLines.push('- Image messages: supported')
+    if (caps.fileMessages) capLines.push('- File messages: supported')
+    if (caps.interactiveCards) capLines.push('- Interactive cards: supported')
+    if (caps.reactions) capLines.push('- Emoji reactions: supported')
+    if (caps.threadReply) capLines.push('- Thread/quote reply: supported')
+    if (caps.markdownNotes) capLines.push(`- Markdown notes: ${caps.markdownNotes}`)
+    if (caps.maxMessageLength) capLines.push(`- Max message length: ${caps.maxMessageLength} chars`)
+
+    if (capLines.length > 0) {
+      capabilitiesBlock = `\nChannel capabilities (${info.channel ?? 'unknown'}):\n${capLines.join('\n')}`
+    }
+  }
+
   return enforceFixedBudget(
-    `<runtime>\n${line}\n</runtime>`,
+    `<runtime>\n${line}${capabilitiesBlock}\n</runtime>`,
     CONTEXT_PARAMS.budget.runtime,
     'Runtime',
   )

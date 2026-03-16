@@ -283,6 +283,23 @@ export class TelegramChannel implements Channel {
     this.messageHandler = handler
   }
 
+  getCapabilities() {
+    return {
+      streaming: true,
+      inlineImages: false,
+      imageMessages: true,
+      fileMessages: true,
+      interactiveCards: false,
+      mentions: true,
+      reactions: true,
+      threadReply: true,
+      markdownNotes:
+        'Telegram supports a subset of Markdown (bold, italic, code, links). ' +
+        'Images cannot be inlined in text — send as separate photo messages.',
+      maxMessageLength: 4096,
+    }
+  }
+
   private parseChatId(sessionId: string): number | null {
     const chatId = Number(sessionId)
     return Number.isFinite(chatId) ? chatId : null

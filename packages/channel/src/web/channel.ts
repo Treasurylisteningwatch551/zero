@@ -37,6 +37,20 @@ export class WebChannel implements Channel {
     this.handler.setMessageHandler(handler)
   }
 
+  getCapabilities() {
+    return {
+      streaming: true,
+      inlineImages: true,
+      imageMessages: true,
+      fileMessages: true,
+      interactiveCards: true,
+      mentions: false,
+      reactions: false,
+      threadReply: false,
+      markdownNotes: 'Web UI supports full standard Markdown with inline images.',
+    }
+  }
+
   /**
    * Access the underlying WebMessageHandler for WS routing.
    */
