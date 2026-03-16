@@ -334,6 +334,62 @@ describe('API Routes Extended', () => {
     )
   })
 
+  test('GET /api/logs?type=requests includes trace-only session requests', async () => {
+    const session = zero.sessionManager.create('web')
+    const span = zero.tracer.startSpan(session.data.id, 'llm_request', undefined, {
+      kind: 'llm_request',
+      data: {
+        request: {
+          id: 'req_logs_trace_001',
+          turnIndex: 1,
+          sessionId: session.data.id,
+          model: 'openai-codex/gpt-5.4-medium',
+          provider: 'openai-codex',
+          userPrompt: 'trace log prompt',
+          response: 'trace log response',
+          stopReason: 'end_turn',
+          toolUseCount: 0,
+          toolCalls: [],
+          toolResults: [],
+          tokens: { input: 3, output: 4 },
+          cost: 0.12,
+        },
+      },
+    })
+    zero.tracer.endSpan(span.id, 'success')
+
+    const res = await app.request('/api/logs?type=requests&limit=20')
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.entries.some((entry: { id: string }) => entry.id === 'req_logs_trace_001')).toBe(
+      true,
+    )
+  })
+
+  test('GET /api/logs?type=snapshots includes trace-only session snapshots', async () => {
+    const session = zero.sessionManager.create('web')
+    const span = zero.tracer.startSpan(session.data.id, 'snapshot:session_start', undefined, {
+      kind: 'snapshot',
+      data: {
+        snapshot: {
+          id: 'snap_logs_trace_001',
+          trigger: 'session_start',
+          model: 'openai-codex/gpt-5.4-medium',
+          systemPrompt: 'trace snapshot prompt',
+          tools: ['read', 'bash'],
+        },
+      },
+    })
+    zero.tracer.endSpan(span.id, 'success')
+
+    const res = await app.request('/api/logs?type=snapshots&limit=20')
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.entries.some((entry: { id: string }) => entry.id === 'snap_logs_trace_001')).toBe(
+      true,
+    )
+  })
+
   test('GET /api/sessions/channel/:channel/active returns active candidates only', async () => {
     const feishu = zero.sessionManager.getOrCreateForChannel(
       'feishu',

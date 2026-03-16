@@ -380,6 +380,12 @@ export class JsonlLogger {
       for (const entry of this.readJsonlFile<RequestLogEntry>(join(sessionDir, 'requests.jsonl'))) {
         deduped.set(entry.id, this.normalizeStoredRequestEntry(entry))
       }
+
+      for (const entry of projectSessionRequestsFromTraceEntries(
+        this.readJsonlFile<TraceEntry>(join(sessionDir, 'trace.jsonl')),
+      )) {
+        deduped.set(entry.id, this.normalizeStoredRequestEntry(entry))
+      }
     }
 
     return Array.from(deduped.values()).sort((left, right) => left.ts.localeCompare(right.ts))
@@ -397,6 +403,12 @@ export class JsonlLogger {
 
     for (const sessionDir of this.listSessionDirectories()) {
       for (const entry of this.readJsonlFile<SnapshotEntry>(join(sessionDir, 'snapshots.jsonl'))) {
+        deduped.set(entry.id, entry)
+      }
+
+      for (const entry of projectSessionSnapshotsFromTraceEntries(
+        this.readJsonlFile<TraceEntry>(join(sessionDir, 'trace.jsonl')),
+      )) {
         deduped.set(entry.id, entry)
       }
     }

@@ -378,6 +378,44 @@ describe('JsonlLogger', () => {
     expect(ids.has('req_scoped_001')).toBe(true)
   })
 
+  test('readAllRequests includes trace-only session requests', () => {
+    const logger = new JsonlLogger(testDir)
+    const sessionId = 'sess_20260316_0140_web_trace'
+
+    writeSessionTraceEntries(testDir, sessionId, [
+      {
+        spanId: 'span_req_all_001',
+        sessionId,
+        kind: 'llm_request',
+        name: 'llm_request',
+        startTime: '2026-03-16T01:40:00.000Z',
+        endTime: '2026-03-16T01:40:01.000Z',
+        durationMs: 1000,
+        status: 'success',
+        data: {
+          request: {
+            id: 'req_trace_all_001',
+            turnIndex: 1,
+            sessionId,
+            model: 'trace-model',
+            provider: 'trace-provider',
+            userPrompt: 'trace only prompt',
+            response: 'trace only response',
+            stopReason: 'end_turn',
+            toolUseCount: 0,
+            toolCalls: [],
+            toolResults: [],
+            tokens: { input: 2, output: 3 },
+            cost: 0.03,
+          },
+        },
+      },
+    ])
+
+    const ids = new Set(logger.readAllRequests().map((entry) => entry.id))
+    expect(ids.has('req_trace_all_001')).toBe(true)
+  })
+
   test('syncSessionActiveState maintains _active symlinks for active sessions only', () => {
     const logger = new JsonlLogger(testDir)
     const sessionId = 'sess_20260312_2130_fei_a1b2'
@@ -588,6 +626,35 @@ describe('JsonlLogger', () => {
     expect(entries).toHaveLength(1)
     expect(entries[0].id).toBe('snap_trace_001')
     expect(entries[0].systemPrompt).toBe('trace system prompt')
+  })
+
+  test('readAllSnapshots includes trace-only session snapshots', () => {
+    const logger = new JsonlLogger(testDir)
+    const sessionId = 'sess_20260316_0150_web_trace'
+
+    writeSessionTraceEntries(testDir, sessionId, [
+      {
+        spanId: 'span_snapshot_all_001',
+        sessionId,
+        kind: 'snapshot',
+        name: 'snapshot:session_start',
+        startTime: '2026-03-16T01:50:00.000Z',
+        endTime: '2026-03-16T01:50:01.000Z',
+        durationMs: 1000,
+        status: 'success',
+        data: {
+          snapshot: {
+            id: 'snap_trace_all_001',
+            trigger: 'session_start',
+            model: 'trace-model',
+            systemPrompt: 'trace snapshot prompt',
+          },
+        },
+      },
+    ])
+
+    const ids = new Set(logger.readAllSnapshots().map((entry) => entry.id))
+    expect(ids.has('snap_trace_all_001')).toBe(true)
   })
 
   test('readEntries returns empty array for missing file', () => {
