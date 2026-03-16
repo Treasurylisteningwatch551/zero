@@ -416,6 +416,24 @@ describe('API Routes Extended', () => {
           entry.sessionId === sessionId &&
           entry.name === 'tool:bash' &&
           entry.kind === 'tool_call',
+        ),
+    ).toBe(true)
+  })
+
+  test('GET /api/logs?type=trace includes persisted running spans', async () => {
+    const sessionId = 'sess_20260316_2326_trace_api_run'
+    const span = zero.tracer.startSpan(sessionId, 'turn:running-trace-api', undefined, {
+      kind: 'turn',
+    })
+
+    const res = await app.request('/api/logs?type=trace&limit=20')
+    expect(res.status).toBe(200)
+    const data = await res.json()
+
+    expect(
+      data.entries.some(
+        (entry: { spanId: string; sessionId: string; status: string }) =>
+          entry.spanId === span.id && entry.sessionId === sessionId && entry.status === 'running',
       ),
     ).toBe(true)
   })

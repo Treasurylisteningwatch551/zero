@@ -342,6 +342,72 @@ describe('JsonlLogger', () => {
     ])
   })
 
+  test('readSessionTraceEntries keeps the latest lifecycle snapshot for each span', () => {
+    const logger = new JsonlLogger(testDir)
+    const sessionId = 'sess_20260316_0210_web_trace'
+
+    writeSessionTraceEntries(testDir, sessionId, [
+      {
+        spanId: 'span_trace_lifecycle_001',
+        sessionId,
+        kind: 'llm_request',
+        name: 'llm_request',
+        startTime: '2026-03-16T02:10:00.000Z',
+        status: 'running',
+        data: {
+          request: {
+            id: 'req_trace_lifecycle_001',
+            turnIndex: 1,
+            sessionId,
+            model: 'trace-model',
+            provider: 'trace-provider',
+            userPrompt: 'started',
+            response: 'partial',
+            stopReason: 'end_turn',
+            toolUseCount: 0,
+            toolCalls: [],
+            toolResults: [],
+            tokens: { input: 1, output: 1 },
+            cost: 0.01,
+          },
+        },
+      },
+      {
+        spanId: 'span_trace_lifecycle_001',
+        sessionId,
+        kind: 'llm_request',
+        name: 'llm_request',
+        startTime: '2026-03-16T02:10:00.000Z',
+        endTime: '2026-03-16T02:10:02.000Z',
+        durationMs: 2000,
+        status: 'success',
+        data: {
+          request: {
+            id: 'req_trace_lifecycle_001',
+            turnIndex: 1,
+            sessionId,
+            model: 'trace-model',
+            provider: 'trace-provider',
+            userPrompt: 'finished',
+            response: 'done',
+            stopReason: 'end_turn',
+            toolUseCount: 0,
+            toolCalls: [],
+            toolResults: [],
+            tokens: { input: 2, output: 3 },
+            cost: 0.02,
+          },
+        },
+      },
+    ])
+
+    const entries = logger.readSessionTraceEntries(sessionId)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].status).toBe('success')
+    expect(entries[0].durationMs).toBe(2000)
+    expect(logger.readSessionRequests(sessionId)[0].response).toBe('done')
+  })
+
   test('readEntries returns empty array for missing file', () => {
     const logger = new JsonlLogger(testDir)
     expect(logger.readEntries('nonexistent.jsonl')).toEqual([])

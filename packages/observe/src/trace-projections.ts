@@ -129,7 +129,7 @@ export function projectSessionRequestsFromTraceEntries(entries: TraceEntry[]): R
           },
           cost,
           durationMs: asNumber(request.durationMs) ?? entry.durationMs,
-          ts: asString(request.ts) ?? entry.endTime,
+          ts: asString(request.ts) ?? entry.endTime ?? entry.startTime,
         },
       ]
     }),
@@ -165,7 +165,7 @@ export function projectSessionSnapshotsFromTraceEntries(entries: TraceEntry[]): 
           messagesBefore: asNumber(snapshot.messagesBefore),
           messagesAfter: asNumber(snapshot.messagesAfter),
           compressedRange: asString(snapshot.compressedRange),
-          ts: asString(snapshot.ts) ?? entry.endTime,
+          ts: asString(snapshot.ts) ?? entry.endTime ?? entry.startTime,
         },
       ]
     }),
@@ -190,7 +190,7 @@ export function projectSessionClosuresFromTraceEntries(entries: TraceEntry[]): C
     if (!event || !system || !prompt || maxTokens === undefined) continue
 
     const base = {
-      ts: asString(closure.ts) ?? entry.endTime,
+      ts: asString(closure.ts) ?? entry.endTime ?? entry.startTime,
       sessionId: entry.sessionId,
       assistantMessageId: asString(closure.assistantMessageId),
       assistantMessageCreatedAt: asString(closure.assistantMessageCreatedAt),

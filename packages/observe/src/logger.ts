@@ -13,7 +13,7 @@ import {
 import { dirname, join, relative } from 'node:path'
 import { type SessionStatus, getSessionLogRelativeDir, now } from '@zero-os/shared'
 import type { CompletionResponse, StopReason, ToolResultBlock } from '@zero-os/shared'
-import type { TraceEntry } from './trace'
+import { collapseTraceEntries, type TraceEntry } from './trace'
 import {
   projectSessionClosuresFromTraceEntries,
   projectSessionRequestsFromTraceEntries,
@@ -262,27 +262,30 @@ export class JsonlLogger {
    * Read requests for a session from trace.jsonl.
    */
   readSessionRequests(sessionId: string): RequestLogEntry[] {
-    return projectSessionRequestsFromTraceEntries(
-      this.readSessionEntries<TraceEntry>(sessionId, 'trace.jsonl'),
-    ).map((entry) => this.normalizeStoredRequestEntry(entry))
+    return projectSessionRequestsFromTraceEntries(this.readSessionTraceEntries(sessionId)).map(
+      (entry) => this.normalizeStoredRequestEntry(entry),
+    )
   }
 
   /**
    * Read task closure events for a session from trace.jsonl.
    */
   readSessionClosures(sessionId: string): ClosureLogEntry[] {
-    return projectSessionClosuresFromTraceEntries(
-      this.readSessionEntries<TraceEntry>(sessionId, 'trace.jsonl'),
-    )
+    return projectSessionClosuresFromTraceEntries(this.readSessionTraceEntries(sessionId))
   }
 
   /**
    * Read snapshots for a session from trace.jsonl.
    */
   readSessionSnapshots(sessionId: string): SnapshotEntry[] {
-    return projectSessionSnapshotsFromTraceEntries(
-      this.readSessionEntries<TraceEntry>(sessionId, 'trace.jsonl'),
-    )
+    return projectSessionSnapshotsFromTraceEntries(this.readSessionTraceEntries(sessionId))
+  }
+
+  /**
+   * Read the latest persisted trace snapshot for each span in a session.
+   */
+  readSessionTraceEntries(sessionId: string): TraceEntry[] {
+    return collapseTraceEntries(this.readSessionEntries<TraceEntry>(sessionId, 'trace.jsonl'))
   }
 
   /**
@@ -307,7 +310,9 @@ export class JsonlLogger {
     const entries: TraceEntry[] = []
 
     for (const sessionDir of this.listSessionDirectories()) {
-      entries.push(...this.readJsonlFile<TraceEntry>(join(sessionDir, 'trace.jsonl')))
+      entries.push(
+        ...collapseTraceEntries(this.readJsonlFile<TraceEntry>(join(sessionDir, 'trace.jsonl'))),
+      )
     }
 
     return entries.sort((left, right) => left.startTime.localeCompare(right.startTime))

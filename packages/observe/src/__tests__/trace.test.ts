@@ -65,7 +65,7 @@ describe('Tracer', () => {
     expect(exported[0].children).toHaveLength(2)
   })
 
-  test('persists ended spans to session trace.jsonl', () => {
+  test('persists span lifecycle snapshots to session trace.jsonl', () => {
     const logsDir = mkdtempSync(join(tmpdir(), 'zero-trace-'))
     tempDirs.push(logsDir)
     const sessionId = 'sess_20260316_1423_web_a1b2'
@@ -85,16 +85,65 @@ describe('Tracer', () => {
     const tracePath = join(logsDir, 'sessions', '2026-03-16', sessionId, 'trace.jsonl')
     expect(existsSync(tracePath)).toBe(true)
 
-    const [entry] = readFileSync(tracePath, 'utf-8')
+    const entries = readFileSync(tracePath, 'utf-8')
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line) as Record<string, unknown>)
 
-    expect(entry.spanId).toBe(root.id)
-    expect(entry.kind).toBe('turn')
-    expect(entry.agentName).toBe('web')
-    expect(entry.data).toEqual({ turnIndex: 1, requestCount: 1 })
-    expect(entry.metadata).toEqual({ source: 'test' })
+    expect(entries).toHaveLength(3)
+    expect(entries[0].status).toBe('running')
+    expect(entries[1].status).toBe('running')
+    expect(entries[2].status).toBe('success')
+    expect(entries[2].spanId).toBe(root.id)
+    expect(entries[2].kind).toBe('turn')
+    expect(entries[2].agentName).toBe('web')
+    expect(entries[2].data).toEqual({ turnIndex: 1, requestCount: 1 })
+    expect(entries[2].metadata).toEqual({ source: 'test' })
+  })
+
+  test('readSessionEntries collapses lifecycle snapshots to latest state', () => {
+    const logsDir = mkdtempSync(join(tmpdir(), 'zero-trace-'))
+    tempDirs.push(logsDir)
+    const sessionId = 'sess_20260316_1450_web_a1b2'
+    const tracer = new Tracer(logsDir)
+
+    const span = tracer.startSpan(sessionId, 'turn:web', undefined, {
+      kind: 'turn',
+      data: { step: 'started' },
+    })
+    tracer.updateSpan(span.id, {
+      data: { step: 'updated' },
+    })
+
+    const entries = tracer.readSessionEntries(sessionId)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].spanId).toBe(span.id)
+    expect(entries[0].status).toBe('running')
+    expect(entries[0].data).toEqual({ step: 'updated' })
+  })
+
+  test('exportSession restores persisted running spans after restart', () => {
+    const logsDir = mkdtempSync(join(tmpdir(), 'zero-trace-'))
+    tempDirs.push(logsDir)
+    const sessionId = 'sess_20260316_1500_web_a1b2'
+    const writer = new Tracer(logsDir)
+
+    const root = writer.startSpan(sessionId, 'turn:web', undefined, {
+      kind: 'turn',
+    })
+    writer.startSpan(sessionId, 'tool:read', root.id, {
+      kind: 'tool_call',
+      data: { path: '/tmp/demo.txt' },
+    })
+
+    const reader = new Tracer(logsDir)
+    const exported = reader.exportSession(sessionId)
+
+    expect(exported).toHaveLength(1)
+    expect(exported[0].status).toBe('running')
+    expect(exported[0].children).toHaveLength(1)
+    expect(exported[0].children[0].status).toBe('running')
+    expect(exported[0].children[0].data).toEqual({ path: '/tmp/demo.txt' })
   })
 
   test('exportSession rebuilds persisted tree and overlays running spans', () => {

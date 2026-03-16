@@ -291,7 +291,7 @@ e2e/            Playwright end-to-end coverage
 - shell execution is guarded by fuse-list rules
 - long-term memory is stored as local files under `.zero/memory`
 - schedule state and session state are persisted through the observability layer, with global
-  events in `.zero/logs/events.jsonl` and session execution traces in
+  events in `.zero/logs/events.jsonl` and append-only session execution trace snapshots in
   `.zero/logs/sessions/<date>/<session>/trace.jsonl`
 - the supervisor is optional for local development, but it is the intended path for
   self-healing restart behavior

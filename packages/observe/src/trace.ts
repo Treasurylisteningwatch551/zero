@@ -37,9 +37,9 @@ export interface TraceEntry {
   name: string
   agentName?: string
   startTime: string
-  endTime: string
-  durationMs: number
-  status: Exclude<TraceStatus, 'running'>
+  endTime?: string
+  durationMs?: number
+  status: TraceStatus
   data?: Record<string, unknown>
   metadata?: Record<string, unknown>
 }
@@ -88,10 +88,22 @@ function mergeRecords(
   return next
 }
 
+export function collapseTraceEntries(entries: TraceEntry[]): TraceEntry[] {
+  const latestEntries = new Map<string, TraceEntry>()
+
+  for (const entry of entries) {
+    latestEntries.set(`${entry.sessionId}:${entry.spanId}`, entry)
+  }
+
+  return Array.from(latestEntries.values()).sort((left, right) =>
+    left.startTime.localeCompare(right.startTime),
+  )
+}
+
 /**
  * Trace recorder for tracking call chains across sessions and tools.
- * When initialized with a logs directory, ended spans are also written to
- * per-session trace.jsonl files.
+ * When initialized with a logs directory, span lifecycle snapshots are
+ * append-written to per-session trace.jsonl files.
  */
 export class Tracer {
   private spans: Map<string, TraceSpan> = new Map()
@@ -136,6 +148,10 @@ export class Tracer {
       this.rootSpans.set(span.id, span)
     }
 
+    if (this.basePath) {
+      this.appendTraceEntry(this.toTraceEntry(span))
+    }
+
     return span
   }
 
@@ -154,6 +170,10 @@ export class Tracer {
     }
     if (update.metadata) {
       span.metadata = mergeRecords(span.metadata, update.metadata)
+    }
+
+    if (this.basePath) {
+      this.appendTraceEntry(this.toTraceEntry(span))
     }
   }
 
@@ -206,7 +226,7 @@ export class Tracer {
 
     const filePath = this.getTraceFilePath(sessionId)
     if (existsSync(filePath)) {
-      return this.readJsonlFile<TraceEntry>(filePath)
+      return collapseTraceEntries(this.readJsonlFile<TraceEntry>(filePath))
     }
 
     return []
@@ -285,10 +305,6 @@ export class Tracer {
   }
 
   private toTraceEntry(span: TraceSpan): TraceEntry {
-    if (!span.endTime || span.durationMs === undefined || span.status === 'running') {
-      throw new Error(`Cannot persist unfinished span ${span.id}`)
-    }
-
     return {
       spanId: span.id,
       parentSpanId: span.parentId,

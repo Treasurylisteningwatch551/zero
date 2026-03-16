@@ -1,5 +1,4 @@
 import { loadConfig } from '@zero-os/core'
-import type { TraceSpan } from '@zero-os/observe'
 import type { MemoryStatus, MemoryType, ModelPricing, SessionStatus } from '@zero-os/shared'
 import { GitOps } from '@zero-os/supervisor'
 import { Hono } from 'hono'
@@ -24,31 +23,6 @@ export function createRoutes(zero: ZeroOS) {
     status: string
     durationMs?: number
     childCount: number
-  }
-
-  function flattenTraceSpans(spans: TraceSpan[]): Array<{
-    spanId: string
-    sessionId: string
-    kind: string
-    name: string
-    status: string
-    startTime: string
-    durationMs?: number
-    childCount: number
-  }> {
-    return spans.flatMap((span) => [
-      {
-        spanId: span.id,
-        sessionId: span.sessionId,
-        kind: span.kind,
-        name: span.name,
-        status: span.status,
-        startTime: span.startTime,
-        durationMs: span.durationMs,
-        childCount: span.children.length,
-      },
-      ...flattenTraceSpans(span.children),
-    ])
   }
 
   function readCurrentConfig() {
@@ -750,7 +724,15 @@ export function createRoutes(zero: ZeroOS) {
       const since = c.req.query('since')
 
       if (type === 'trace') {
-        const traceEntries: TraceLogEntry[] = zero.logger.readAllTraceEntries().map((entry) => ({
+        const persistedEntries = zero.logger.readAllTraceEntries()
+        const childCounts = new Map<string, number>()
+
+        for (const entry of persistedEntries) {
+          if (!entry.parentSpanId) continue
+          childCounts.set(entry.parentSpanId, (childCounts.get(entry.parentSpanId) ?? 0) + 1)
+        }
+
+        const traceEntries: TraceLogEntry[] = persistedEntries.map((entry) => ({
           spanId: entry.spanId,
           ts: entry.startTime,
           sessionId: entry.sessionId,
@@ -758,25 +740,8 @@ export function createRoutes(zero: ZeroOS) {
           name: entry.name,
           status: entry.status,
           durationMs: entry.durationMs,
-          childCount: 0,
+          childCount: childCounts.get(entry.spanId) ?? 0,
         }))
-
-        const runningSpans: TraceLogEntry[] = zero.sessionManager.listActive().flatMap((session) =>
-          flattenTraceSpans(zero.tracer.exportSession(session.data.id))
-            .filter((span) => span.status === 'running')
-            .map((span) => ({
-              spanId: span.spanId,
-              ts: span.startTime,
-              sessionId: span.sessionId,
-              kind: span.kind,
-              name: span.name,
-              status: span.status,
-              durationMs: span.durationMs,
-              childCount: span.childCount,
-            })),
-        )
-
-        traceEntries.push(...runningSpans)
         traceEntries.sort((a, b) => b.ts.localeCompare(a.ts))
         return c.json({ entries: traceEntries.slice(0, limit), limit })
       }
