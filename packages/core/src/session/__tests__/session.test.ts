@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { ModelRouter } from '@zero-os/model'
-import { JsonlLogger } from '@zero-os/observe'
+import { ObservabilityStore } from '@zero-os/observe'
 import type { SystemConfig } from '@zero-os/shared'
 import { BashTool } from '../../tool/bash'
 import { ReadTool } from '../../tool/read'
@@ -77,10 +77,17 @@ describe('Session', () => {
   test('active sessions maintain _active symlink lifecycle', () => {
     const router = createRouter()
     const registry = createToolRegistry()
-    const logger = new JsonlLogger(loggerDir)
+    const observability = new ObservabilityStore(loggerDir)
     const sessionId = 'sess_20260313_1423_fei_a1b2'
 
-    const session = new Session('feishu', router, registry, { logger }, undefined, sessionId)
+    const session = new Session(
+      'feishu',
+      router,
+      registry,
+      { observability },
+      undefined,
+      sessionId,
+    )
     const activeLink = join(loggerDir, 'sessions', '_active', sessionId)
 
     expect(existsSync(activeLink)).toBe(true)

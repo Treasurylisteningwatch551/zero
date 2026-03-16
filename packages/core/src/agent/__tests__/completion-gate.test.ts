@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ProviderAdapter } from '@zero-os/model'
-import { JsonlLogger, Tracer } from '@zero-os/observe'
+import { ObservabilityStore, Tracer } from '@zero-os/observe'
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -467,7 +467,7 @@ describe('Agent task closure gate', () => {
   test('uses trace-only session writes when tracer is file-backed', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'zero-completion-gate-'))
     tempDirs.push(dir)
-    const logger = new JsonlLogger(dir)
+    const observability = new ObservabilityStore(dir)
     const tracer = new Tracer(dir)
     const registry = new ToolRegistry()
     const adapter = new TaskClosureAdapter('continue')
@@ -485,8 +485,8 @@ describe('Agent task closure gate', () => {
     expect(existsSync(join(sessionDir, 'trace.jsonl'))).toBe(true)
     expect(existsSync(join(sessionDir, 'requests.jsonl'))).toBe(false)
     expect(existsSync(join(sessionDir, 'closure.jsonl'))).toBe(false)
-    expect(logger.readSessionRequests('test-session')).toHaveLength(2)
-    expect(logger.readSessionClosures('test-session')).toHaveLength(2)
+    expect(observability.readSessionRequests('test-session')).toHaveLength(2)
+    expect(observability.readSessionClosures('test-session')).toHaveLength(2)
   })
 })
 

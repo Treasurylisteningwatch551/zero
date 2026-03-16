@@ -58,7 +58,7 @@ M1 (基础层)
 **构建内容**:
 
 - shared: 全局类型定义 (session/message/tool/memory/config)、工具函数 (id/time/yaml/lock/case-convert)
-- observe: JSONL logger、SQLite metrics 聚合、trace 记录、secret-filter
+- observe: observability store、SQLite metrics 聚合、trace 记录、secret-filter
 
 ### 验收标准
 
@@ -68,7 +68,7 @@ M1 (基础层)
 4. YAML 工具可往返解析 config.yaml fixture。
 5. 文件锁可获取/释放，并发竞争时正确阻塞。
 6. case 转换正确处理 camelCase ↔ snake_case（含嵌套对象、数组）。
-7. JSONL logger 按类别写入三个全局/专用文件 (`events/requests/snapshots`)，并为每个 Session 持久化 `trace.jsonl`；每行都是合法 JSON。
+7. observability store 负责写入全局事件流并从 `trace.jsonl` 投影请求/快照视图；每行都是合法 JSON。
 8. secret-filter 可从任意字符串中擦除已知密钥值。
 9. SQLite metrics 可建表 + 从 JSONL fixture 执行基础聚合查询。
 
@@ -81,7 +81,7 @@ M1 (基础层)
 | yaml.ts | 4 | 解析、序列化、往返保真、非法 YAML 报错 |
 | lock.ts | 4 | 获取/释放、并发竞争、超时、进程退出清理 |
 | case.ts | 6 | 简单字段、嵌套对象、数组、单词段、无操作 |
-| logger.ts | 5 | 单条追加、多条追加、文件创建、JSON 合法、类别路由 |
+| observability-store.ts | 5 | 单条追加、多条追加、文件创建、JSON 合法、类别路由 |
 | secret-filter.ts | 6 | 精确匹配、JSON 内、多行、无误报、空集、部分值 |
 | metrics.ts | 4 | 建表、聚合、时间过滤、空数据集 |
 | trace.ts | 3 | span 记录、嵌套 span、导出格式 |

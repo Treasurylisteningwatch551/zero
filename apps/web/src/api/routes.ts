@@ -101,7 +101,7 @@ export function createRoutes(zero: ZeroOS) {
   }
 
   function summarizeSessionCacheEconomics(sessionId: string) {
-    const requests = zero.logger.readSessionRequests(sessionId)
+    const requests = zero.observability.readSessionRequests(sessionId)
     let cacheReadCost = 0
     let cacheWriteCost = 0
     let grossAvoidedInputCost = 0
@@ -438,7 +438,7 @@ export function createRoutes(zero: ZeroOS) {
         return c.json({ error: 'Session not found' }, 404)
       }
 
-      const requests = zero.logger.readSessionRequests(id)
+      const requests = zero.observability.readSessionRequests(id)
       return c.json({
         sessionId: id,
         requests,
@@ -458,7 +458,7 @@ export function createRoutes(zero: ZeroOS) {
         return c.json({ error: 'Session not found' }, 404)
       }
 
-      const entries = zero.logger.readSessionClosures(id)
+      const entries = zero.observability.readSessionClosures(id)
 
       return c.json({ events: entries })
     })
@@ -724,7 +724,7 @@ export function createRoutes(zero: ZeroOS) {
       const since = c.req.query('since')
 
       if (type === 'trace') {
-        const persistedEntries = zero.logger.readAllTraceEntries()
+        const persistedEntries = zero.observability.readAllTraceEntries()
         const childCounts = new Map<string, number>()
 
         for (const entry of persistedEntries) {
@@ -748,10 +748,10 @@ export function createRoutes(zero: ZeroOS) {
 
       let entries =
         type === 'requests'
-          ? zero.logger.readAllRequests().map((entry) => ({ ...entry }))
+          ? zero.observability.readAllRequests().map((entry) => ({ ...entry }))
           : type === 'snapshots'
-            ? zero.logger.readAllSnapshots().map((entry) => ({ ...entry }))
-            : zero.logger.readEntries<Record<string, unknown>>('events.jsonl')
+            ? zero.observability.readAllSnapshots().map((entry) => ({ ...entry }))
+            : zero.observability.readEntries<Record<string, unknown>>('events.jsonl')
 
       if (level && level !== 'all') {
         entries = entries.filter((e) => e.level === level)
@@ -779,7 +779,7 @@ export function createRoutes(zero: ZeroOS) {
       }
 
       // Fallback: derive from log entries
-      const entries = zero.logger.readEntries<Record<string, unknown>>('events.jsonl')
+      const entries = zero.observability.readEntries<Record<string, unknown>>('events.jsonl')
       const notifications = entries
         .filter((e) => e.level === 'warn' || e.level === 'error')
         .slice(-50)

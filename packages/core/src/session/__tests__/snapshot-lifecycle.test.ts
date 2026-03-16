@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ModelRouter } from '@zero-os/model'
-import { JsonlLogger, Tracer } from '@zero-os/observe'
+import { ObservabilityStore, Tracer } from '@zero-os/observe'
 import type { Message, SystemConfig, ToolContext, ToolResult } from '@zero-os/shared'
 import { generateId, getSessionLogRelativeDir, now } from '@zero-os/shared'
 import { BaseTool } from '../../tool/base'
@@ -68,12 +68,12 @@ function createRegistry(): ToolRegistry {
   return registry
 }
 
-function createTempObservability(): { dir: string; logger: JsonlLogger; tracer: Tracer } {
+function createTempObservability(): { dir: string; observability: ObservabilityStore; tracer: Tracer } {
   const dir = mkdtempSync(join(tmpdir(), 'zero-snapshot-session-'))
   tempDirs.push(dir)
   return {
     dir,
-    logger: new JsonlLogger(dir),
+    observability: new ObservabilityStore(dir),
     tracer: new Tracer(dir),
   }
 }
@@ -163,14 +163,19 @@ afterEach(() => {
 
 describe('Session snapshot lifecycle', () => {
   test('first handled message writes a complete session_start snapshot', async () => {
-    const { logger, tracer } = createTempObservability()
-    const session = new Session('web', createRouter(), createRegistry(), { logger, tracer })
+    const { observability, tracer } = createTempObservability()
+    const session = new Session(
+      'web',
+      createRouter(),
+      createRegistry(),
+      { observability, tracer },
+    )
     session.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
     installFakeAgent(session)
 
     await session.handleMessage('hello')
 
-    const snapshots = logger.readSessionSnapshots(session.data.id)
+    const snapshots = observability.readSessionSnapshots(session.data.id)
     expect(snapshots).toHaveLength(1)
     expect(snapshots[0].trigger).toBe('session_start')
     expect(snapshots[0].model).toBe('openai-codex/gpt-5.3-codex-medium')
@@ -180,9 +185,9 @@ describe('Session snapshot lifecycle', () => {
   })
 
   test('tool registry changes write a tools_changed snapshot with parent linkage', async () => {
-    const { logger, tracer } = createTempObservability()
+    const { observability, tracer } = createTempObservability()
     const registry = createRegistry()
-    const session = new Session('web', createRouter(), registry, { logger, tracer })
+    const session = new Session('web', createRouter(), registry, { observability, tracer })
     session.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
     installFakeAgent(session)
 
@@ -191,7 +196,7 @@ describe('Session snapshot lifecycle', () => {
     installFakeAgent(session)
     await session.handleMessage('hello again')
 
-    const snapshots = logger.readSessionSnapshots(session.data.id)
+    const snapshots = observability.readSessionSnapshots(session.data.id)
     expect(snapshots).toHaveLength(2)
     expect(snapshots[1].trigger).toBe('tools_changed')
     expect(snapshots[1].parentSnapshot).toBe(snapshots[0].id)
@@ -200,8 +205,13 @@ describe('Session snapshot lifecycle', () => {
   })
 
   test('prompt-only changes write a context_updated snapshot', async () => {
-    const { logger, tracer } = createTempObservability()
-    const session = new Session('web', createRouter(), createRegistry(), { logger, tracer })
+    const { observability, tracer } = createTempObservability()
+    const session = new Session(
+      'web',
+      createRouter(),
+      createRegistry(),
+      { observability, tracer },
+    )
     session.initAgent({ name: 'snapshot-agent', agentInstruction: 'First prompt' })
     installFakeAgent(session)
 
@@ -211,7 +221,7 @@ describe('Session snapshot lifecycle', () => {
     installFakeAgent(session)
     await session.handleMessage('hello again')
 
-    const snapshots = logger.readSessionSnapshots(session.data.id)
+    const snapshots = observability.readSessionSnapshots(session.data.id)
     expect(snapshots).toHaveLength(2)
     expect(snapshots[1].trigger).toBe('context_updated')
     expect(snapshots[1].parentSnapshot).toBe(snapshots[0].id)
@@ -221,8 +231,13 @@ describe('Session snapshot lifecycle', () => {
   })
 
   test('switchModel writes a complete model_switch snapshot', async () => {
-    const { logger, tracer } = createTempObservability()
-    const session = new Session('web', createRouter(), createRegistry(), { logger, tracer })
+    const { observability, tracer } = createTempObservability()
+    const session = new Session(
+      'web',
+      createRouter(),
+      createRegistry(),
+      { observability, tracer },
+    )
     session.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
     installFakeAgent(session)
 
@@ -231,7 +246,7 @@ describe('Session snapshot lifecycle', () => {
 
     expect(result.success).toBe(true)
 
-    const snapshots = logger.readSessionSnapshots(session.data.id)
+    const snapshots = observability.readSessionSnapshots(session.data.id)
     expect(snapshots).toHaveLength(2)
     expect(snapshots[1].trigger).toBe('model_switch')
     expect(snapshots[1].parentSnapshot).toBe(snapshots[0].id)
@@ -240,22 +255,22 @@ describe('Session snapshot lifecycle', () => {
   })
 
   test('restored session reuses the latest complete snapshot state', async () => {
-    const { logger, tracer } = createTempObservability()
+    const { observability, tracer } = createTempObservability()
     const router = createRouter()
     const registry = createRegistry()
-    const session = new Session('web', router, registry, { logger, tracer })
+    const session = new Session('web', router, registry, { observability, tracer })
     session.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
     installFakeAgent(session)
 
     await session.handleMessage('hello')
-    const existingSnapshotId = logger.readSessionSnapshots(session.data.id)[0]?.id
+    const existingSnapshotId = observability.readSessionSnapshots(session.data.id)[0]?.id
 
     const restored = Session.restore(
       session.data,
       session.getMessages(),
       router,
       registry,
-      { logger, tracer },
+      { observability, tracer },
       session.getSystemPrompt(),
     )
     restored.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
@@ -263,17 +278,17 @@ describe('Session snapshot lifecycle', () => {
 
     await restored.handleMessage('follow up')
 
-    const snapshots = logger.readSessionSnapshots(session.data.id)
+    const snapshots = observability.readSessionSnapshots(session.data.id)
     expect(snapshots).toHaveLength(1)
     const restoredSession = restored as unknown as { currentSnapshotId?: string }
     expect(restoredSession.currentSnapshotId).toBe(existingSnapshotId)
   })
 
   test('restored sessions continue turnIndex from prior request logs', async () => {
-    const { logger, tracer } = createTempObservability()
+    const { observability, tracer } = createTempObservability()
     const router = createRouter()
     const registry = createRegistry()
-    const session = new Session('web', router, registry, { logger, tracer })
+    const session = new Session('web', router, registry, { observability, tracer })
     session.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
 
     const initialTurns: number[] = []
@@ -288,7 +303,7 @@ describe('Session snapshot lifecycle', () => {
       session.getMessages(),
       router,
       registry,
-      { logger, tracer },
+      { observability, tracer },
       session.getSystemPrompt(),
     )
     restored.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
@@ -301,8 +316,13 @@ describe('Session snapshot lifecycle', () => {
   })
 
   test('uses trace-only snapshot persistence when tracer is available', async () => {
-    const { dir, logger, tracer } = createTempObservability()
-    const session = new Session('web', createRouter(), createRegistry(), { logger, tracer })
+    const { dir, observability, tracer } = createTempObservability()
+    const session = new Session(
+      'web',
+      createRouter(),
+      createRegistry(),
+      { observability, tracer },
+    )
     session.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
     installFakeAgent(session)
 
@@ -311,6 +331,6 @@ describe('Session snapshot lifecycle', () => {
     const sessionDir = join(dir, getSessionLogRelativeDir(session.data.id))
     expect(existsSync(join(sessionDir, 'trace.jsonl'))).toBe(true)
     expect(existsSync(join(sessionDir, 'snapshots.jsonl'))).toBe(false)
-    expect(logger.readSessionSnapshots(session.data.id)).toHaveLength(1)
+    expect(observability.readSessionSnapshots(session.data.id)).toHaveLength(1)
   })
 })

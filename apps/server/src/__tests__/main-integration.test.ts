@@ -52,7 +52,7 @@ describe('startZeroOS Integration', () => {
     expect(zero.config).toBeDefined()
     expect(zero.vault).toBeDefined()
     expect(zero.secretFilter).toBeDefined()
-    expect(zero.logger).toBeDefined()
+    expect(zero.observability).toBeDefined()
     expect(zero.metrics).toBeDefined()
     expect(zero.modelRouter).toBeDefined()
     expect(zero.toolRegistry).toBeDefined()

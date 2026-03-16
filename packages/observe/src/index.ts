@@ -1,4 +1,4 @@
-export { JsonlLogger } from './logger'
+export { ObservabilityStore } from './observability-store'
 export type {
   LogLevel,
   LogEntry,
@@ -10,7 +10,7 @@ export type {
   ClosureLogEntry,
   ClosureLogEntryInput,
   TaskClosureClassifierResponse,
-} from './logger'
+} from './observability-store'
 export { MetricsDB } from './metrics'
 export type {
   CostByModel,

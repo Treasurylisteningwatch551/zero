@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { MemoryRetriever } from '@zero-os/memory'
 import type { ModelRouter, ModelSwitchResult, ResolvedModel } from '@zero-os/model'
 import type {
-  JsonlLogger,
+  ObservabilityStore,
   MetricsDB,
   RequestLogEntry,
   SessionDB,
@@ -36,7 +36,7 @@ import type { ToolRegistry } from '../tool/registry'
  * Dependencies injected into Session for observability, memory, and eventing.
  */
 export interface SessionDeps {
-  logger?: JsonlLogger
+  observability?: ObservabilityStore
   metrics?: MetricsDB
   tracer?: Tracer
   secretFilter?: SecretFilter
@@ -145,7 +145,7 @@ export class Session {
 
     // Persist session metadata to DB
     this.deps.sessionDb?.saveSession(this.data)
-    this.deps.logger?.syncSessionActiveState(this.data.id, this.data.status)
+    this.deps.observability?.syncSessionActiveState(this.data.id, this.data.status)
   }
 
   /**
@@ -171,9 +171,9 @@ export class Session {
     }
 
     const observabilityHandle =
-      this.deps.logger && this.deps.metrics
+      this.deps.observability && this.deps.metrics
         ? {
-            logEvent: this.deps.logger.logEvent.bind(this.deps.logger),
+            logEvent: this.deps.observability.logEvent.bind(this.deps.observability),
             recordOperation: this.deps.metrics.recordOperation.bind(this.deps.metrics),
           }
         : undefined
@@ -379,7 +379,7 @@ export class Session {
     context: SnapshotContext,
     extra: Partial<Omit<SnapshotEntry, 'id' | 'sessionId' | 'trigger' | 'ts'>> = {},
   ): string | undefined {
-    if (!this.deps.logger) return undefined
+    if (!this.deps.observability) return undefined
 
     const snapshot = buildSnapshot({
       sessionId: this.data.id,
@@ -479,7 +479,7 @@ export class Session {
   }
 
   private restoreSnapshotStateFromLogger(): void {
-    const lastSnapshot = this.deps.logger?.readSessionSnapshots(this.data.id).at(-1)
+    const lastSnapshot = this.deps.observability?.readSessionSnapshots(this.data.id).at(-1)
     if (!lastSnapshot) return
 
     this.currentSnapshotId = lastSnapshot.id
@@ -740,10 +740,10 @@ export class Session {
       knownSkillNames: new Set<string>(),
       currentSnapshotId: undefined,
       lastSnapshotContext: null,
-      nextTurnIndex: Session.deriveNextTurnIndex(data.id, messages, deps.logger),
+      nextTurnIndex: Session.deriveNextTurnIndex(data.id, messages, deps.observability),
     })
     session.restoreSnapshotStateFromLogger()
-    session.deps.logger?.syncSessionActiveState(session.data.id, session.data.status)
+    session.deps.observability?.syncSessionActiveState(session.data.id, session.data.status)
     return session
   }
 
@@ -768,7 +768,7 @@ export class Session {
     this.data.updatedAt = now()
     // Persist status change
     this.deps.sessionDb?.updateStatus(this.data.id, status, this.data.updatedAt)
-    this.deps.logger?.syncSessionActiveState(this.data.id, status)
+    this.deps.observability?.syncSessionActiveState(this.data.id, status)
     // Emit session:end when status transitions to completed
     if (status === 'completed' || status === 'failed') {
       this.deps.bus?.emit('session:end', {
@@ -787,10 +787,10 @@ export class Session {
   private static deriveNextTurnIndex(
     sessionId: string,
     messages: Message[],
-    logger?: JsonlLogger,
+    observability?: ObservabilityStore,
   ): number {
     const maxLoggedTurnIndex = Session.findMaxLoggedTurnIndex(
-      logger?.readSessionRequests(sessionId) ?? [],
+      observability?.readSessionRequests(sessionId) ?? [],
     )
     if (maxLoggedTurnIndex > 0) {
       return maxLoggedTurnIndex + 1

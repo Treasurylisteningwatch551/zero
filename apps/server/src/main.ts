@@ -28,7 +28,7 @@ import {
 } from '@zero-os/memory'
 import type { MemoryRepository } from '@zero-os/memory'
 import { LiteLLMPricing, ModelRouter } from '@zero-os/model'
-import { JsonlLogger, MetricsDB, SessionDB, Tracer } from '@zero-os/observe'
+import { ObservabilityStore, MetricsDB, SessionDB, Tracer } from '@zero-os/observe'
 import { CronScheduler } from '@zero-os/scheduler'
 import { Vault, generateMasterKey, getMasterKey, setMasterKey } from '@zero-os/secrets'
 import { OutputSecretFilter } from '@zero-os/secrets'
@@ -82,7 +82,7 @@ export interface ZeroOS {
   config: ReturnType<typeof loadConfig>
   vault: Vault
   secretFilter: OutputSecretFilter
-  logger: JsonlLogger
+  observability: ObservabilityStore
   metrics: MetricsDB
   sessionDb: SessionDB
   modelRouter: ModelRouter
@@ -140,9 +140,9 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   const config = loadConfig(configPath)
   console.log(`[ZeRo OS] Config loaded (${Object.keys(config.providers).length} providers)`)
 
-  // 6. Initialize logger, metrics, and session DB
+  // 6. Initialize observability, metrics, and session DB
   const logsDir = join(ZERO_DIR, 'logs')
-  const logger = new JsonlLogger(logsDir)
+  const observability = new ObservabilityStore(logsDir)
   const metrics = new MetricsDB(join(logsDir, 'metrics.db'))
   const sessionDb = new SessionDB(join(logsDir, 'sessions.db'))
   const tracer = new Tracer(logsDir)
@@ -259,7 +259,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     modelRouter,
     toolRegistry,
     {
-      logger,
+      observability,
       metrics,
       tracer,
       secretFilter,
@@ -526,7 +526,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     ) {
       return
     }
-    logger.log('info', payload.topic, payload.data)
+    observability.log('info', payload.topic, payload.data)
   }
   const repairMetricsListener = (payload: { data: Record<string, unknown> }) => {
     metrics.recordRepair({
@@ -588,7 +588,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     config,
     vault,
     secretFilter,
-    logger,
+    observability,
     metrics,
     sessionDb,
     modelRouter,

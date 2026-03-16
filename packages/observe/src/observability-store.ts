@@ -138,9 +138,9 @@ export type ClosureLogEntryInput =
   | Omit<TaskClosureFailedLogEntry, 'ts'>
 
 /**
- * JSONL Logger — append-writes structured log entries to files.
+ * Observability store for global events and trace-backed session projections.
  */
-export class JsonlLogger {
+export class ObservabilityStore {
   private basePath: string
 
   constructor(basePath: string) {

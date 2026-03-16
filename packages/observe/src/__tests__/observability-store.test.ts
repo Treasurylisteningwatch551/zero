@@ -2,21 +2,21 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { appendFileSync, existsSync, mkdirSync, readlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { getSessionLogRelativeDir } from '@zero-os/shared'
-import { JsonlLogger } from '../logger'
+import { ObservabilityStore } from '../observability-store'
 import type { TraceEntry } from '../trace'
 
 const testDir = join(import.meta.dir, '__fixtures__/logs')
 
-describe('JsonlLogger', () => {
+describe('ObservabilityStore', () => {
   afterEach(() => {
     rmSync(join(import.meta.dir, '__fixtures__'), { recursive: true, force: true })
   })
 
   test('log writes to events.jsonl', () => {
-    const logger = new JsonlLogger(testDir)
-    logger.log('info', 'test_event', { key: 'value' })
+    const store = new ObservabilityStore(testDir)
+    store.log('info', 'test_event', { key: 'value' })
 
-    const entries = logger.readEntries<Record<string, unknown>>('events.jsonl')
+    const entries = store.readEntries<Record<string, unknown>>('events.jsonl')
     expect(entries).toHaveLength(1)
     expect(entries[0].event).toBe('test_event')
     expect(entries[0].level).toBe('info')
@@ -25,8 +25,8 @@ describe('JsonlLogger', () => {
   })
 
   test('logEvent writes structured event entry', () => {
-    const logger = new JsonlLogger(testDir)
-    logger.logEvent({
+    const store = new ObservabilityStore(testDir)
+    store.logEvent({
       level: 'info',
       sessionId: 'sess_20260316_0900_web_a1b2',
       event: 'tool_call',
@@ -36,14 +36,14 @@ describe('JsonlLogger', () => {
       durationMs: 45,
     })
 
-    const entries = logger.readEntries<Record<string, unknown>>('events.jsonl')
+    const entries = store.readEntries<Record<string, unknown>>('events.jsonl')
     expect(entries).toHaveLength(1)
     expect(entries[0].tool).toBe('bash')
     expect(entries[0].durationMs).toBe(45)
   })
 
   test('readSessionRequests returns trace-projected requests', () => {
-    const logger = new JsonlLogger(testDir)
+    const store = new ObservabilityStore(testDir)
     const sessionId = 'sess_20260316_0100_web_trace'
 
     writeSessionTraceEntries(testDir, sessionId, [
@@ -85,7 +85,7 @@ describe('JsonlLogger', () => {
       },
     ])
 
-    const entries = logger.readSessionRequests(sessionId)
+    const entries = store.readSessionRequests(sessionId)
     expect(entries).toHaveLength(1)
     expect(entries[0].id).toBe('req_trace_001')
     expect(entries[0].agentName).toBe('trace-agent')
@@ -104,7 +104,7 @@ describe('JsonlLogger', () => {
   })
 
   test('readSessionRequests ignores non-projectable trace entries', () => {
-    const logger = new JsonlLogger(testDir)
+    const store = new ObservabilityStore(testDir)
     const sessionId = 'sess_20260316_0110_web_trace'
 
     writeSessionTraceEntries(testDir, sessionId, [
@@ -123,11 +123,11 @@ describe('JsonlLogger', () => {
       },
     ])
 
-    expect(logger.readSessionRequests(sessionId)).toEqual([])
+    expect(store.readSessionRequests(sessionId)).toEqual([])
   })
 
   test('readAllRequests includes trace-only session requests', () => {
-    const logger = new JsonlLogger(testDir)
+    const store = new ObservabilityStore(testDir)
     const firstSessionId = 'sess_20260316_0140_web_abcd'
     const secondSessionId = 'sess_20260316_0141_fei_ef12'
 
@@ -190,26 +190,26 @@ describe('JsonlLogger', () => {
       },
     ])
 
-    const ids = new Set(logger.readAllRequests().map((entry) => entry.id))
+    const ids = new Set(store.readAllRequests().map((entry) => entry.id))
     expect(ids).toEqual(new Set(['req_trace_all_001', 'req_trace_all_002']))
   })
 
   test('syncSessionActiveState maintains _active symlinks for active sessions only', () => {
-    const logger = new JsonlLogger(testDir)
+    const store = new ObservabilityStore(testDir)
     const sessionId = 'sess_20260312_2130_fei_a1b2'
 
-    logger.syncSessionActiveState(sessionId, 'active')
+    store.syncSessionActiveState(sessionId, 'active')
     const linkPath = join(testDir, 'sessions', '_active', sessionId)
 
     expect(existsSync(linkPath)).toBe(true)
     expect(readlinkSync(linkPath)).toBe('../2026-03-12/sess_20260312_2130_fei_a1b2')
 
-    logger.syncSessionActiveState(sessionId, 'completed')
+    store.syncSessionActiveState(sessionId, 'completed')
     expect(existsSync(linkPath)).toBe(false)
   })
 
   test('readSessionClosures returns trace-projected closure events', () => {
-    const logger = new JsonlLogger(testDir)
+    const store = new ObservabilityStore(testDir)
     const sessionId = 'sess_20260316_0120_web_trace'
 
     writeSessionTraceEntries(testDir, sessionId, [
@@ -238,14 +238,14 @@ describe('JsonlLogger', () => {
       },
     ])
 
-    const entries = logger.readSessionClosures(sessionId)
+    const entries = store.readSessionClosures(sessionId)
     expect(entries).toHaveLength(1)
     expect(entries[0].event).toBe('task_closure_decision')
     expect(entries[0].assistantMessageId).toBe('msg_trace_001')
   })
 
   test('readSessionSnapshots returns trace-projected snapshots', () => {
-    const logger = new JsonlLogger(testDir)
+    const store = new ObservabilityStore(testDir)
     const sessionId = 'sess_20260316_0130_web_trace'
 
     writeSessionTraceEntries(testDir, sessionId, [
@@ -270,14 +270,14 @@ describe('JsonlLogger', () => {
       },
     ])
 
-    const entries = logger.readSessionSnapshots(sessionId)
+    const entries = store.readSessionSnapshots(sessionId)
     expect(entries).toHaveLength(1)
     expect(entries[0].id).toBe('snap_trace_001')
     expect(entries[0].systemPrompt).toBe('trace system prompt')
   })
 
   test('readAllSnapshots includes trace-only session snapshots', () => {
-    const logger = new JsonlLogger(testDir)
+    const store = new ObservabilityStore(testDir)
     const sessionId = 'sess_20260316_0150_web_trace'
 
     writeSessionTraceEntries(testDir, sessionId, [
@@ -301,12 +301,12 @@ describe('JsonlLogger', () => {
       },
     ])
 
-    const ids = new Set(logger.readAllSnapshots().map((entry) => entry.id))
+    const ids = new Set(store.readAllSnapshots().map((entry) => entry.id))
     expect(ids).toEqual(new Set(['snap_trace_all_001']))
   })
 
   test('readAllTraceEntries scans every persisted session trace file', () => {
-    const logger = new JsonlLogger(testDir)
+    const store = new ObservabilityStore(testDir)
     const firstSessionId = 'sess_20260316_0200_web_trace'
     const secondSessionId = 'sess_20260316_0201_fei_trace'
 
@@ -336,14 +336,14 @@ describe('JsonlLogger', () => {
       },
     ])
 
-    expect(logger.readAllTraceEntries().map((entry) => entry.spanId)).toEqual([
+    expect(store.readAllTraceEntries().map((entry) => entry.spanId)).toEqual([
       'span_trace_all_001',
       'span_trace_all_002',
     ])
   })
 
   test('readSessionTraceEntries keeps the latest lifecycle snapshot for each span', () => {
-    const logger = new JsonlLogger(testDir)
+    const store = new ObservabilityStore(testDir)
     const sessionId = 'sess_20260316_0210_web_trace'
 
     writeSessionTraceEntries(testDir, sessionId, [
@@ -401,16 +401,16 @@ describe('JsonlLogger', () => {
       },
     ])
 
-    const entries = logger.readSessionTraceEntries(sessionId)
+    const entries = store.readSessionTraceEntries(sessionId)
     expect(entries).toHaveLength(1)
     expect(entries[0].status).toBe('success')
     expect(entries[0].durationMs).toBe(2000)
-    expect(logger.readSessionRequests(sessionId)[0].response).toBe('done')
+    expect(store.readSessionRequests(sessionId)[0].response).toBe('done')
   })
 
   test('readEntries returns empty array for missing file', () => {
-    const logger = new JsonlLogger(testDir)
-    expect(logger.readEntries('nonexistent.jsonl')).toEqual([])
+    const store = new ObservabilityStore(testDir)
+    expect(store.readEntries('nonexistent.jsonl')).toEqual([])
   })
 })
 

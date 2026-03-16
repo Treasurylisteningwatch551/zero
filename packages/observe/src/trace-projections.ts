@@ -4,7 +4,7 @@ import type {
   RequestToolCallEntry,
   RequestToolResultEntry,
   SnapshotEntry,
-} from './logger'
+} from './observability-store'
 import type { TraceEntry } from './trace'
 
 type JsonRecord = Record<string, unknown>

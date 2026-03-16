@@ -265,7 +265,7 @@ export class SessionManager {
   remove(id: string): void {
     const session = this.sessions.get(id)
     if (session) {
-      this.deps.logger?.syncSessionActiveState(id, 'archived')
+      this.deps.observability?.syncSessionActiveState(id, 'archived')
     }
     if (session?.data.channelId) {
       const key = this.getChannelSessionKey(

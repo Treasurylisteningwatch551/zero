@@ -124,7 +124,7 @@ describe('API Routes Extended', () => {
   })
 
   test('tool bus events are not written to events.jsonl', () => {
-    const before = zero.logger.readEntries<Record<string, unknown>>('events.jsonl').length
+    const before = zero.observability.readEntries<Record<string, unknown>>('events.jsonl').length
 
     zero.bus.emit('tool:call', {
       sessionId: 'sess_tool_noise',
@@ -142,7 +142,7 @@ describe('API Routes Extended', () => {
       event: 'message_handled',
     })
 
-    const newEntries = zero.logger
+    const newEntries = zero.observability
       .readEntries<Record<string, unknown>>('events.jsonl')
       .slice(before)
 
@@ -152,7 +152,7 @@ describe('API Routes Extended', () => {
   })
 
   test('session:update preserves spanId in events.jsonl', () => {
-    const before = zero.logger.readEntries<Record<string, unknown>>('events.jsonl').length
+    const before = zero.observability.readEntries<Record<string, unknown>>('events.jsonl').length
 
     zero.bus.emit('session:update', {
       sessionId: 'sess_signal_with_span',
@@ -162,7 +162,7 @@ describe('API Routes Extended', () => {
       reason: 'done',
     })
 
-    const newEntries = zero.logger
+    const newEntries = zero.observability
       .readEntries<Record<string, unknown>>('events.jsonl')
       .slice(before)
     const entry = newEntries.find((item) => item.event === 'task_closure_decision')
@@ -255,7 +255,7 @@ describe('API Routes Extended', () => {
 
   test('GET /api/sessions/:id/task-closure-events ignores events log task closure events', async () => {
     const session = zero.sessionManager.create('web')
-    zero.logger.log('info', 'task_closure_failed', {
+    zero.observability.log('info', 'task_closure_failed', {
       sessionId: session.data.id,
       reason: 'classifier_failed',
     })
