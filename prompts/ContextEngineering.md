@@ -421,7 +421,7 @@ function truncateToolOutput(
 
 截断策略偏向保留头部（60%）——命令输出的开头通常包含最重要的信息（错误消息、表头、状态摘要），尾部包含最终结果。中间的重复性输出（如大量文件列表）可以丢弃。
 
-完整输出不进入全局 `events.jsonl`。`events.jsonl` 只保留便于扫描的事件摘要；需要追查完整执行路径时，模型应读取对应 Session 下的 `trace.jsonl` 或 specialized ledgers（`requests.jsonl` / `snapshots.jsonl` / `closure.jsonl`）——这是“上下文中放摘要，详情按需检索”的通用模式。
+完整输出不进入全局 `events.jsonl`。`events.jsonl` 只保留便于扫描的事件摘要；需要追查完整执行路径时，模型应优先读取对应 Session 下的 `trace.jsonl`，必要时再回退到 legacy ledgers（`requests.jsonl` / `snapshots.jsonl` / `closure.jsonl`）——这是“上下文中放摘要，详情按需检索”的通用模式。
 
 ### 历史消息的工具输出递减
 

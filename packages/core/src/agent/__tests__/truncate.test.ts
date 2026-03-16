@@ -24,7 +24,7 @@ describe('truncateToolOutput', () => {
     const output = 'x\n'.repeat(20000)
     const result = truncateToolOutput('bash', output)
     expect(result).toContain('输出已截断')
-    expect(result).toContain('会记录到后续请求的 requests.jsonl')
+    expect(result).toContain('会记录到后续请求对应的 llm_request trace span')
   })
 
   test('truncated output contains head and tail sections', () => {

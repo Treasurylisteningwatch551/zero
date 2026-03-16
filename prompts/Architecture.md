@@ -389,7 +389,7 @@ claude-opus:
 
 系统按每次 LLM 请求记录完整调用信息，使用 JSONL 追加写入，SQLite 做聚合查询。
 
-**请求记录**（每次 LLM 调用都写入 `requests.jsonl`，字段使用 snake_case，详见 [TechStack - 命名规范]）：
+**请求记录**（当前优先写入 `trace.jsonl` 的 `llm_request` span；`requests.jsonl` 保留为 legacy fallback，字段使用 snake_case，详见 [TechStack - 命名规范]）：
 
 ```jsonl
 {
@@ -413,7 +413,7 @@ claude-opus:
 }
 ```
 
-**上下文快照**（仅在变化时写入 `snapshots.jsonl`）：
+**上下文快照**（当前优先写入 `trace.jsonl` 的 `snapshot` span；`snapshots.jsonl` 保留为 legacy fallback）：
 
 System Prompt、tools 等上下文信息不随每次请求重复记录，只在发生变化时产生一次快照，请求通过 `snapshot_id` 引用。
 

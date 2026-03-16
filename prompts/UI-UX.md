@@ -1300,7 +1300,7 @@ bus.on('session:update', (data) => ws.send(JSON.stringify(data)))
 
 ### 费用计算
 
-模型价格不额外存储，从 [litellm/model_prices_and_context_window.json](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) 默认值或 `config.yaml` 覆盖值获取，单位为 `$/M tokens`。每条请求的实际费用在写入 `requests.jsonl` 时已根据 token 用量和模型价格计算并记录（详见 [Architecture - 模型定价与用量追踪]）。
+模型价格不额外存储，从 [litellm/model_prices_and_context_window.json](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json) 默认值或 `config.yaml` 覆盖值获取，单位为 `$/M tokens`。每条请求的实际费用在写入对应 `llm_request` trace span 时已根据 token 用量和模型价格计算并记录（详见 [Architecture - 模型定价与用量追踪]）。
 
 ```typescript
 // TokenUsage 和 ModelPricing 类型定义详见 [TechStack - Provider Adapter 接口]
