@@ -11,6 +11,17 @@ export interface FeishuChannelConfig {
   verificationToken?: string
 }
 
+export interface FeishuStreamingSession {
+  /** Push accumulated text (not delta). CardKit diffs automatically. */
+  update(fullText: string): Promise<void>
+  /** Finalize the card: disable streaming mode, show final content. */
+  complete(finalText: string): Promise<void>
+  /** Abort the streaming card (e.g. on error). */
+  abort(errorMessage?: string): Promise<void>
+  /** The card's message_id in the chat (available after first update). */
+  readonly messageId: string | null
+}
+
 interface FeishuCardOptions {
   title?: string
   template?: string
@@ -28,6 +39,8 @@ interface FeishuMessagePayload {
   message_type?: string
   create_time?: string | number
   content?: string
+  /** The message ID being replied to (quote-reply). */
+  parent_id?: string
 }
 
 interface FeishuPostElement {
@@ -58,6 +71,8 @@ export class FeishuChannel implements Channel {
   private processedMessageIds: Set<string> = new Set()
   private static readonly MAX_TEXT_MESSAGE_BYTES = 150 * 1024
   private static readonly MAX_RICH_MESSAGE_BYTES = 30 * 1024
+  private static readonly STREAMING_UPDATE_INTERVAL_MS = 300
+  private static readonly STREAMING_ELEMENT_ID = 'streaming_content'
 
   constructor(config: FeishuChannelConfig) {
     this.config = config
@@ -178,6 +193,33 @@ export class FeishuChannel implements Channel {
     }
   }
 
+  async sendStreaming(sessionId: string): Promise<FeishuStreamingSession> {
+    return this.createStreamingSession(async (cardId) => {
+      const response = await this.client!.im.message.create({
+        data: {
+          receive_id: sessionId,
+          msg_type: 'interactive',
+          content: this.buildCardReferenceContent(cardId),
+        },
+        params: { receive_id_type: 'chat_id' },
+      })
+      return response.data?.message_id ?? null
+    })
+  }
+
+  async replyStreaming(messageId: string): Promise<FeishuStreamingSession> {
+    return this.createStreamingSession(async (cardId) => {
+      const response = await this.client!.im.message.reply({
+        path: { message_id: messageId },
+        data: {
+          msg_type: 'interactive',
+          content: this.buildCardReferenceContent(cardId),
+        },
+      })
+      return response.data?.message_id ?? null
+    })
+  }
+
   isConnected(): boolean {
     return this.connected
   }
@@ -281,6 +323,23 @@ export class FeishuChannel implements Channel {
       content = `[${msg.message_type} message]`
     }
 
+    // Resolve quoted / replied-to message content
+    if (msg.parent_id) {
+      const quotedContent = await this.fetchQuotedContent(msg.parent_id).catch((err) => {
+        console.warn('[FeishuChannel] Failed to resolve quoted message:', this.describeError(err))
+        return null
+      })
+      if (quotedContent) {
+        // Truncate long quoted content to avoid wasting context window
+        const maxLen = 500
+        const truncated =
+          quotedContent.length > maxLen
+            ? `${quotedContent.slice(0, maxLen)}…（原文共 ${quotedContent.length} 字，已截断）`
+            : quotedContent
+        content = `> 引用: ${truncated}\n\n${content}`
+      }
+    }
+
     return {
       channelType: 'feishu',
       senderId: event?.sender?.sender_id?.open_id ?? 'unknown',
@@ -290,6 +349,7 @@ export class FeishuChannel implements Channel {
         chatId: msg.chat_id,
         messageId: msg.message_id,
         chatType: msg.chat_type,
+        parentId: msg.parent_id,
       },
       images: images.length > 0 ? images : undefined,
     }
@@ -353,6 +413,50 @@ export class FeishuChannel implements Channel {
     }
 
     return JSON.stringify(card)
+  }
+
+  private buildStreamingCardV2(summary = 'Thinking...'): string {
+    return JSON.stringify({
+      schema: '2.0',
+      config: {
+        streaming_mode: true,
+        summary: { content: summary },
+      },
+      body: {
+        elements: [
+          {
+            tag: 'markdown',
+            content: '',
+            text_align: 'left',
+            element_id: FeishuChannel.STREAMING_ELEMENT_ID,
+          },
+        ],
+      },
+    })
+  }
+
+  private buildFinalStreamingCardV2(content: string): string {
+    return JSON.stringify({
+      schema: '2.0',
+      body: {
+        elements: [
+          {
+            tag: 'markdown',
+            content,
+            text_align: 'left',
+          },
+        ],
+      },
+    })
+  }
+
+  private buildCardReferenceContent(cardId: string): string {
+    return JSON.stringify({
+      type: 'card',
+      data: {
+        card_id: cardId,
+      },
+    })
   }
 
   /** Build post payload with md tag for fallback. */
@@ -477,6 +581,177 @@ export class FeishuChannel implements Channel {
 
   private byteLength(value: string): number {
     return Buffer.byteLength(value, 'utf8')
+  }
+
+  private async createStreamingSession(
+    attachMessage: (cardId: string) => Promise<string | null>,
+  ): Promise<FeishuStreamingSession> {
+    if (!this.client) {
+      throw new Error('Feishu client not initialized')
+    }
+
+    const cardId = await this.createStreamingCard()
+    let initialMessageId: string | null = null
+    try {
+      initialMessageId = await attachMessage(cardId)
+    } catch (error) {
+      console.warn('[FeishuChannel] streaming card attach failed:', this.describeError(error))
+      throw error
+    }
+    const client = this.client
+    let messageId = initialMessageId
+    let sequence = 0
+    let closed = false
+    let pendingText: string | null = null
+    let lastDeliveredText: string | null = null
+    let lastFlushAt = 0
+    let flushTimer: ReturnType<typeof setTimeout> | null = null
+    let scheduledFlush: Promise<void> | null = null
+    let resolveScheduledFlush: (() => void) | null = null
+    let flushChain: Promise<void> = Promise.resolve()
+
+    const clearFlushTimer = () => {
+      if (!flushTimer) return
+      clearTimeout(flushTimer)
+      flushTimer = null
+    }
+
+    const markScheduledFlushDone = () => {
+      resolveScheduledFlush?.()
+      resolveScheduledFlush = null
+      scheduledFlush = null
+    }
+
+    const nextSequence = () => {
+      const current = sequence
+      sequence += 1
+      return current
+    }
+
+    const waitForIdle = async () => {
+      const currentScheduled = scheduledFlush
+      await flushChain
+      if (currentScheduled) {
+        await currentScheduled
+        await flushChain
+      }
+    }
+
+    const flushPending = async () => {
+      clearFlushTimer()
+      const text = pendingText
+      if (text == null || text === lastDeliveredText) {
+        markScheduledFlushDone()
+        return
+      }
+
+      pendingText = null
+      try {
+        await client.cardkit.v1.cardElement.content({
+          data: {
+            content: text,
+            sequence: nextSequence(),
+          },
+          path: {
+            card_id: cardId,
+            element_id: FeishuChannel.STREAMING_ELEMENT_ID,
+          },
+        })
+        lastDeliveredText = text
+        lastFlushAt = Date.now()
+      } catch (error) {
+        pendingText = text
+        console.warn('[FeishuChannel] streaming update failed:', this.describeError(error))
+      } finally {
+        markScheduledFlushDone()
+      }
+    }
+
+    const scheduleFlush = () => {
+      if (closed) return
+      if (flushTimer || pendingText == null) return
+
+      const elapsed = Date.now() - lastFlushAt
+      const delay = Math.max(0, FeishuChannel.STREAMING_UPDATE_INTERVAL_MS - elapsed)
+      scheduledFlush ??= new Promise<void>((resolve) => {
+        resolveScheduledFlush = resolve
+      })
+
+      flushTimer = setTimeout(() => {
+        flushTimer = null
+        flushChain = flushChain.then(() => flushPending())
+      }, delay)
+    }
+
+    const finalizeCard = async (content: string, logLabel: string) => {
+      if (closed) return
+      closed = true
+      pendingText = null
+      clearFlushTimer()
+      markScheduledFlushDone()
+
+      try {
+        await flushChain
+        await client.cardkit.v1.card.update({
+          data: {
+            card: {
+              type: 'card_json',
+              data: this.buildFinalStreamingCardV2(content),
+            },
+            sequence: nextSequence(),
+          },
+          path: { card_id: cardId },
+        })
+        lastDeliveredText = content
+      } catch (error) {
+        console.warn(`[FeishuChannel] ${logLabel}:`, this.describeError(error))
+      }
+    }
+
+    return {
+      get messageId() {
+        return messageId
+      },
+      update: async (fullText: string) => {
+        if (closed) return
+        pendingText = renderMarkdownForFeishu(fullText)
+        scheduleFlush()
+        await waitForIdle()
+      },
+      complete: async (finalText: string) => {
+        const rendered = renderMarkdownForFeishu(finalText)
+        await finalizeCard(rendered, 'streaming completion failed')
+      },
+      abort: async (errorMessage?: string) => {
+        const rendered = renderMarkdownForFeishu(
+          errorMessage?.trim() || 'An error occurred while generating the response.',
+        )
+        await finalizeCard(rendered, 'streaming abort failed')
+      },
+    }
+  }
+
+  private async createStreamingCard(): Promise<string> {
+    if (!this.client) {
+      throw new Error('Feishu client not initialized')
+    }
+
+    try {
+      const response = await this.client.cardkit.v1.card.create({
+        data: {
+          type: 'card_json',
+          data: this.buildStreamingCardV2(),
+        },
+      })
+      const cardId = response.data?.card_id
+      if (!cardId) {
+        throw new Error('CardKit create returned no card_id')
+      }
+      return cardId
+    } catch (error) {
+      console.warn('[FeishuChannel] streaming card create failed:', this.describeError(error))
+      throw error
+    }
   }
 
   private async sendCreateWithFallback(
@@ -663,6 +938,92 @@ export class FeishuChannel implements Channel {
       normalized.includes('reconnect')
     ) {
       this.connected = false
+    }
+  }
+
+  /**
+   * Fetch the text content of a quoted (replied-to) message.
+   * Uses the IM mget API to retrieve the message, then parses its content
+   * into a human-readable text string.
+   *
+   * Returns `"senderName: content"` when sender info is available,
+   * or just `content` otherwise. Returns null on any failure.
+   */
+  private async fetchQuotedContent(parentMessageId: string): Promise<string | null> {
+    if (!this.client) return null
+
+    try {
+      // Use mget API (supports batch, but we only need one)
+      const response = await (this.client as unknown as { request: (opts: unknown) => Promise<unknown> }).request({
+        method: 'GET',
+        url: '/open-apis/im/v1/messages/mget',
+        params: {
+          message_ids: parentMessageId,
+          user_id_type: 'open_id',
+        },
+      })
+
+      const data = response as {
+        code?: number
+        data?: {
+          items?: Array<{
+            msg_type?: string
+            body?: { content?: string }
+            sender?: { id?: string; sender_type?: string }
+          }>
+        }
+      }
+
+      if (data.code !== 0 || !data.data?.items?.length) return null
+
+      const item = data.data.items[0]!
+      const msgType = item.msg_type ?? 'text'
+      const rawContent = item.body?.content ?? '{}'
+
+      // Parse the content based on message type
+      let textContent: string
+
+      if (msgType === 'text') {
+        try {
+          const parsed = JSON.parse(rawContent)
+          textContent = parsed.text ?? rawContent
+        } catch {
+          textContent = rawContent
+        }
+      } else if (msgType === 'post') {
+        try {
+          const parsed = JSON.parse(rawContent)
+          const dummyImages: ImageAttachment[] = []
+          textContent = this.parsePostContent(parsed, dummyImages)
+          // Strip image placeholders from quoted content
+          textContent = this.removeImagePlaceholders(textContent)
+        } catch {
+          textContent = rawContent
+        }
+      } else if (msgType === 'image') {
+        textContent = '[图片]'
+      } else if (msgType === 'file') {
+        try {
+          const parsed = JSON.parse(rawContent)
+          textContent = `[文件: ${parsed.file_name ?? 'unknown'}]`
+        } catch {
+          textContent = '[文件]'
+        }
+      } else if (msgType === 'merge_forward') {
+        textContent = '[合并转发消息]'
+      } else if (msgType === 'interactive') {
+        textContent = '[卡片消息]'
+      } else {
+        textContent = `[${msgType}]`
+      }
+
+      return textContent.trim() || null
+    } catch (error) {
+      console.warn(
+        '[FeishuChannel] Failed to fetch quoted message:',
+        this.describeError(error),
+      )
+      return null
     }
   }
 

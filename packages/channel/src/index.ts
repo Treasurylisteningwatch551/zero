@@ -4,6 +4,7 @@ export type { WebSocketMessage, WebSocketResponse } from './web/handler'
 export { WebChannel } from './web/channel'
 export { FeishuChannel } from './feishu/index'
 export type { FeishuChannelConfig } from './feishu/index'
+export type { FeishuStreamingSession } from './feishu/index'
 export { TelegramChannel } from './telegram/index'
 export type {
   TelegramChannelConfig,

@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Channel } from '@zero-os/channel'
+import type { Channel, FeishuStreamingSession } from '@zero-os/channel'
 import { FeishuChannel, TelegramChannel, WebChannel } from '@zero-os/channel'
 import { CONTEXT_PARAMS, loadConfig, loadFuseList } from '@zero-os/core'
 import {
@@ -653,6 +653,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
           const messageId = msg.metadata?.messageId as string
           let activeSessionId: string | null = null
           let typingReactionId: string | null = null
+          let streaming: FeishuStreamingSession | null = null
 
           try {
             if (isRestartCommand(msg.content)) {
@@ -706,16 +707,90 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
             typingReactionId = messageId ? await feishuChannel.react(messageId, 'Typing') : null
 
+            try {
+              streaming = messageId
+                ? await feishuChannel.replyStreaming(messageId)
+                : await feishuChannel.sendStreaming(chatId)
+            } catch (err) {
+              console.warn(
+                `[ZeRo OS] ${channelName} streaming init failed, falling back to static:`,
+                describeError(err),
+              )
+            }
+
             let firstReply = true
             let lastSentMsgId: string | null = null
             let lastProgressText: string | null = null
+            // True streaming: accumulate deltas per card, new card per turn
+            let streamText = ''
+            let seenDelta = false
+            let lastTurnId: string | null = null
+            // Queue for completing previous cards before creating new ones
+            let turnRotateChain: Promise<void> = Promise.resolve()
 
             const replies = await session.handleMessage(msg.content, {
               images: msg.images,
+              onTextDelta: streaming
+                ? (delta, meta) => {
+                    if (!delta) return
+                    seenDelta = true
+
+                    // New turn → complete current card, start a new one
+                    if (lastTurnId && lastTurnId !== meta.turnId && streamText) {
+                      const prevText = streamText
+                      streamText = ''
+                      turnRotateChain = turnRotateChain.then(async () => {
+                        try {
+                          await streaming!.complete(prevText)
+                          // Create a new streaming card (send to chat, not reply)
+                          streaming = await feishuChannel.sendStreaming(chatId)
+                        } catch (err) {
+                          console.error(
+                            `[ZeRo OS] ${channelName} streaming turn rotate error:`,
+                            describeError(err),
+                          )
+                        }
+                      })
+                    }
+                    lastTurnId = meta.turnId
+                    streamText += delta
+                    const textSnapshot = streamText
+                    turnRotateChain = turnRotateChain.then(() =>
+                      streaming!.update(textSnapshot).catch((err) =>
+                        console.error(
+                          `[ZeRo OS] ${channelName} streaming update error:`,
+                          describeError(err),
+                        ),
+                      ),
+                    )
+                  }
+                : undefined,
               onProgress: (newMsg) => {
                 const text = extractAssistantText(newMsg)
-                if (!text || lastProgressText === text) return
+                if (!text) return
 
+                // When streaming is active, onTextDelta handles the card updates.
+                // onProgress still tracks lastSentMsgId for bookkeeping.
+                if (streaming) {
+                  lastSentMsgId = newMsg.id
+                  // If onTextDelta didn't fire (e.g. non-streaming model), use onProgress as fallback
+                  if (!seenDelta && text !== lastProgressText) {
+                    lastProgressText = text
+                    streamText = streamText ? `${streamText}\n\n${text}` : text
+                    const textSnapshot = streamText
+                    turnRotateChain = turnRotateChain.then(() =>
+                      streaming!.update(textSnapshot).catch((err) =>
+                        console.error(
+                          `[ZeRo OS] ${channelName} streaming update error:`,
+                          describeError(err),
+                        ),
+                      ),
+                    )
+                  }
+                  return
+                }
+
+                if (text === lastProgressText) return
                 lastProgressText = text
                 lastSentMsgId = newMsg.id
 
@@ -742,7 +817,14 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
               },
             })
 
-            if (!lastSentMsgId) {
+            // Wait for any pending turn rotations, then complete the last card
+            await turnRotateChain
+            if (streaming) {
+              const finalText = streamText || collectAssistantReply(replies)
+              if (finalText) {
+                await streaming.complete(finalText)
+              }
+            } else if (!lastSentMsgId) {
               const replyText = collectAssistantReply(replies)
               if (replyText && messageId) {
                 await feishuChannel.reply(messageId, replyText)
@@ -782,11 +864,16 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
               : 'An error occurred processing your message.'
 
             try {
+              if (streaming) {
+                streaming.abort(userReply).catch(() => {})
+              }
               if (messageId) {
                 if (typingReactionId)
                   feishuChannel.removeReaction(messageId, typingReactionId).catch(() => {})
-                await feishuChannel.reply(messageId, userReply)
-              } else {
+                if (!streaming) {
+                  await feishuChannel.reply(messageId, userReply)
+                }
+              } else if (!streaming) {
                 await feishuChannel.send(chatId, userReply)
               }
             } catch {}
