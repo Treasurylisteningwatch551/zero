@@ -110,4 +110,47 @@ describe('TraceSummaryCard', () => {
     expect(html).toContain('Net Savings')
     expect(html).toContain('+$0.070')
   })
+
+  test('renders trace eval summary in the default summary tab', () => {
+    const html = renderToStaticMarkup(
+      <ContextPanel
+        modelHistory={[]}
+        toolCalls={[]}
+        filesTouched={[]}
+        totalTokens={0}
+        llmRequests={[
+          {
+            id: 'req_1',
+            model: 'gpt-test',
+            provider: 'openai',
+            userPrompt: 'check status',
+            response: 'all good',
+            stopReason: 'end_turn',
+            toolUseCount: 0,
+            tokens: { input: 10, output: 20 },
+            cost: 0.001,
+            ts: '2026-03-08T00:00:01.000Z',
+          },
+        ]}
+        taskClosureEvents={[
+          {
+            ts: '2026-03-08T00:00:02.000Z',
+            event: 'task_closure_decision',
+            action: 'finish',
+            reason: 'task is done',
+            classifierRequest: {
+              system: 'judge',
+              prompt: 'judge prompt',
+              maxTokens: 200,
+            },
+          },
+        ]}
+        selectedToolId={null}
+      />,
+    )
+
+    expect(html).toContain('TRACE EVAL')
+    expect(html).toContain('Resolved')
+    expect(html).toContain('/100')
+  })
 })

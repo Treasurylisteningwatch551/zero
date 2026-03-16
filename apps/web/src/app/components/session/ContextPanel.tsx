@@ -3,10 +3,11 @@ import { apiFetch } from '../../lib/api'
 import { toolColors } from '../../lib/colors'
 import { formatCost, formatModelHistory, formatNumber, formatTimeAgo } from '../../lib/format'
 import {
-  getTaskClosureTraceDetails,
   type SessionTaskClosureEvent,
   type TraceSpan,
+  getTaskClosureTraceDetails,
 } from './timeline'
+import { evaluateTraceSession } from './trace-eval'
 
 interface ModelHistoryEntry {
   model: string
@@ -134,6 +135,15 @@ export function ContextPanel({
     () => taskClosureEvents.map(mapSessionTaskClosureEventToCard),
     [taskClosureEvents],
   )
+  const traceEval = useMemo(
+    () =>
+      evaluateTraceSession({
+        traces,
+        taskClosureEvents,
+        llmRequests,
+      }),
+    [llmRequests, taskClosureEvents, traces],
+  )
 
   const formattedNetSavings =
     netSavings === undefined
@@ -211,6 +221,10 @@ export function ContextPanel({
 
       {tab === 'summary' && (
         <div className="space-y-4">
+          <Section title="Trace Eval">
+            <TraceEvalCard report={traceEval} loading={traceLoading} />
+          </Section>
+
           {summary && (
             <Section title="Summary">
               <p className="text-[12px] text-[var(--color-text-secondary)]">{summary}</p>
@@ -587,6 +601,97 @@ function PersistedTaskClosureCard({
   )
 }
 
+function TraceEvalCard({
+  report,
+  loading,
+}: {
+  report: ReturnType<typeof evaluateTraceSession>
+  loading: boolean
+}) {
+  if (
+    loading &&
+    report.metrics.projectedRequestCount === 0 &&
+    report.metrics.llmRequestSpanCount === 0 &&
+    report.metrics.closureCount === 0
+  ) {
+    return <p className="text-[12px] text-[var(--color-text-disabled)]">Loading trace…</p>
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded border border-white/8 bg-white/[0.02] p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-end gap-1.5">
+              <span className="text-[28px] font-semibold leading-none text-[var(--color-text-primary)]">
+                {report.score}
+              </span>
+              <span className="pb-0.5 text-[11px] text-[var(--color-text-disabled)]">/100</span>
+            </div>
+            <p className="mt-1 text-[11px] text-[var(--color-text-secondary)]">{report.summary}</p>
+          </div>
+
+          <div className="flex flex-col items-end gap-1">
+            <span
+              className={`rounded px-2 py-1 text-[10px] ${getEvalVerdictClass(report.verdict)}`}
+            >
+              {formatEvalVerdict(report.verdict)}
+            </span>
+            <span
+              className={`rounded px-1.5 py-0.5 text-[10px] ${getEvalConfidenceClass(report.confidence)}`}
+            >
+              {report.confidence}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {report.breakdown.map((item) => (
+            <div key={item.key} className="rounded bg-black/15 p-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] text-[var(--color-text-disabled)]">{item.label}</span>
+                <span className="text-[10px] font-mono text-[var(--color-text-secondary)]">
+                  {item.score}/{item.maxScore}
+                </span>
+              </div>
+              <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
+                {item.note}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-[var(--color-text-muted)]">
+          <span className="rounded bg-black/15 px-2 py-1">
+            {report.metrics.turnCount} turn{report.metrics.turnCount === 1 ? '' : 's'}
+          </span>
+          <span className="rounded bg-black/15 px-2 py-1">
+            {report.metrics.projectedRequestCount} request
+            {report.metrics.projectedRequestCount === 1 ? '' : 's'}
+          </span>
+          <span className="rounded bg-black/15 px-2 py-1">
+            {report.metrics.toolCallCount} tool call{report.metrics.toolCallCount === 1 ? '' : 's'}
+          </span>
+          <span className="rounded bg-black/15 px-2 py-1">
+            {report.metrics.closureCount} closure{report.metrics.closureCount === 1 ? '' : 's'}
+          </span>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        {report.highlights.map((highlight, index) => (
+          <div
+            key={`${highlight.tone}-${index}`}
+            className={`rounded border px-2.5 py-2 text-[11px] leading-relaxed ${getEvalHighlightClass(highlight.tone)}`}
+          >
+            {highlight.text}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function TraceSummaryCard({ span }: { span: TraceSpan }) {
   const {
     action,
@@ -736,6 +841,34 @@ function formatMetadataValue(value: unknown): string {
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   if (value === null || value === undefined) return '-'
   return '…'
+}
+
+function formatEvalVerdict(verdict: ReturnType<typeof evaluateTraceSession>['verdict']): string {
+  if (verdict === 'resolved') return 'Resolved'
+  if (verdict === 'blocked') return 'Blocked'
+  return 'Needs Review'
+}
+
+function getEvalVerdictClass(verdict: ReturnType<typeof evaluateTraceSession>['verdict']): string {
+  if (verdict === 'resolved') return 'bg-emerald-400/10 text-emerald-300'
+  if (verdict === 'blocked') return 'bg-amber-400/10 text-amber-300'
+  return 'bg-rose-400/10 text-rose-300'
+}
+
+function getEvalConfidenceClass(
+  confidence: ReturnType<typeof evaluateTraceSession>['confidence'],
+): string {
+  if (confidence === 'high') return 'bg-cyan-400/10 text-cyan-300'
+  if (confidence === 'medium') return 'bg-indigo-400/10 text-indigo-300'
+  return 'bg-slate-400/10 text-slate-300'
+}
+
+function getEvalHighlightClass(
+  tone: ReturnType<typeof evaluateTraceSession>['highlights'][number]['tone'],
+): string {
+  if (tone === 'good') return 'border-emerald-400/20 bg-emerald-400/5 text-emerald-100'
+  if (tone === 'warn') return 'border-amber-400/20 bg-amber-400/5 text-amber-100'
+  return 'border-rose-400/20 bg-rose-400/5 text-rose-100'
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
