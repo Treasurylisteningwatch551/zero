@@ -11,12 +11,7 @@ import {
   unlinkSync,
 } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
-import {
-  type SessionStatus,
-  getSessionLogRelativeDir,
-  getSessionLogRelativeDirCandidates,
-  now,
-} from '@zero-os/shared'
+import { type SessionStatus, getSessionLogRelativeDir, now } from '@zero-os/shared'
 import type { CompletionResponse, StopReason, ToolResultBlock } from '@zero-os/shared'
 import type { TraceEntry } from './trace'
 import {
@@ -75,11 +70,6 @@ export interface RequestLogEntry {
   cost: number
   durationMs?: number
   ts: string
-}
-
-type RequestLogEntryInput = Omit<RequestLogEntry, 'ts' | 'toolCalls' | 'toolResults'> & {
-  toolCalls?: RequestToolCallEntry[]
-  toolResults?: RequestToolResultEntry[]
 }
 
 export interface SnapshotEntry {
@@ -158,7 +148,6 @@ export class JsonlLogger {
     this.ensureDir(basePath)
     this.ensureDir(this.getSessionsRoot())
     this.ensureDir(this.getActiveSessionsRoot())
-    this.migrateLegacyOperationsFile()
   }
 
   private ensureDir(dir: string): void {
@@ -180,12 +169,6 @@ export class JsonlLogger {
     const dir = dirname(filePath)
     this.ensureDir(dir)
     appendFileSync(filePath, `${JSON.stringify(data)}\n`, 'utf-8')
-  }
-
-  private getSessionFileCandidates(sessionId: string, file: string): string[] {
-    return getSessionLogRelativeDirCandidates(sessionId).map((dir) =>
-      join(this.basePath, dir, file),
-    )
   }
 
   private listSessionDirectories(): string[] {
@@ -251,45 +234,6 @@ export class JsonlLogger {
   }
 
   /**
-   * Log an LLM request.
-   */
-  logRequest(entry: RequestLogEntryInput): void {
-    this.appendLine('requests.jsonl', { ...this.normalizeRequestEntryInput(entry), ts: now() })
-  }
-
-  /**
-   * Log an LLM request to the legacy session request file.
-   */
-  logSessionRequest(entry: RequestLogEntryInput): void {
-    this.appendLine(join(getSessionLogRelativeDir(entry.sessionId), 'requests.jsonl'), {
-      ...this.normalizeRequestEntryInput(entry),
-      ts: now(),
-    })
-  }
-
-  /**
-   * Log a context snapshot.
-   */
-  logSnapshot(entry: Omit<SnapshotEntry, 'ts'>): void {
-    this.appendLine(join(getSessionLogRelativeDir(entry.sessionId), 'snapshots.jsonl'), {
-      ...entry,
-      ts: now(),
-    })
-  }
-
-  /**
-   * Log a task closure event to the legacy session closure file.
-   */
-  logSessionClosure(entry: ClosureLogEntryInput): void {
-    const relativePath = join(getSessionLogRelativeDir(entry.sessionId), 'closure.jsonl')
-    const existingEntries = this.readJsonlFile<ClosureLogEntry>(join(this.basePath, relativePath))
-    const nextKey = this.getClosureEntryKey(entry)
-    if (existingEntries.some((existing) => this.getClosureEntryKey(existing) === nextKey)) return
-
-    this.appendLine(relativePath, { ...entry, ts: now() })
-  }
-
-  /**
    * General log entry.
    */
   log(level: LogLevel, event: string, data?: Record<string, unknown>): void {
@@ -307,80 +251,47 @@ export class JsonlLogger {
    * Read entries from a session-scoped JSONL file.
    */
   readSessionEntries<T = unknown>(sessionId: string, file: string): T[] {
-    for (const filePath of this.getSessionFileCandidates(sessionId, file)) {
-      if (existsSync(filePath)) {
-        return this.readJsonlFile<T>(filePath)
-      }
+    const filePath = join(this.basePath, getSessionLogRelativeDir(sessionId), file)
+    if (existsSync(filePath)) {
+      return this.readJsonlFile<T>(filePath)
     }
     return []
   }
 
   /**
-   * Read requests for a session, preferring trace.jsonl and falling back to legacy files.
+   * Read requests for a session from trace.jsonl.
    */
   readSessionRequests(sessionId: string): RequestLogEntry[] {
-    const tracedEntries = projectSessionRequestsFromTraceEntries(
+    return projectSessionRequestsFromTraceEntries(
       this.readSessionEntries<TraceEntry>(sessionId, 'trace.jsonl'),
     ).map((entry) => this.normalizeStoredRequestEntry(entry))
-    if (tracedEntries.length > 0) return tracedEntries
-
-    const entries = this.readSessionEntries<RequestLogEntry>(sessionId, 'requests.jsonl').map(
-      (entry) => this.normalizeStoredRequestEntry(entry),
-    )
-    if (entries.length > 0) return entries
-
-    return this.readEntries<RequestLogEntry>('requests.jsonl')
-      .filter((entry) => entry.sessionId === sessionId)
-      .map((entry) => this.normalizeStoredRequestEntry(entry))
-      .sort((left, right) => left.ts.localeCompare(right.ts))
   }
 
   /**
-   * Read task closure events for a session, preferring trace.jsonl over closure.jsonl.
+   * Read task closure events for a session from trace.jsonl.
    */
   readSessionClosures(sessionId: string): ClosureLogEntry[] {
-    const tracedEntries = projectSessionClosuresFromTraceEntries(
+    return projectSessionClosuresFromTraceEntries(
       this.readSessionEntries<TraceEntry>(sessionId, 'trace.jsonl'),
-    )
-    if (tracedEntries.length > 0) return tracedEntries
-
-    return this.readSessionEntries<ClosureLogEntry>(sessionId, 'closure.jsonl').sort(
-      (left, right) => left.ts.localeCompare(right.ts),
     )
   }
 
   /**
-   * Read snapshots for a session, preferring trace.jsonl and falling back to legacy files.
+   * Read snapshots for a session from trace.jsonl.
    */
   readSessionSnapshots(sessionId: string): SnapshotEntry[] {
-    const tracedEntries = projectSessionSnapshotsFromTraceEntries(
+    return projectSessionSnapshotsFromTraceEntries(
       this.readSessionEntries<TraceEntry>(sessionId, 'trace.jsonl'),
     )
-    if (tracedEntries.length > 0) return tracedEntries
-
-    const entries = this.readSessionEntries<SnapshotEntry>(sessionId, 'snapshots.jsonl')
-    if (entries.length > 0) return entries
-
-    return this.readEntries<SnapshotEntry>('snapshots.jsonl')
-      .filter((entry) => entry.sessionId === sessionId)
-      .sort((left, right) => left.ts.localeCompare(right.ts))
   }
 
   /**
-   * Read all request entries across trace spans and legacy request files.
+   * Read all request entries across trace spans.
    */
   readAllRequests(): RequestLogEntry[] {
     const deduped = new Map<string, RequestLogEntry>()
 
-    for (const entry of this.readEntries<RequestLogEntry>('requests.jsonl')) {
-      deduped.set(entry.id, this.normalizeStoredRequestEntry(entry))
-    }
-
     for (const sessionDir of this.listSessionDirectories()) {
-      for (const entry of this.readJsonlFile<RequestLogEntry>(join(sessionDir, 'requests.jsonl'))) {
-        deduped.set(entry.id, this.normalizeStoredRequestEntry(entry))
-      }
-
       for (const entry of projectSessionRequestsFromTraceEntries(
         this.readJsonlFile<TraceEntry>(join(sessionDir, 'trace.jsonl')),
       )) {
@@ -392,20 +303,12 @@ export class JsonlLogger {
   }
 
   /**
-   * Read all snapshots across trace spans and legacy snapshot files.
+   * Read all snapshots across trace spans.
    */
   readAllSnapshots(): SnapshotEntry[] {
     const deduped = new Map<string, SnapshotEntry>()
 
-    for (const entry of this.readEntries<SnapshotEntry>('snapshots.jsonl')) {
-      deduped.set(entry.id, entry)
-    }
-
     for (const sessionDir of this.listSessionDirectories()) {
-      for (const entry of this.readJsonlFile<SnapshotEntry>(join(sessionDir, 'snapshots.jsonl'))) {
-        deduped.set(entry.id, entry)
-      }
-
       for (const entry of projectSessionSnapshotsFromTraceEntries(
         this.readJsonlFile<TraceEntry>(join(sessionDir, 'trace.jsonl')),
       )) {
@@ -425,17 +328,6 @@ export class JsonlLogger {
       .split('\n')
       .filter((line) => line.length > 0)
       .map((line) => JSON.parse(line) as T)
-  }
-
-  private normalizeRequestEntryInput(entry: RequestLogEntryInput): RequestLogEntryInput & {
-    toolCalls: RequestToolCallEntry[]
-    toolResults: RequestToolResultEntry[]
-  } {
-    return {
-      ...entry,
-      toolCalls: this.normalizeToolCalls(entry.toolCalls),
-      toolResults: this.normalizeToolResults(entry.toolResults),
-    }
   }
 
   private normalizeStoredRequestEntry(entry: RequestLogEntry): RequestLogEntry {
@@ -478,47 +370,5 @@ export class JsonlLogger {
             typeof (toolResult as RequestToolResultEntry).outputSummary === 'string'),
       ),
     )
-  }
-
-  private getClosureEntryKey(entry: ClosureLogEntryInput | ClosureLogEntry): string {
-    if (entry.event === 'task_closure_decision') {
-      return JSON.stringify({
-        event: entry.event,
-        assistantMessageId: entry.assistantMessageId ?? '',
-        action: entry.action,
-        reason: entry.reason,
-        classifierResponse: entry.classifierResponse ?? null,
-        trimFrom: entry.trimFrom ?? '',
-      })
-    }
-
-    return JSON.stringify({
-      event: entry.event,
-      assistantMessageId: entry.assistantMessageId ?? '',
-      reason: entry.reason,
-      failureStage: entry.failureStage,
-      classifierResponse: entry.classifierResponse ?? null,
-      classifierResponseRaw: entry.classifierResponseRaw ?? '',
-      error: entry.error ?? '',
-    })
-  }
-
-  private migrateLegacyOperationsFile(): void {
-    const legacyPath = join(this.basePath, 'operations.jsonl')
-    const nextPath = join(this.basePath, 'events.jsonl')
-    if (!existsSync(legacyPath)) return
-
-    if (!existsSync(nextPath)) {
-      this.ensureDir(dirname(nextPath))
-      appendFileSync(nextPath, readFileSync(legacyPath, 'utf-8'), 'utf-8')
-      this.removePathIfExists(legacyPath)
-      return
-    }
-
-    const legacyContent = readFileSync(legacyPath, 'utf-8')
-    if (legacyContent.trim().length > 0) {
-      appendFileSync(nextPath, legacyContent, 'utf-8')
-    }
-    this.removePathIfExists(legacyPath)
   }
 }

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { ModelRouter, type ProviderAdapter } from '@zero-os/model'
+import { Tracer } from '@zero-os/observe'
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -257,7 +258,7 @@ describe('TaskTool', () => {
   }, 60_000)
 
   test('subagent requests include agentName and spawnedByRequestId', async () => {
-    const entries: Array<Record<string, unknown>> = []
+    const tracer = new Tracer()
     const registry = new ToolRegistry()
     const taskTool = new TaskTool(createStubRouter(new StaticResponseAdapter()), registry)
 
@@ -265,12 +266,7 @@ describe('TaskTool', () => {
       {
         ...ctx,
         currentRequestId: 'req_parent_001',
-        requestLogger: {
-          logSessionRequest(entry: Record<string, unknown>) {
-            entries.push(entry)
-          },
-          logSessionClosure() {},
-        },
+        tracer,
       },
       {
         tasks: [
@@ -286,9 +282,25 @@ describe('TaskTool', () => {
     )
 
     expect(result.success).toBe(true)
+    const entries = flattenTraceSpans(tracer.exportSession('test_task_session'))
+      .map((span) => span.data?.request as Record<string, unknown> | undefined)
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry))
     expect(entries).toHaveLength(1)
     expect(entries[0].sessionId).toBe('test_task_session')
     expect(entries[0].agentName).toBe('Researcher')
     expect(entries[0].spawnedByRequestId).toBe('req_parent_001')
   })
 })
+
+function flattenTraceSpans(
+  spans: Array<{ data?: Record<string, unknown>; children?: unknown[] }>,
+): Array<{ data?: Record<string, unknown>; children?: unknown[] }> {
+  return spans.flatMap((span) => [
+    span,
+    ...flattenTraceSpans(
+      (span.children as
+        | Array<{ data?: Record<string, unknown>; children?: unknown[] }>
+        | undefined) ?? [],
+    ),
+  ])
+}

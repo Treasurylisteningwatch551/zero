@@ -350,34 +350,34 @@ describe('Agent task closure gate', () => {
 
     expect(closureSpan?.data).toMatchObject({
       closure: {
-      event: 'task_closure_decision',
-      action: 'continue',
-      reason: '后续核验仍属于当前任务',
-      trimFrom: OPTIONAL_TAIL,
-      assistantMessageId: expect.any(String),
-      assistantMessageCreatedAt: expect.any(String),
-      classifierResponse: {
-        id: 'resp_test',
-        model: 'fake-model',
-        stopReason: 'end_turn',
-        usage: { input: 8, output: 8 },
-        reasoningContent: 'classifier reasoning for continue',
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              action: 'continue',
-              reason: '后续核验仍属于当前任务',
-              trimFrom: OPTIONAL_TAIL,
-            }),
-          },
-        ],
-      },
-      classifierRequest: {
-        system: expect.stringContaining('严格的任务收尾判定器'),
-        prompt: expect.stringContaining('<assistant_tail>'),
-        maxTokens: 200,
-      },
+        event: 'task_closure_decision',
+        action: 'continue',
+        reason: '后续核验仍属于当前任务',
+        trimFrom: OPTIONAL_TAIL,
+        assistantMessageId: expect.any(String),
+        assistantMessageCreatedAt: expect.any(String),
+        classifierResponse: {
+          id: 'resp_test',
+          model: 'fake-model',
+          stopReason: 'end_turn',
+          usage: { input: 8, output: 8 },
+          reasoningContent: 'classifier reasoning for continue',
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                action: 'continue',
+                reason: '后续核验仍属于当前任务',
+                trimFrom: OPTIONAL_TAIL,
+              }),
+            },
+          ],
+        },
+        classifierRequest: {
+          system: expect.stringContaining('严格的任务收尾判定器'),
+          prompt: expect.stringContaining('<assistant_tail>'),
+          maxTokens: 200,
+        },
       },
     })
   })
@@ -438,7 +438,7 @@ describe('Agent task closure gate', () => {
       adapter,
       registry,
       createToolContext(),
-      { logger, tracer },
+      { tracer },
     )
 
     await agent.run(createContext(registry), '帮我看看这帖值不值得信')

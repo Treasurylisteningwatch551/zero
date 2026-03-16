@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { ProviderAdapter } from '@zero-os/model'
-import { JsonlLogger } from '@zero-os/observe'
+import { Tracer } from '@zero-os/observe'
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -440,14 +440,8 @@ describe('Agent streaming callback', () => {
   })
 
   test('reasoning deltas are aggregated and logged to session requests', async () => {
-    const entries: Array<Record<string, unknown>> = []
+    const tracer = new Tracer()
     const adapter = new ReasoningStreamingAdapter()
-    const logger = Object.assign(Object.create(JsonlLogger.prototype), {
-      logSessionRequest(entry: Record<string, unknown>) {
-        entries.push(entry)
-      },
-      logSessionClosure() {},
-    }) as JsonlLogger
     const agent = new Agent(
       {
         name: 'stream-agent',
@@ -459,9 +453,10 @@ describe('Agent streaming callback', () => {
         sessionId: 'sess-stream',
         workDir: process.cwd(),
         logger: { info: () => {}, warn: () => {}, error: () => {} },
+        tracer,
       },
       {
-        logger,
+        tracer,
       },
     )
 
@@ -471,6 +466,7 @@ describe('Agent streaming callback', () => {
       .filter((b) => b.type === 'text')
       .map((b) => (b as { text: string }).text)
       .join('')
+    const entries = getRequestEntries(tracer, 'sess-stream')
 
     expect(visibleText).toBe('visible answer')
     expect(entries).toHaveLength(1)
@@ -487,16 +483,10 @@ describe('Agent streaming callback', () => {
   })
 
   test('tool_use retries share turnIndex and chain parentId to the prior response id', async () => {
-    const entries: Array<Record<string, unknown>> = []
+    const tracer = new Tracer()
     const adapter = new ToolLoopAdapter()
     const registry = new ToolRegistry()
     registry.register(new NoopTool())
-    const logger = Object.assign(Object.create(JsonlLogger.prototype), {
-      logSessionRequest(entry: Record<string, unknown>) {
-        entries.push(entry)
-      },
-      logSessionClosure() {},
-    }) as JsonlLogger
     const agent = new Agent(
       {
         name: 'stream-agent',
@@ -508,9 +498,10 @@ describe('Agent streaming callback', () => {
         sessionId: 'sess-stream',
         workDir: process.cwd(),
         logger: { info: () => {}, warn: () => {}, error: () => {} },
+        tracer,
       },
       {
-        logger,
+        tracer,
       },
     )
 
@@ -528,6 +519,7 @@ describe('Agent streaming callback', () => {
     )
 
     expect(messages.at(-1)?.role).toBe('assistant')
+    const entries = getRequestEntries(tracer, 'sess-stream')
     expect(entries).toHaveLength(3)
     expect(entries.map((entry) => entry.agentName)).toEqual([
       'stream-agent',
@@ -569,3 +561,22 @@ describe('Agent streaming callback', () => {
     ])
   })
 })
+
+function getRequestEntries(tracer: Tracer, sessionId: string): Array<Record<string, unknown>> {
+  return flattenTraceSpans(tracer.exportSession(sessionId))
+    .map((span) => span.data?.request as Record<string, unknown> | undefined)
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+}
+
+function flattenTraceSpans(
+  spans: Array<{ data?: Record<string, unknown>; children?: unknown[] }>,
+): Array<{ data?: Record<string, unknown>; children?: unknown[] }> {
+  return spans.flatMap((span) => [
+    span,
+    ...flattenTraceSpans(
+      (span.children as
+        | Array<{ data?: Record<string, unknown>; children?: unknown[] }>
+        | undefined) ?? [],
+    ),
+  ])
+}

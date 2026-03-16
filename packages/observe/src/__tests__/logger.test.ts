@@ -1,13 +1,14 @@
-import { afterAll, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { appendFileSync, existsSync, mkdirSync, readlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { getSessionLogRelativeDir } from '@zero-os/shared'
 import { JsonlLogger } from '../logger'
 import type { TraceEntry } from '../trace'
 
 const testDir = join(import.meta.dir, '__fixtures__/logs')
 
 describe('JsonlLogger', () => {
-  afterAll(() => {
+  afterEach(() => {
     rmSync(join(import.meta.dir, '__fixtures__'), { recursive: true, force: true })
   })
 
@@ -15,256 +16,35 @@ describe('JsonlLogger', () => {
     const logger = new JsonlLogger(testDir)
     logger.log('info', 'test_event', { key: 'value' })
 
-    const entries = logger.readEntries('events.jsonl')
-    expect(entries.length).toBeGreaterThanOrEqual(1)
-
-    const last = entries[entries.length - 1] as Record<string, unknown>
-    expect(last.event).toBe('test_event')
-    expect(last.level).toBe('info')
-    expect(last.key).toBe('value')
-    expect(last.ts).toBeDefined()
+    const entries = logger.readEntries<Record<string, unknown>>('events.jsonl')
+    expect(entries).toHaveLength(1)
+    expect(entries[0].event).toBe('test_event')
+    expect(entries[0].level).toBe('info')
+    expect(entries[0].key).toBe('value')
+    expect(entries[0].ts).toBeDefined()
   })
 
   test('logEvent writes structured event entry', () => {
     const logger = new JsonlLogger(testDir)
     logger.logEvent({
       level: 'info',
-      sessionId: 'sess_test',
+      sessionId: 'sess_20260316_0900_web_a1b2',
       event: 'tool_call',
       tool: 'bash',
       input: 'ls -la',
       outputSummary: 'listed 12 files',
       durationMs: 45,
-      model: 'gpt-5.3-codex-medium',
     })
 
-    const entries = logger.readEntries('events.jsonl')
-    const last = entries[entries.length - 1] as Record<string, unknown>
-    expect(last.tool).toBe('bash')
-    expect(last.durationMs).toBe(45)
-  })
-
-  test('constructor migrates legacy operations.jsonl into events.jsonl', () => {
-    mkdirSync(testDir, { recursive: true })
-    appendFileSync(
-      join(testDir, 'operations.jsonl'),
-      `${JSON.stringify({
-        ts: '2026-03-16T00:00:00.000Z',
-        level: 'info',
-        event: 'legacy_event',
-      })}\n`,
-      'utf-8',
-    )
-
-    const logger = new JsonlLogger(testDir)
     const entries = logger.readEntries<Record<string, unknown>>('events.jsonl')
-
-    expect(entries.some((entry) => entry.event === 'legacy_event')).toBe(true)
-    expect(existsSync(join(testDir, 'operations.jsonl'))).toBe(false)
-  })
-
-  test('logRequest writes to requests.jsonl', () => {
-    const logger = new JsonlLogger(testDir)
-    logger.logRequest({
-      id: 'req_001',
-      turnIndex: 1,
-      sessionId: 'sess_test',
-      agentName: 'zero',
-      model: 'gpt-5.3-codex-medium',
-      provider: 'openai-codex',
-      userPrompt: 'hello',
-      response: 'hi',
-      reasoningContent: 'checked prompt first',
-      stopReason: 'end_turn',
-      toolUseCount: 0,
-      toolCalls: [],
-      toolResults: [
-        {
-          type: 'tool_result',
-          toolUseId: 'call_0',
-          content: 'tool output passed to next request',
-          outputSummary: 'tool output passed to next request',
-        },
-      ],
-      toolNames: ['read', 'bash'],
-      toolDefinitionsHash: 'tools-hash',
-      systemHash: 'system-hash',
-      staticPrefixHash: 'prefix-hash',
-      messageCount: 3,
-      tokens: { input: 100, output: 50, reasoning: 25 },
-      cost: 0.001,
-      durationMs: 123,
-    })
-
-    const entries = logger.readEntries('requests.jsonl')
-    expect(entries.length).toBeGreaterThanOrEqual(1)
-    const last = entries[entries.length - 1] as Record<string, unknown>
-    expect(last.agentName).toBe('zero')
-    expect(last.model).toBe('gpt-5.3-codex-medium')
-    expect(last.stopReason).toBe('end_turn')
-    expect(last.toolUseCount).toBe(0)
-    expect(last.durationMs).toBe(123)
-    expect(last.reasoningContent).toBe('checked prompt first')
-    expect(last.toolNames).toEqual(['read', 'bash'])
-    expect(last.toolDefinitionsHash).toBe('tools-hash')
-    expect(last.systemHash).toBe('system-hash')
-    expect(last.staticPrefixHash).toBe('prefix-hash')
-    expect(last.messageCount).toBe(3)
-    expect(last.toolResults).toEqual([
-      {
-        type: 'tool_result',
-        toolUseId: 'call_0',
-        content: 'tool output passed to next request',
-        outputSummary: 'tool output passed to next request',
-      },
-    ])
-    expect((last.tokens as Record<string, unknown>).reasoning).toBe(25)
-  })
-
-  test('logSessionRequest writes to the legacy session request file', () => {
-    const logger = new JsonlLogger(testDir)
-    logger.logSessionRequest({
-      id: 'req_session_001',
-      turnIndex: 1,
-      sessionId: 'sess_scoped',
-      agentName: 'Explorer',
-      spawnedByRequestId: 'req_parent_001',
-      model: 'gpt-5.4',
-      provider: 'openai-codex',
-      userPrompt: 'full prompt',
-      response: 'full response',
-      stopReason: 'end_turn',
-      toolUseCount: 1,
-      toolCalls: [{ id: 'call_1', name: 'read', input: { path: '/tmp/file.txt' } }],
-      toolResults: [
-        {
-          type: 'tool_result',
-          toolUseId: 'call_1',
-          content: 'file contents here',
-          outputSummary: 'file contents here',
-        },
-      ],
-      tokens: { input: 10, output: 20 },
-      cost: 0.123,
-      durationMs: 456,
-    })
-
-    const entries = logger.readSessionRequests('sess_scoped')
     expect(entries).toHaveLength(1)
-    expect(entries[0].id).toBe('req_session_001')
-    expect(entries[0].agentName).toBe('Explorer')
-    expect(entries[0].spawnedByRequestId).toBe('req_parent_001')
-    expect(entries[0].durationMs).toBe(456)
-    expect(entries[0].toolCalls).toEqual([
-      { id: 'call_1', name: 'read', input: { path: '/tmp/file.txt' } },
-    ])
-    expect(entries[0].toolResults).toEqual([
-      {
-        type: 'tool_result',
-        toolUseId: 'call_1',
-        content: 'file contents here',
-        outputSummary: 'file contents here',
-      },
-    ])
+    expect(entries[0].tool).toBe('bash')
+    expect(entries[0].durationMs).toBe(45)
   })
 
-  test('logSessionRequest uses dated layout for generated-style session ids', () => {
-    const logger = new JsonlLogger(testDir)
-    const sessionId = 'sess_20260313_1423_fei_a1b2'
-
-    logger.logSessionRequest({
-      id: 'req_session_dated',
-      turnIndex: 1,
-      sessionId,
-      model: 'gpt-5.4',
-      provider: 'openai-codex',
-      userPrompt: 'dated prompt',
-      response: 'dated response',
-      stopReason: 'end_turn',
-      toolUseCount: 0,
-      tokens: { input: 1, output: 2 },
-      cost: 0.01,
-    })
-
-    expect(existsSync(join(testDir, 'sessions', '2026-03-13', sessionId, 'requests.jsonl'))).toBe(
-      true,
-    )
-    expect(logger.readSessionRequests(sessionId)).toHaveLength(1)
-  })
-
-  test('readSessionRequests falls back to legacy global requests file', () => {
-    const logger = new JsonlLogger(testDir)
-    logger.logRequest({
-      id: 'req_legacy_001',
-      turnIndex: 1,
-      sessionId: 'sess_legacy',
-      model: 'gpt-5.3-codex-medium',
-      provider: 'openai-codex',
-      userPrompt: 'legacy prompt',
-      response: 'legacy response',
-      stopReason: 'end_turn',
-      toolUseCount: 0,
-      tokens: { input: 1, output: 2 },
-      cost: 0.01,
-    })
-
-    const entries = logger.readSessionRequests('sess_legacy')
-    expect(entries).toHaveLength(1)
-    expect(entries[0].id).toBe('req_legacy_001')
-    expect(entries[0].toolCalls).toEqual([])
-    expect(entries[0].toolResults).toEqual([])
-  })
-
-  test('readSessionRequests normalizes missing toolCalls and toolResults from legacy lines', () => {
-    const logger = new JsonlLogger(testDir)
-    const sessionId = 'sess_20260313_0000_leg_abcd'
-    const sessionDir = join(testDir, 'sessions', '2026-03-13', sessionId)
-    const filePath = join(sessionDir, 'requests.jsonl')
-    mkdirSync(sessionDir, {
-      recursive: true,
-    })
-    appendFileSync(
-      filePath,
-      `${JSON.stringify({
-        id: 'req_missing_toolcalls',
-        turnIndex: 1,
-        sessionId,
-        model: 'gpt-5.4',
-        provider: 'openai-codex',
-        userPrompt: 'legacy prompt',
-        response: 'legacy response',
-        stopReason: 'end_turn',
-        toolUseCount: 0,
-        tokens: { input: 1, output: 2 },
-        cost: 0.01,
-        ts: '2026-03-13T00:00:00.000Z',
-      })}\n`,
-      'utf-8',
-    )
-
-    const entries = logger.readSessionRequests(sessionId)
-    expect(entries).toHaveLength(1)
-    expect(entries[0].toolCalls).toEqual([])
-    expect(entries[0].toolResults).toEqual([])
-  })
-
-  test('readSessionRequests prefers trace.jsonl over legacy request files', () => {
+  test('readSessionRequests returns trace-projected requests', () => {
     const logger = new JsonlLogger(testDir)
     const sessionId = 'sess_20260316_0100_web_trace'
-
-    logger.logSessionRequest({
-      id: 'req_legacy_001',
-      turnIndex: 1,
-      sessionId,
-      model: 'legacy-model',
-      provider: 'legacy-provider',
-      userPrompt: 'legacy prompt',
-      response: 'legacy response',
-      stopReason: 'end_turn',
-      toolUseCount: 0,
-      tokens: { input: 1, output: 2 },
-      cost: 0.01,
-    })
 
     writeSessionTraceEntries(testDir, sessionId, [
       {
@@ -287,10 +67,17 @@ describe('JsonlLogger', () => {
             userPrompt: 'trace prompt',
             response: 'trace response',
             stopReason: 'end_turn',
-            toolUseCount: 0,
-            toolCalls: [],
-            toolResults: [],
-            tokens: { input: 3, output: 4 },
+            toolUseCount: 1,
+            toolCalls: [{ id: 'call_1', name: 'read', input: { path: '/tmp/demo.txt' } }],
+            toolResults: [
+              {
+                type: 'tool_result',
+                toolUseId: 'call_1',
+                content: 'demo file contents',
+                outputSummary: 'demo file contents',
+              },
+            ],
+            tokens: { input: 3, output: 4, reasoning: 1 },
             cost: 0.02,
             durationMs: 1000,
           },
@@ -301,26 +88,24 @@ describe('JsonlLogger', () => {
     const entries = logger.readSessionRequests(sessionId)
     expect(entries).toHaveLength(1)
     expect(entries[0].id).toBe('req_trace_001')
-    expect(entries[0].model).toBe('trace-model')
+    expect(entries[0].agentName).toBe('trace-agent')
+    expect(entries[0].toolCalls).toEqual([
+      { id: 'call_1', name: 'read', input: { path: '/tmp/demo.txt' } },
+    ])
+    expect(entries[0].toolResults).toEqual([
+      {
+        type: 'tool_result',
+        toolUseId: 'call_1',
+        content: 'demo file contents',
+        outputSummary: 'demo file contents',
+      },
+    ])
+    expect(entries[0].tokens.reasoning).toBe(1)
   })
 
-  test('readSessionRequests falls back to legacy files when trace entries are not projectable', () => {
+  test('readSessionRequests ignores non-projectable trace entries', () => {
     const logger = new JsonlLogger(testDir)
     const sessionId = 'sess_20260316_0110_web_trace'
-
-    logger.logSessionRequest({
-      id: 'req_legacy_fallback',
-      turnIndex: 1,
-      sessionId,
-      model: 'legacy-model',
-      provider: 'legacy-provider',
-      userPrompt: 'legacy prompt',
-      response: 'legacy response',
-      stopReason: 'end_turn',
-      toolUseCount: 0,
-      tokens: { input: 1, output: 2 },
-      cost: 0.01,
-    })
 
     writeSessionTraceEntries(testDir, sessionId, [
       {
@@ -333,59 +118,23 @@ describe('JsonlLogger', () => {
         durationMs: 1000,
         status: 'success',
         data: {
-          requestId: 'old-shape-only',
+          requestId: 'incomplete-shape',
         },
       },
     ])
 
-    const entries = logger.readSessionRequests(sessionId)
-    expect(entries).toHaveLength(1)
-    expect(entries[0].id).toBe('req_legacy_fallback')
-  })
-
-  test('readAllRequests merges trace and legacy request sources', () => {
-    const logger = new JsonlLogger(testDir)
-    logger.logRequest({
-      id: 'req_global_001',
-      turnIndex: 1,
-      sessionId: 'sess_global',
-      model: 'gpt-5.3-codex-medium',
-      provider: 'openai-codex',
-      userPrompt: 'global prompt',
-      response: 'global response',
-      stopReason: 'end_turn',
-      toolUseCount: 0,
-      tokens: { input: 1, output: 2 },
-      cost: 0.01,
-    })
-    logger.logSessionRequest({
-      id: 'req_scoped_001',
-      turnIndex: 1,
-      sessionId: 'sess_scoped_all',
-      model: 'gpt-5.4',
-      provider: 'openai-codex',
-      userPrompt: 'scoped prompt',
-      response: 'scoped response',
-      stopReason: 'end_turn',
-      toolUseCount: 0,
-      tokens: { input: 3, output: 4 },
-      cost: 0.02,
-    })
-
-    const entries = logger.readAllRequests()
-    const ids = new Set(entries.map((entry) => entry.id))
-    expect(ids.has('req_global_001')).toBe(true)
-    expect(ids.has('req_scoped_001')).toBe(true)
+    expect(logger.readSessionRequests(sessionId)).toEqual([])
   })
 
   test('readAllRequests includes trace-only session requests', () => {
     const logger = new JsonlLogger(testDir)
-    const sessionId = 'sess_20260316_0140_web_trace'
+    const firstSessionId = 'sess_20260316_0140_web_abcd'
+    const secondSessionId = 'sess_20260316_0141_fei_ef12'
 
-    writeSessionTraceEntries(testDir, sessionId, [
+    writeSessionTraceEntries(testDir, firstSessionId, [
       {
         spanId: 'span_req_all_001',
-        sessionId,
+        sessionId: firstSessionId,
         kind: 'llm_request',
         name: 'llm_request',
         startTime: '2026-03-16T01:40:00.000Z',
@@ -396,7 +145,7 @@ describe('JsonlLogger', () => {
           request: {
             id: 'req_trace_all_001',
             turnIndex: 1,
-            sessionId,
+            sessionId: firstSessionId,
             model: 'trace-model',
             provider: 'trace-provider',
             userPrompt: 'trace only prompt',
@@ -411,9 +160,38 @@ describe('JsonlLogger', () => {
         },
       },
     ])
+    writeSessionTraceEntries(testDir, secondSessionId, [
+      {
+        spanId: 'span_req_all_002',
+        sessionId: secondSessionId,
+        kind: 'llm_request',
+        name: 'llm_request',
+        startTime: '2026-03-16T01:41:00.000Z',
+        endTime: '2026-03-16T01:41:01.000Z',
+        durationMs: 1000,
+        status: 'success',
+        data: {
+          request: {
+            id: 'req_trace_all_002',
+            turnIndex: 1,
+            sessionId: secondSessionId,
+            model: 'trace-model-2',
+            provider: 'trace-provider',
+            userPrompt: 'trace only prompt 2',
+            response: 'trace only response 2',
+            stopReason: 'end_turn',
+            toolUseCount: 0,
+            toolCalls: [],
+            toolResults: [],
+            tokens: { input: 4, output: 5 },
+            cost: 0.04,
+          },
+        },
+      },
+    ])
 
     const ids = new Set(logger.readAllRequests().map((entry) => entry.id))
-    expect(ids.has('req_trace_all_001')).toBe(true)
+    expect(ids).toEqual(new Set(['req_trace_all_001', 'req_trace_all_002']))
   })
 
   test('syncSessionActiveState maintains _active symlinks for active sessions only', () => {
@@ -430,111 +208,9 @@ describe('JsonlLogger', () => {
     expect(existsSync(linkPath)).toBe(false)
   })
 
-  test('logSessionClosure writes to the legacy session closure file', () => {
-    const logger = new JsonlLogger(testDir)
-    logger.logSessionClosure({
-      sessionId: 'sess_closure',
-      event: 'task_closure_decision',
-      action: 'finish',
-      reason: 'sufficient_coverage',
-      assistantMessageId: 'msg_001',
-      classifierRequest: {
-        system: 'strict classifier',
-        prompt: '<instruction>prompt</instruction>',
-        maxTokens: 200,
-      },
-      classifierResponse: {
-        id: 'resp_classifier_1',
-        model: 'fake-model',
-        stopReason: 'end_turn' as const,
-        usage: { input: 5, output: 7 },
-        reasoningContent: 'classifier reasoning',
-        content: [
-          {
-            type: 'text' as const,
-            text: '{"action":"finish","reason":"sufficient_coverage","trimFrom":""}',
-          },
-        ],
-      },
-    })
-
-    const entries = logger.readSessionClosures('sess_closure')
-    expect(entries).toHaveLength(1)
-    expect(entries[0].event).toBe('task_closure_decision')
-    expect(entries[0].assistantMessageId).toBe('msg_001')
-    expect(entries[0].classifierResponse).toEqual({
-      id: 'resp_classifier_1',
-      model: 'fake-model',
-      stopReason: 'end_turn' as const,
-      usage: { input: 5, output: 7 },
-      reasoningContent: 'classifier reasoning',
-      content: [
-        {
-          type: 'text' as const,
-          text: '{"action":"finish","reason":"sufficient_coverage","trimFrom":""}',
-        },
-      ],
-    })
-  })
-
-  test('logSessionClosure deduplicates repeated closure entries', () => {
-    const logger = new JsonlLogger(testDir)
-    const entry = {
-      sessionId: 'sess_closure_dedupe',
-      event: 'task_closure_failed' as const,
-      reason: 'invalid_classifier_output' as const,
-      failureStage: 'parse_classifier_response' as const,
-      assistantMessageId: 'msg_failed',
-      classifierRequest: {
-        system: 'strict classifier',
-        prompt: '<instruction>prompt</instruction>',
-        maxTokens: 200,
-      },
-      classifierResponse: {
-        id: 'resp_classifier_bad',
-        model: 'fake-model',
-        stopReason: 'end_turn' as const,
-        usage: { input: 5, output: 3 },
-        reasoningContent: 'classifier reasoning bad',
-        content: [{ type: 'text' as const, text: 'not-json' }],
-      },
-      classifierResponseRaw: 'not-json',
-    }
-
-    logger.logSessionClosure(entry)
-    logger.logSessionClosure(entry)
-
-    const entries = logger.readSessionClosures('sess_closure_dedupe')
-    expect(entries).toHaveLength(1)
-    expect(entries[0].event).toBe('task_closure_failed')
-  })
-
-  test('readSessionClosures does not fall back to events log', () => {
-    const logger = new JsonlLogger(testDir)
-    logger.log('info', 'task_closure_failed', {
-      sessionId: 'sess_closure_legacy',
-      reason: 'classifier_failed',
-    })
-
-    const entries = logger.readSessionClosures('sess_closure_legacy')
-    expect(entries).toHaveLength(0)
-  })
-
-  test('readSessionClosures prefers trace.jsonl over the legacy closure file', () => {
+  test('readSessionClosures returns trace-projected closure events', () => {
     const logger = new JsonlLogger(testDir)
     const sessionId = 'sess_20260316_0120_web_trace'
-
-    logger.logSessionClosure({
-      sessionId,
-      event: 'task_closure_failed',
-      reason: 'classifier_failed',
-      failureStage: 'request_classifier',
-      classifierRequest: {
-        system: 'legacy system',
-        prompt: 'legacy prompt',
-        maxTokens: 200,
-      },
-    })
 
     writeSessionTraceEntries(testDir, sessionId, [
       {
@@ -568,37 +244,9 @@ describe('JsonlLogger', () => {
     expect(entries[0].assistantMessageId).toBe('msg_trace_001')
   })
 
-  test('logSnapshot writes to snapshots.jsonl', () => {
-    const logger = new JsonlLogger(testDir)
-    logger.logSnapshot({
-      id: 'snap_001',
-      sessionId: 'sess_test',
-      trigger: 'session_start',
-      model: 'openai-codex/gpt-5.4',
-      systemPrompt: 'You are ZeRo OS',
-      tools: ['read', 'write', 'bash'],
-      compressedRange: '0..3',
-    })
-
-    const entries = logger.readSessionSnapshots('sess_test')
-    expect(entries.length).toBeGreaterThanOrEqual(1)
-    const last = entries[entries.length - 1]
-    expect(last.trigger).toBe('session_start')
-    expect(last.model).toBe('openai-codex/gpt-5.4')
-    expect(last.compressedRange).toBe('0..3')
-  })
-
-  test('readSessionSnapshots prefers trace.jsonl over legacy snapshot files', () => {
+  test('readSessionSnapshots returns trace-projected snapshots', () => {
     const logger = new JsonlLogger(testDir)
     const sessionId = 'sess_20260316_0130_web_trace'
-
-    logger.logSnapshot({
-      id: 'snap_legacy_001',
-      sessionId,
-      trigger: 'session_start',
-      model: 'legacy-model',
-      systemPrompt: 'legacy system prompt',
-    })
 
     writeSessionTraceEntries(testDir, sessionId, [
       {
@@ -654,18 +302,17 @@ describe('JsonlLogger', () => {
     ])
 
     const ids = new Set(logger.readAllSnapshots().map((entry) => entry.id))
-    expect(ids.has('snap_trace_all_001')).toBe(true)
+    expect(ids).toEqual(new Set(['snap_trace_all_001']))
   })
 
   test('readEntries returns empty array for missing file', () => {
     const logger = new JsonlLogger(testDir)
-    const entries = logger.readEntries('nonexistent.jsonl')
-    expect(entries).toEqual([])
+    expect(logger.readEntries('nonexistent.jsonl')).toEqual([])
   })
 })
 
 function writeSessionTraceEntries(baseDir: string, sessionId: string, entries: TraceEntry[]): void {
-  const sessionDir = join(baseDir, 'sessions', sessionId)
+  const sessionDir = join(baseDir, getSessionLogRelativeDir(sessionId))
   mkdirSync(sessionDir, { recursive: true })
   appendFileSync(
     join(sessionDir, 'trace.jsonl'),

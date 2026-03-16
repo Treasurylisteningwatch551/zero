@@ -5,7 +5,7 @@ import {
   generateId,
   generatePrefixedId,
   generateSessionId,
-  getSessionLogRelativeDirCandidates,
+  getSessionLogRelativeDir,
   parseSessionId,
   sessionSourceToAbbreviation,
 } from '../id'
@@ -67,11 +67,10 @@ describe('ID generation', () => {
     expect(sessionSourceToAbbreviation('browser')).toBe('brw')
   })
 
-  test('getSessionLogRelativeDirCandidates prefers dated layout and keeps flat fallback', () => {
-    expect(getSessionLogRelativeDirCandidates('sess_20260313_1423_fei_a1b2')).toEqual([
+  test('getSessionLogRelativeDir resolves the dated session path', () => {
+    expect(getSessionLogRelativeDir('sess_20260313_1423_fei_a1b2')).toBe(
       'sessions/2026-03-13/sess_20260313_1423_fei_a1b2',
-      'sessions/sess_20260313_1423_fei_a1b2',
-    ])
-    expect(getSessionLogRelativeDirCandidates('sess_test')).toEqual(['sessions/sess_test'])
+    )
+    expect(getSessionLogRelativeDir('sess_test')).toBe('sessions/sess_test')
   })
 })

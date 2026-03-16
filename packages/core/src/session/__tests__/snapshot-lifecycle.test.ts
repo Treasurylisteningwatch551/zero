@@ -68,12 +68,6 @@ function createRegistry(): ToolRegistry {
   return registry
 }
 
-function createTempLogger(): JsonlLogger {
-  const dir = mkdtempSync(join(tmpdir(), 'zero-snapshot-session-'))
-  tempDirs.push(dir)
-  return new JsonlLogger(dir)
-}
-
 function createTempObservability(): { dir: string; logger: JsonlLogger; tracer: Tracer } {
   const dir = mkdtempSync(join(tmpdir(), 'zero-snapshot-session-'))
   tempDirs.push(dir)
@@ -169,8 +163,8 @@ afterEach(() => {
 
 describe('Session snapshot lifecycle', () => {
   test('first handled message writes a complete session_start snapshot', async () => {
-    const logger = createTempLogger()
-    const session = new Session('web', createRouter(), createRegistry(), { logger })
+    const { logger, tracer } = createTempObservability()
+    const session = new Session('web', createRouter(), createRegistry(), { logger, tracer })
     session.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
     installFakeAgent(session)
 
@@ -186,9 +180,9 @@ describe('Session snapshot lifecycle', () => {
   })
 
   test('tool registry changes write a tools_changed snapshot with parent linkage', async () => {
-    const logger = createTempLogger()
+    const { logger, tracer } = createTempObservability()
     const registry = createRegistry()
-    const session = new Session('web', createRouter(), registry, { logger })
+    const session = new Session('web', createRouter(), registry, { logger, tracer })
     session.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
     installFakeAgent(session)
 
@@ -206,8 +200,8 @@ describe('Session snapshot lifecycle', () => {
   })
 
   test('prompt-only changes write a context_updated snapshot', async () => {
-    const logger = createTempLogger()
-    const session = new Session('web', createRouter(), createRegistry(), { logger })
+    const { logger, tracer } = createTempObservability()
+    const session = new Session('web', createRouter(), createRegistry(), { logger, tracer })
     session.initAgent({ name: 'snapshot-agent', agentInstruction: 'First prompt' })
     installFakeAgent(session)
 
@@ -227,8 +221,8 @@ describe('Session snapshot lifecycle', () => {
   })
 
   test('switchModel writes a complete model_switch snapshot', async () => {
-    const logger = createTempLogger()
-    const session = new Session('web', createRouter(), createRegistry(), { logger })
+    const { logger, tracer } = createTempObservability()
+    const session = new Session('web', createRouter(), createRegistry(), { logger, tracer })
     session.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
     installFakeAgent(session)
 
@@ -246,10 +240,10 @@ describe('Session snapshot lifecycle', () => {
   })
 
   test('restored session reuses the latest complete snapshot state', async () => {
-    const logger = createTempLogger()
+    const { logger, tracer } = createTempObservability()
     const router = createRouter()
     const registry = createRegistry()
-    const session = new Session('web', router, registry, { logger })
+    const session = new Session('web', router, registry, { logger, tracer })
     session.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
     installFakeAgent(session)
 
@@ -261,7 +255,7 @@ describe('Session snapshot lifecycle', () => {
       session.getMessages(),
       router,
       registry,
-      { logger },
+      { logger, tracer },
       session.getSystemPrompt(),
     )
     restored.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
@@ -276,10 +270,10 @@ describe('Session snapshot lifecycle', () => {
   })
 
   test('restored sessions continue turnIndex from prior request logs', async () => {
-    const logger = createTempLogger()
+    const { logger, tracer } = createTempObservability()
     const router = createRouter()
     const registry = createRegistry()
-    const session = new Session('web', router, registry, { logger })
+    const session = new Session('web', router, registry, { logger, tracer })
     session.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
 
     const initialTurns: number[] = []
@@ -294,7 +288,7 @@ describe('Session snapshot lifecycle', () => {
       session.getMessages(),
       router,
       registry,
-      { logger },
+      { logger, tracer },
       session.getSystemPrompt(),
     )
     restored.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })

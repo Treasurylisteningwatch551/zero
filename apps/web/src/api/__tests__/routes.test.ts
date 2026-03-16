@@ -226,25 +226,33 @@ describe('API Routes (Real)', () => {
       durationMs: 100,
       createdAt,
     })
-    zero.logger.logSessionRequest({
-      id: 'req_cache_session_001',
-      turnIndex: 1,
-      sessionId: session.data.id,
-      model: 'anthropic/claude-opus-4-6',
-      provider: 'anthropic',
-      userPrompt: 'test cache',
-      response: 'ok',
-      stopReason: 'end_turn',
-      toolUseCount: 0,
-      tokens: {
-        input: 550,
-        output: 100,
-        cacheWrite: 50,
-        cacheRead: 400,
+    const span = zero.tracer.startSpan(session.data.id, 'llm_request', undefined, {
+      kind: 'llm_request',
+      data: {
+        request: {
+          id: 'req_cache_session_001',
+          turnIndex: 1,
+          sessionId: session.data.id,
+          model: 'anthropic/claude-opus-4-6',
+          provider: 'anthropic',
+          userPrompt: 'test cache',
+          response: 'ok',
+          stopReason: 'end_turn',
+          toolUseCount: 0,
+          toolCalls: [],
+          toolResults: [],
+          tokens: {
+            input: 550,
+            output: 100,
+            cacheWrite: 50,
+            cacheRead: 400,
+          },
+          cost: 0.01,
+          durationMs: 100,
+        },
       },
-      cost: 0.01,
-      durationMs: 100,
     })
+    zero.tracer.endSpan(span.id, 'success')
 
     const res = await app.request(`/api/sessions/${session.data.id}`)
     expect(res.status).toBe(200)

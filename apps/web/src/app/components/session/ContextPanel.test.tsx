@@ -31,7 +31,7 @@ describe('TraceSummaryCard', () => {
             action: 'block',
             reason: 'stale metadata should not win',
             classifierRequest: {
-              system: 'legacy classifier',
+              system: 'fallback classifier',
               prompt: '<instruction>stale</instruction>',
               maxTokens: 100,
             },
@@ -44,7 +44,7 @@ describe('TraceSummaryCard', () => {
     expect(html).toContain('classifier_request')
     expect(html).toContain('strict classifier')
     expect(html).toContain('still researching')
-    expect(html).not.toContain('legacy classifier')
+    expect(html).not.toContain('fallback classifier')
   })
 
   test('keeps context panel height constrained', () => {

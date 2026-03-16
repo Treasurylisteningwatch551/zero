@@ -232,29 +232,6 @@ describe('API Routes Extended', () => {
     expect(data.events[0].assistantMessageId).toBe('msg_trace_001')
   })
 
-  test('GET /api/sessions/:id/task-closure-events falls back to legacy session closure file', async () => {
-    const session = zero.sessionManager.create('web')
-    zero.logger.logSessionClosure({
-      sessionId: session.data.id,
-      event: 'task_closure_decision',
-      action: 'finish',
-      reason: 'coverage_complete',
-      assistantMessageId: 'msg_closure_001',
-      classifierRequest: {
-        system: 'strict classifier',
-        prompt: '<instruction>prompt</instruction>',
-        maxTokens: 200,
-      },
-    })
-
-    const res = await app.request(`/api/sessions/${session.data.id}/task-closure-events`)
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(Array.isArray(data.events)).toBe(true)
-    expect(data.events[0].event).toBe('task_closure_decision')
-    expect(data.events[0].assistantMessageId).toBe('msg_closure_001')
-  })
-
   test('GET /api/sessions/:id/task-closure-events ignores events log task closure events', async () => {
     const session = zero.sessionManager.create('web')
     zero.logger.log('info', 'task_closure_failed', {
@@ -268,31 +245,37 @@ describe('API Routes Extended', () => {
     expect(data.events).toEqual([])
   })
 
-  test('GET /api/sessions/:id/requests returns session-scoped LLM requests', async () => {
+  test('GET /api/sessions/:id/requests returns trace-projected LLM requests', async () => {
     const session = zero.sessionManager.create('web')
-    zero.logger.logSessionRequest({
-      id: 'req_session_route_001',
-      turnIndex: 1,
-      sessionId: session.data.id,
-      model: 'openai-codex/gpt-5.4-medium',
-      provider: 'openai-codex',
-      userPrompt: 'full prompt for session route',
-      response: 'full response for session route',
-      stopReason: 'end_turn',
-      toolUseCount: 0,
-      toolCalls: [{ id: 'call_route_1', name: 'read', input: { path: '/tmp/demo.txt' } }],
-      toolResults: [
-        {
-          type: 'tool_result',
-          toolUseId: 'call_route_1',
-          content: 'demo file contents',
-          outputSummary: 'demo file contents',
+    const span = zero.tracer.startSpan(session.data.id, 'llm_request', undefined, {
+      kind: 'llm_request',
+      data: {
+        request: {
+          id: 'req_session_route_001',
+          turnIndex: 1,
+          sessionId: session.data.id,
+          model: 'openai-codex/gpt-5.4-medium',
+          provider: 'openai-codex',
+          userPrompt: 'full prompt for session route',
+          response: 'full response for session route',
+          stopReason: 'end_turn',
+          toolUseCount: 0,
+          toolCalls: [{ id: 'call_route_1', name: 'read', input: { path: '/tmp/demo.txt' } }],
+          toolResults: [
+            {
+              type: 'tool_result',
+              toolUseId: 'call_route_1',
+              content: 'demo file contents',
+              outputSummary: 'demo file contents',
+            },
+          ],
+          tokens: { input: 10, output: 20 },
+          cost: 0.42,
+          durationMs: 900,
         },
-      ],
-      tokens: { input: 10, output: 20 },
-      cost: 0.42,
-      durationMs: 900,
+      },
     })
+    zero.tracer.endSpan(span.id, 'success')
 
     const res = await app.request(`/api/sessions/${session.data.id}/requests`)
     expect(res.status).toBe(200)
@@ -314,45 +297,29 @@ describe('API Routes Extended', () => {
     ])
   })
 
-  test('GET /api/sessions/:id/requests falls back to legacy global requests log', async () => {
-    const session = zero.sessionManager.create('web')
-    zero.logger.logRequest({
-      id: 'req_legacy_route_001',
-      turnIndex: 1,
-      sessionId: session.data.id,
-      model: 'openai-codex/gpt-5.4-medium',
-      provider: 'openai-codex',
-      userPrompt: 'legacy prompt for session route',
-      response: 'legacy response for session route',
-      stopReason: 'end_turn',
-      toolUseCount: 0,
-      tokens: { input: 1, output: 2 },
-      cost: 0.1,
-    })
-
-    const res = await app.request(`/api/sessions/${session.data.id}/requests`)
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.requests.some((entry: { id: string }) => entry.id === 'req_legacy_route_001')).toBe(
-      true,
-    )
-  })
-
   test('GET /api/logs?type=requests reads merged request sources', async () => {
     const session = zero.sessionManager.create('web')
-    zero.logger.logSessionRequest({
-      id: 'req_logs_route_001',
-      turnIndex: 1,
-      sessionId: session.data.id,
-      model: 'openai-codex/gpt-5.4-medium',
-      provider: 'openai-codex',
-      userPrompt: 'request visible in logs',
-      response: 'response visible in logs',
-      stopReason: 'end_turn',
-      toolUseCount: 0,
-      tokens: { input: 5, output: 6 },
-      cost: 0.2,
+    const span = zero.tracer.startSpan(session.data.id, 'llm_request', undefined, {
+      kind: 'llm_request',
+      data: {
+        request: {
+          id: 'req_logs_route_001',
+          turnIndex: 1,
+          sessionId: session.data.id,
+          model: 'openai-codex/gpt-5.4-medium',
+          provider: 'openai-codex',
+          userPrompt: 'request visible in logs',
+          response: 'response visible in logs',
+          stopReason: 'end_turn',
+          toolUseCount: 0,
+          toolCalls: [],
+          toolResults: [],
+          tokens: { input: 5, output: 6 },
+          cost: 0.2,
+        },
+      },
     })
+    zero.tracer.endSpan(span.id, 'success')
 
     const res = await app.request('/api/logs?type=requests&limit=20')
     expect(res.status).toBe(200)

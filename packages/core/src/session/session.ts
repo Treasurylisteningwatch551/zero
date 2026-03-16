@@ -191,7 +191,6 @@ export class Session {
         error: (event: string, data?: Record<string, unknown>) =>
           console.error(`[${this.data.id}] ${event}`, data ?? ''),
       },
-      requestLogger: this.deps.logger,
       tracer: this.deps.tracer,
       secretFilter: this.deps.secretFilter,
       observability: observabilityHandle,
@@ -210,7 +209,6 @@ export class Session {
     }
 
     const agentObs: AgentObservability = {
-      logger: this.deps.logger,
       metrics: this.deps.metrics,
       tracer: this.deps.tracer,
       secretFilter: this.deps.secretFilter,
@@ -398,7 +396,6 @@ export class Session {
     })
 
     if (!this.deps.tracer) {
-      this.deps.logger.logSnapshot(snapshot)
       this.currentSnapshotId = snapshot.id
       this.lastSnapshotContext = {
         model: context.model,

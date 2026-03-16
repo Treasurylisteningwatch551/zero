@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { ProviderAdapter } from '@zero-os/model'
-import { JsonlLogger } from '@zero-os/observe'
+import { Tracer } from '@zero-os/observe'
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -100,15 +100,9 @@ describe('Agent snapshot linking', () => {
     const registry = new ToolRegistry()
     registry.register(new NoopTool())
 
-    const requests: Array<Record<string, unknown>> = []
     const compressionEvents: Array<{ summary: string; stats: { compressedRange?: string } }> = []
     let currentSnapshotId = 'snap_initial'
-    const logger = Object.assign(Object.create(JsonlLogger.prototype), {
-      logSessionRequest(entry: Record<string, unknown>) {
-        requests.push(entry)
-      },
-      logSessionClosure() {},
-    }) as JsonlLogger
+    const tracer = new Tracer()
 
     const toolContext: ToolContext = {
       sessionId: 'test-session',
@@ -118,6 +112,7 @@ describe('Agent snapshot linking', () => {
         warn: () => {},
         error: () => {},
       },
+      tracer,
     }
 
     const agent = new Agent(
@@ -126,7 +121,7 @@ describe('Agent snapshot linking', () => {
       registry,
       toolContext,
       {
-        logger,
+        tracer,
         getCurrentSnapshotId: () => currentSnapshotId,
         onContextCompressed: (event) => {
           compressionEvents.push(event)
@@ -145,6 +140,10 @@ describe('Agent snapshot linking', () => {
 
     await agent.run(context, 'trigger compression')
 
+    const requests = flattenTraceSpans(tracer.exportSession('test-session'))
+      .map((span) => span.data?.request as Record<string, unknown> | undefined)
+      .filter((entry): entry is Record<string, unknown> => Boolean(entry))
+
     expect(requests).toHaveLength(2)
     expect(requests[0]?.snapshotId).toBe('snap_initial')
     expect(requests[1]?.snapshotId).toBe('snap_compressed')
@@ -153,3 +152,16 @@ describe('Agent snapshot linking', () => {
     expect(compressionEvents[0]?.stats.compressedRange).toBeTruthy()
   })
 })
+
+function flattenTraceSpans(
+  spans: Array<{ data?: Record<string, unknown>; children?: unknown[] }>,
+): Array<{ data?: Record<string, unknown>; children?: unknown[] }> {
+  return spans.flatMap((span) => [
+    span,
+    ...flattenTraceSpans(
+      (span.children as
+        | Array<{ data?: Record<string, unknown>; children?: unknown[] }>
+        | undefined) ?? [],
+    ),
+  ])
+}

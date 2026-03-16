@@ -3,7 +3,6 @@ import type { ProviderAdapter } from '@zero-os/model'
 import { computeCost } from '@zero-os/model'
 import type {
   ClosureLogEntryInput,
-  JsonlLogger,
   MetricsDB,
   RequestToolCallEntry,
   RequestToolResultEntry,
@@ -78,7 +77,6 @@ export interface AgentContext {
  * Optional observability dependencies for the agent.
  */
 export interface AgentObservability {
-  logger?: Pick<JsonlLogger, 'logSessionRequest' | 'logSessionClosure'>
   metrics?: MetricsDB
   tracer?: Pick<Tracer, 'startSpan' | 'updateSpan' | 'endSpan' | 'getSpan'>
   secretFilter?: SecretFilter
@@ -383,7 +381,6 @@ export class Agent {
           assistantMessageCreatedAt: assistantMsg.createdAt,
         }
 
-        this.logTaskClosureEvent(sessionEvent)
         this.obs.bus?.emit('session:update', sessionEvent)
       }
 
@@ -1362,39 +1359,6 @@ export class Agent {
         },
       })
       this.obs.tracer?.endSpan(traceSpanId, 'success')
-    } else {
-      this.obs.logger?.logSessionRequest({
-        id: response.id,
-        turnIndex: meta.turnIndex,
-        parentId: meta.parentId,
-        sessionId: this.toolContext.sessionId,
-        agentName: this.config.name,
-        spawnedByRequestId: this.toolContext.spawnedByRequestId,
-        snapshotId,
-        model: this.obs.modelLabel ?? response.model,
-        provider: this.obs.providerName ?? 'unknown',
-        userPrompt: safeUserPrompt,
-        response: safeResponseText,
-        reasoningContent: safeReasoningContent,
-        stopReason: response.stopReason,
-        toolUseCount,
-        toolCalls,
-        toolResults: requestToolResults,
-        toolNames: requestMetadata.toolNames,
-        toolDefinitionsHash: requestMetadata.toolDefinitionsHash,
-        systemHash: requestMetadata.systemHash,
-        staticPrefixHash: requestMetadata.staticPrefixHash,
-        messageCount: request.messages.length,
-        tokens: {
-          input: response.usage.input,
-          output: response.usage.output,
-          cacheWrite: response.usage.cacheWrite,
-          cacheRead: response.usage.cacheRead,
-          reasoning: response.usage.reasoning,
-        },
-        cost,
-        durationMs,
-      })
     }
 
     this.obs.metrics?.recordRequest({
@@ -1507,13 +1471,6 @@ export class Agent {
 
     return value
   }
-
-  private logTaskClosureEvent(entry: ClosureLogEntryInput): void {
-    if (!this.obs.tracer) {
-      this.obs.logger?.logSessionClosure(entry)
-    }
-  }
-
   /**
    * Filter secrets from content blocks.
    */

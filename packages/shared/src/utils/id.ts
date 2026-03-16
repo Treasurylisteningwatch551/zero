@@ -13,13 +13,12 @@ export type SessionSourceAbbreviation =
   | 'leg'
 
 const DATED_SESSION_ID_RE = /^sess_(\d{8})_(\d{4})_([a-z]{3})_([0-9a-f]{4})$/
-const LEGACY_SESSION_ID_RE = /^sess_(\d{8})_([0-9a-f]{8})$/
 
 export interface SessionIdParts {
-  layout: 'dated' | 'legacy'
+  layout: 'dated'
   dateStamp: string
-  timeStamp?: string
-  sourceCode?: SessionSourceAbbreviation
+  timeStamp: string
+  sourceCode: SessionSourceAbbreviation
   random: string
 }
 
@@ -96,15 +95,6 @@ export function parseSessionId(sessionId: string): SessionIdParts | null {
     }
   }
 
-  const legacyMatch = sessionId.match(LEGACY_SESSION_ID_RE)
-  if (legacyMatch) {
-    return {
-      layout: 'legacy',
-      dateStamp: legacyMatch[1],
-      random: legacyMatch[2],
-    }
-  }
-
   return null
 }
 
@@ -122,11 +112,6 @@ export function getSessionLogRelativeDir(sessionId: string): string {
   }
 
   return `sessions/${dateDirectory}/${sessionId}`
-}
-
-export function getSessionLogRelativeDirCandidates(sessionId: string): string[] {
-  const candidates = [getSessionLogRelativeDir(sessionId), `sessions/${sessionId}`]
-  return [...new Set(candidates)]
 }
 
 function randomHex(length: number): string {

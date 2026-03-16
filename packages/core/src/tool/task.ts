@@ -193,13 +193,11 @@ export class TaskTool extends BaseTool {
         workDir: subWorkDir,
         projectRoot: ctx.projectRoot,
         logger: ctx.logger,
-        requestLogger: ctx.requestLogger,
         tracer: ctx.tracer,
         secretFilter: ctx.secretFilter,
       }
 
       const agentObs: AgentObservability = {
-        logger: ctx.requestLogger,
         tracer: ctx.tracer,
         secretFilter: ctx.secretFilter,
         providerName: resolvedModel?.providerName,

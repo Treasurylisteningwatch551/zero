@@ -56,10 +56,6 @@ export interface ToolContext {
   workDir: string
   projectRoot?: string
   logger: ToolLogger
-  requestLogger?: {
-    logSessionRequest(entry: Record<string, unknown>): void
-    logSessionClosure(entry: Record<string, unknown>): void
-  }
   tracer?: {
     startSpan(
       sessionId: string,
@@ -96,11 +92,7 @@ export interface ToolContext {
         metadata?: Record<string, unknown>
       },
     ): void
-    endSpan(
-      spanId: string,
-      status?: 'success' | 'error',
-      metadata?: Record<string, unknown>,
-    ): void
+    endSpan(spanId: string, status?: 'success' | 'error', metadata?: Record<string, unknown>): void
     getSpan(spanId: string): ToolTraceSpan | undefined
   }
   secretFilter?: SecretFilter

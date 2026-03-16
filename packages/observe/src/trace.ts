@@ -1,11 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import {
-  generatePrefixedId,
-  getSessionLogRelativeDir,
-  getSessionLogRelativeDirCandidates,
-  now,
-} from '@zero-os/shared'
+import { generatePrefixedId, getSessionLogRelativeDir, now } from '@zero-os/shared'
 
 export type TraceStatus = 'running' | 'success' | 'error'
 
@@ -209,10 +204,9 @@ export class Tracer {
   readSessionEntries(sessionId: string): TraceEntry[] {
     if (!this.basePath) return []
 
-    for (const filePath of this.getTraceFileCandidates(sessionId)) {
-      if (existsSync(filePath)) {
-        return this.readJsonlFile<TraceEntry>(filePath)
-      }
+    const filePath = this.getTraceFilePath(sessionId)
+    if (existsSync(filePath)) {
+      return this.readJsonlFile<TraceEntry>(filePath)
     }
 
     return []
@@ -267,11 +261,8 @@ export class Tracer {
     this.rootSpans.clear()
   }
 
-  private getTraceFileCandidates(sessionId: string): string[] {
-    if (!this.basePath) return []
-    return getSessionLogRelativeDirCandidates(sessionId).map((dir) =>
-      join(this.basePath as string, dir, 'trace.jsonl'),
-    )
+  private getTraceFilePath(sessionId: string): string {
+    return join(this.basePath as string, getSessionLogRelativeDir(sessionId), 'trace.jsonl')
   }
 
   private appendTraceEntry(entry: TraceEntry): void {

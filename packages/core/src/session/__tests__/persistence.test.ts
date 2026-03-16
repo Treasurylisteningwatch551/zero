@@ -163,9 +163,9 @@ describe('Session Persistence', () => {
     expect(session.data.id).toBe('sess_mgr_1')
   })
 
-  test('SessionManager.restoreFromDB migrates legacy agent config payloads', () => {
+  test('SessionManager.restoreFromDB migrates older agent config payloads', () => {
     const data: SessionData = {
-      id: 'sess_mgr_legacy',
+      id: 'sess_mgr_older',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       source: 'web',
@@ -177,17 +177,17 @@ describe('Session Persistence', () => {
 
     sessionDb.saveSession(
       data,
-      '{"name":"legacy-agent","systemPrompt":"legacy prompt"}',
-      '<role>legacy rendered prompt</role>',
+      '{"name":"older-agent","systemPrompt":"older prompt"}',
+      '<role>older rendered prompt</role>',
     )
 
     const manager = new SessionManager(modelRouter, toolRegistry, { sessionDb }, sessionDb)
     manager.restoreFromDB()
 
-    const session = manager.get('sess_mgr_legacy')
+    const session = manager.get('sess_mgr_older')
     expect(expectDefined(session).getAgentConfig()).toEqual({
-      name: 'legacy-agent',
-      agentInstruction: 'legacy prompt',
+      name: 'older-agent',
+      agentInstruction: 'older prompt',
     })
   })
 
