@@ -1,7 +1,9 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { ProviderAdapter } from '@zero-os/model'
-import type { ClosureLogEntryInput } from '@zero-os/observe'
-import { Tracer } from '@zero-os/observe'
+import { JsonlLogger, Tracer } from '@zero-os/observe'
 import type {
   CompletionRequest,
   CompletionResponse,
@@ -32,6 +34,7 @@ const CONTINUED_REPLY =
 const BLOCK_REPLY = '要继续线上核验，我需要你的账号登录态或截图授权。'
 
 type ClassifierMode = 'continue' | 'finish' | 'block' | 'malformed' | 'throw'
+const tempDirs: string[] = []
 
 function createTextResponse(text: string, reasoningContent?: string): CompletionResponse {
   return {
@@ -160,19 +163,6 @@ function createContext(registry: ToolRegistry): AgentContext {
     systemPrompt: 'Test prompt',
     conversationHistory: [],
     tools: registry.getDefinitions(),
-  }
-}
-
-function createClosureCapture() {
-  const entries: ClosureLogEntryInput[] = []
-  return {
-    entries,
-    logger: {
-      logSessionRequest() {},
-      logSessionClosure(entry: ClosureLogEntryInput) {
-        entries.push(entry)
-      },
-    },
   }
 }
 
@@ -339,27 +329,33 @@ describe('Agent task closure gate', () => {
     expect(adapter.classifierCalls).toBe(1)
   })
 
-  test('persists the new task closure decision schema', async () => {
+  test('persists the new task closure decision schema in trace data', async () => {
     const registry = new ToolRegistry()
     const adapter = new TaskClosureAdapter('continue')
-    const closureCapture = createClosureCapture()
+    const tracer = new Tracer()
     const agent = new Agent(
       { name: 'test-agent', agentInstruction: 'Test prompt' },
       adapter,
       registry,
       createToolContext(),
-      { logger: closureCapture.logger as never },
+      { tracer },
     )
 
     await agent.run(createContext(registry), '帮我看看这帖值不值得信')
 
-    const closureEvent = closureCapture.entries.find((entry) => entry.event === 'task_closure_decision')
-    expect(closureEvent).toBeDefined()
-    expect(closureEvent).toMatchObject({
+    const closureSpan = tracer
+      .exportSession('test-session')
+      .flatMap(flattenTraceSpans)
+      .find((span) => span.name === 'task_closure_decision')
+
+    expect(closureSpan?.data).toMatchObject({
+      closure: {
       event: 'task_closure_decision',
       action: 'continue',
       reason: '后续核验仍属于当前任务',
       trimFrom: OPTIONAL_TAIL,
+      assistantMessageId: expect.any(String),
+      assistantMessageCreatedAt: expect.any(String),
       classifierResponse: {
         id: 'resp_test',
         model: 'fake-model',
@@ -382,48 +378,86 @@ describe('Agent task closure gate', () => {
         prompt: expect.stringContaining('<assistant_tail>'),
         maxTokens: 200,
       },
+      },
     })
   })
 
-  test('persists invalid classifier output as task_closure_failed', async () => {
+  test('persists invalid classifier output as task_closure_failed in trace data', async () => {
     const registry = new ToolRegistry()
     const adapter = new TaskClosureAdapter('malformed')
-    const closureCapture = createClosureCapture()
+    const tracer = new Tracer()
     const agent = new Agent(
       { name: 'test-agent', agentInstruction: 'Test prompt' },
       adapter,
       registry,
       createToolContext(),
-      { logger: closureCapture.logger as never },
+      { tracer },
     )
 
     await agent.run(createContext(registry), '帮我继续核验')
 
-    expect(closureCapture.entries).toContainEqual({
-      event: 'task_closure_failed',
-      reason: 'invalid_classifier_output',
-      failureStage: 'parse_classifier_response',
-      assistantMessageId: expect.any(String),
-      assistantMessageCreatedAt: expect.any(String),
-      classifierResponse: {
-        id: 'resp_test',
-        model: 'fake-model',
-        stopReason: 'end_turn',
-        usage: { input: 8, output: 8 },
-        reasoningContent: 'classifier reasoning before malformed output',
-        content: [{ type: 'text', text: 'not-json' }],
+    const closureSpan = tracer
+      .exportSession('test-session')
+      .flatMap(flattenTraceSpans)
+      .find((span) => span.name === 'task_closure_failed')
+
+    expect(closureSpan?.data).toMatchObject({
+      closure: {
+        event: 'task_closure_failed',
+        reason: 'invalid_classifier_output',
+        failureStage: 'parse_classifier_response',
+        assistantMessageId: expect.any(String),
+        assistantMessageCreatedAt: expect.any(String),
+        classifierResponse: {
+          id: 'resp_test',
+          model: 'fake-model',
+          stopReason: 'end_turn',
+          usage: { input: 8, output: 8 },
+          reasoningContent: 'classifier reasoning before malformed output',
+          content: [{ type: 'text', text: 'not-json' }],
+        },
+        classifierRequest: {
+          system: expect.stringContaining('严格的任务收尾判定器'),
+          prompt: expect.stringContaining('<assistant_tail>'),
+          maxTokens: 200,
+        },
+        classifierResponseRaw: 'not-json',
       },
-      classifierRequest: {
-        system: expect.stringContaining('严格的任务收尾判定器'),
-        prompt: expect.stringContaining('<assistant_tail>'),
-        maxTokens: 200,
-      },
-      classifierResponseRaw: 'not-json',
-      sessionId: 'test-session',
     })
+  })
+
+  test('uses trace-only session writes when tracer is file-backed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'zero-completion-gate-'))
+    tempDirs.push(dir)
+    const logger = new JsonlLogger(dir)
+    const tracer = new Tracer(dir)
+    const registry = new ToolRegistry()
+    const adapter = new TaskClosureAdapter('continue')
+    const agent = new Agent(
+      { name: 'test-agent', agentInstruction: 'Test prompt' },
+      adapter,
+      registry,
+      createToolContext(),
+      { logger, tracer },
+    )
+
+    await agent.run(createContext(registry), '帮我看看这帖值不值得信')
+
+    const sessionDir = join(dir, 'sessions', 'test-session')
+    expect(existsSync(join(sessionDir, 'trace.jsonl'))).toBe(true)
+    expect(existsSync(join(sessionDir, 'requests.jsonl'))).toBe(false)
+    expect(existsSync(join(sessionDir, 'closure.jsonl'))).toBe(false)
+    expect(logger.readSessionRequests('test-session')).toHaveLength(2)
+    expect(logger.readSessionClosures('test-session')).toHaveLength(2)
   })
 })
 
 function flattenTraceSpans<T extends { children?: T[] }>(span: T): T[] {
   return [span, ...(span.children ?? []).flatMap(flattenTraceSpans)]
 }
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

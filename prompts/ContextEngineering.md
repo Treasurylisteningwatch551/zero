@@ -412,7 +412,7 @@ function truncateToolOutput(
     head,
     '',
     `... (输出已截断: 原始 ${tokens} tokens, 保留头尾约 ${limit} tokens)`,
-    `... (该内容作为 tool_result 写入会话消息，并会记录到后续请求的 requests.jsonl)`,
+    `... (该内容作为 tool_result 写入会话消息，并会记录到后续请求对应的 llm_request trace span)`,
     '',
     tail,
   ].join('\n')
@@ -582,7 +582,7 @@ const summaryMessage: Message = {
 
 ### 压缩与 Snapshot 的关系
 
-每次压缩产生一条新的 Snapshot（写入 `snapshots.jsonl`），记录压缩前后的消息数量、压缩范围、摘要内容。这样事后回放 Session 时可以完整还原：Snapshot 链 + 请求链 = 完整的上下文演进历史。
+每次压缩产生一条新的 Snapshot（写入 `trace.jsonl` 的 snapshot span；旧 `snapshots.jsonl` 仅保留兼容 fallback），记录压缩前后的消息数量、压缩范围、摘要内容。这样事后回放 Session 时可以完整还原：Snapshot 链 + 请求链 = 完整的上下文演进历史。
 
 ---
 

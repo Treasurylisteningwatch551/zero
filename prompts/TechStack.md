@@ -1587,12 +1587,11 @@ Supervisor 启动主进程（apps/server）
   │      └──→ Embedding API → 向量检索 → 返回记忆片段
   │
   ├──→ 组装上下文 = 身份记忆 + 检索记忆 + 对话历史 + 用户消息
-  │      └──→ 写入 snapshots.jsonl（如有变化）
+  │      └──→ 结束对应 snapshot trace span，追加到 trace.jsonl（如有变化）
   │
   ├──→ Model Router 选择模型
   │      └──→ Provider Adapter 调用 LLM API（流式）
-  │             ├──→ 写入 requests.jsonl
-  │             └──→ 结束对应 trace span，追加到 trace.jsonl
+  │             └──→ 结束对应 llm_request trace span，追加到 trace.jsonl
   │
   ├──→ Agent 处理响应
   │      ├── 文本响应 → 流式推送给 Channel + WebSocket

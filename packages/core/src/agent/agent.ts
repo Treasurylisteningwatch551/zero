@@ -1317,39 +1317,6 @@ export class Agent {
         : response.reasoningContent
       : undefined
 
-    this.obs.logger?.logSessionRequest({
-      id: response.id,
-      turnIndex: meta.turnIndex,
-      parentId: meta.parentId,
-      sessionId: this.toolContext.sessionId,
-      agentName: this.config.name,
-      spawnedByRequestId: this.toolContext.spawnedByRequestId,
-      snapshotId,
-      model: this.obs.modelLabel ?? response.model,
-      provider: this.obs.providerName ?? 'unknown',
-      userPrompt: safeUserPrompt,
-      response: safeResponseText,
-      reasoningContent: safeReasoningContent,
-      stopReason: response.stopReason,
-      toolUseCount,
-      toolCalls,
-      toolResults: requestToolResults,
-      toolNames: requestMetadata.toolNames,
-      toolDefinitionsHash: requestMetadata.toolDefinitionsHash,
-      systemHash: requestMetadata.systemHash,
-      staticPrefixHash: requestMetadata.staticPrefixHash,
-      messageCount: request.messages.length,
-      tokens: {
-        input: response.usage.input,
-        output: response.usage.output,
-        cacheWrite: response.usage.cacheWrite,
-        cacheRead: response.usage.cacheRead,
-        reasoning: response.usage.reasoning,
-      },
-      cost,
-      durationMs,
-    })
-
     if (traceSpanId) {
       this.obs.tracer?.updateSpan(traceSpanId, {
         data: {
@@ -1395,6 +1362,39 @@ export class Agent {
         },
       })
       this.obs.tracer?.endSpan(traceSpanId, 'success')
+    } else {
+      this.obs.logger?.logSessionRequest({
+        id: response.id,
+        turnIndex: meta.turnIndex,
+        parentId: meta.parentId,
+        sessionId: this.toolContext.sessionId,
+        agentName: this.config.name,
+        spawnedByRequestId: this.toolContext.spawnedByRequestId,
+        snapshotId,
+        model: this.obs.modelLabel ?? response.model,
+        provider: this.obs.providerName ?? 'unknown',
+        userPrompt: safeUserPrompt,
+        response: safeResponseText,
+        reasoningContent: safeReasoningContent,
+        stopReason: response.stopReason,
+        toolUseCount,
+        toolCalls,
+        toolResults: requestToolResults,
+        toolNames: requestMetadata.toolNames,
+        toolDefinitionsHash: requestMetadata.toolDefinitionsHash,
+        systemHash: requestMetadata.systemHash,
+        staticPrefixHash: requestMetadata.staticPrefixHash,
+        messageCount: request.messages.length,
+        tokens: {
+          input: response.usage.input,
+          output: response.usage.output,
+          cacheWrite: response.usage.cacheWrite,
+          cacheRead: response.usage.cacheRead,
+          reasoning: response.usage.reasoning,
+        },
+        cost,
+        durationMs,
+      })
     }
 
     this.obs.metrics?.recordRequest({
@@ -1509,7 +1509,9 @@ export class Agent {
   }
 
   private logTaskClosureEvent(entry: ClosureLogEntryInput): void {
-    this.obs.logger?.logSessionClosure(entry)
+    if (!this.obs.tracer) {
+      this.obs.logger?.logSessionClosure(entry)
+    }
   }
 
   /**

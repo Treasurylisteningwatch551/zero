@@ -397,8 +397,19 @@ export class Session {
       compressedRange: extra.compressedRange,
     })
 
-    this.deps.logger.logSnapshot(snapshot)
-    const snapshotSpan = this.deps.tracer?.startSpan(
+    if (!this.deps.tracer) {
+      this.deps.logger.logSnapshot(snapshot)
+      this.currentSnapshotId = snapshot.id
+      this.lastSnapshotContext = {
+        model: context.model,
+        systemPrompt: context.systemPrompt,
+        tools: [...context.tools],
+        identityMemory: context.identityMemory,
+      }
+      return snapshot.id
+    }
+
+    const snapshotSpan = this.deps.tracer.startSpan(
       this.data.id,
       `snapshot:${trigger}`,
       undefined,
@@ -423,7 +434,7 @@ export class Session {
         },
       },
     )
-    if (snapshotSpan) this.deps.tracer?.endSpan(snapshotSpan.id, 'success')
+    this.deps.tracer.endSpan(snapshotSpan.id, 'success')
     this.currentSnapshotId = snapshot.id
     this.lastSnapshotContext = {
       model: context.model,

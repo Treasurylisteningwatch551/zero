@@ -16,8 +16,8 @@ export interface SnapshotParams {
 }
 
 /**
- * Build a snapshot entry for logging.
- * The `ts` field is added by JsonlLogger.logSnapshot().
+ * Build a snapshot payload for trace persistence and legacy fallback ledgers.
+ * When serialized as JSONL, the `ts` field is added by the caller if needed.
  */
 export function buildSnapshot(params: SnapshotParams): Omit<SnapshotEntry, 'ts'> {
   return {

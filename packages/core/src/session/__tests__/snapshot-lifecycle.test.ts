@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ModelRouter } from '@zero-os/model'
-import { JsonlLogger } from '@zero-os/observe'
+import { JsonlLogger, Tracer } from '@zero-os/observe'
 import type { Message, SystemConfig, ToolContext, ToolResult } from '@zero-os/shared'
-import { generateId, now } from '@zero-os/shared'
+import { generateId, getSessionLogRelativeDir, now } from '@zero-os/shared'
 import { BaseTool } from '../../tool/base'
 import { BashTool } from '../../tool/bash'
 import { ReadTool } from '../../tool/read'
@@ -72,6 +72,16 @@ function createTempLogger(): JsonlLogger {
   const dir = mkdtempSync(join(tmpdir(), 'zero-snapshot-session-'))
   tempDirs.push(dir)
   return new JsonlLogger(dir)
+}
+
+function createTempObservability(): { dir: string; logger: JsonlLogger; tracer: Tracer } {
+  const dir = mkdtempSync(join(tmpdir(), 'zero-snapshot-session-'))
+  tempDirs.push(dir)
+  return {
+    dir,
+    logger: new JsonlLogger(dir),
+    tracer: new Tracer(dir),
+  }
 }
 
 function makeMessage(sessionId: string, role: 'user' | 'assistant', text: string): Message {
@@ -294,5 +304,19 @@ describe('Session snapshot lifecycle', () => {
     await restored.handleMessage('follow up')
 
     expect(restoredTurns).toEqual([3])
+  })
+
+  test('uses trace-only snapshot persistence when tracer is available', async () => {
+    const { dir, logger, tracer } = createTempObservability()
+    const session = new Session('web', createRouter(), createRegistry(), { logger, tracer })
+    session.initAgent({ name: 'snapshot-agent', agentInstruction: 'Test snapshot prompt' })
+    installFakeAgent(session)
+
+    await session.handleMessage('hello')
+
+    const sessionDir = join(dir, getSessionLogRelativeDir(session.data.id))
+    expect(existsSync(join(sessionDir, 'trace.jsonl'))).toBe(true)
+    expect(existsSync(join(sessionDir, 'snapshots.jsonl'))).toBe(false)
+    expect(logger.readSessionSnapshots(session.data.id)).toHaveLength(1)
   })
 })
