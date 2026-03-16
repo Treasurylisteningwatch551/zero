@@ -5,7 +5,7 @@ import { ToolCallBlock } from './ToolCallBlock'
 import { UserMessageBlock } from './UserMessageBlock'
 import {
   type Message,
-  type PersistedTaskClosureEvent,
+  type SessionTaskClosureEvent,
   type TimelineItem,
   type TraceSpan,
   buildTimeline,
@@ -14,7 +14,7 @@ import {
 interface Props {
   messages: Message[]
   traces?: TraceSpan[]
-  taskClosureEvents?: PersistedTaskClosureEvent[]
+  taskClosureEvents?: SessionTaskClosureEvent[]
   selectedToolId: string | null
   highlightedAssistantMessageId?: string | null
   onSelectTool: (id: string | null) => void
@@ -116,5 +116,5 @@ function SystemEventBanner({ variant, text }: { variant: 'warning' | 'info'; tex
   )
 }
 
-export type { TimelineItem, Message, PersistedTaskClosureEvent, TraceSpan } from './timeline'
+export type { TimelineItem, Message, SessionTaskClosureEvent, TraceSpan } from './timeline'
 export { buildTimeline, extractFilesTouched } from './timeline'

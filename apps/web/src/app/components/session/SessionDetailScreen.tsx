@@ -9,7 +9,7 @@ import { ContextPanel } from './ContextPanel'
 import { MetadataBar } from './MetadataBar'
 import { TimelineView } from './TimelineView'
 import {
-  type PersistedTaskClosureEvent,
+  type SessionTaskClosureEvent,
   type TraceSpan,
   buildTimeline,
   extractFilesTouched,
@@ -110,7 +110,7 @@ export function SessionDetailScreen({
 
   const [session, setSession] = useState<SessionDetail | null>(null)
   const [traces, setTraces] = useState<TraceSpan[]>([])
-  const [taskClosureEvents, setTaskClosureEvents] = useState<PersistedTaskClosureEvent[]>([])
+  const [taskClosureEvents, setTaskClosureEvents] = useState<SessionTaskClosureEvent[]>([])
   const [llmRequests, setLlmRequests] = useState<SessionRequestEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [traceLoading, setTraceLoading] = useState(true)
@@ -138,7 +138,7 @@ export function SessionDetailScreen({
       return Promise.all([
         apiFetch<SessionDetail>(`/api/sessions/${sessionId}`),
         apiFetch<{ traces: TraceSpan[] }>(`/api/sessions/${sessionId}/traces`),
-        apiFetch<{ events: PersistedTaskClosureEvent[] }>(
+        apiFetch<{ events: SessionTaskClosureEvent[] }>(
           `/api/sessions/${sessionId}/task-closure-events`,
         ),
         apiFetch<{ requests: SessionRequestEntry[] }>(`/api/sessions/${sessionId}/requests`),

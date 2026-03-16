@@ -204,7 +204,35 @@ describe('API Routes Extended', () => {
     expect(Array.isArray(data.traces)).toBe(true)
   })
 
-  test('GET /api/sessions/:id/task-closure-events reads session-scoped closure ledger', async () => {
+  test('GET /api/sessions/:id/task-closure-events returns trace-projected closure events', async () => {
+    const session = zero.sessionManager.create('web')
+    const span = zero.tracer.startSpan(session.data.id, 'task_closure_decision', undefined, {
+      kind: 'closure_decision',
+      data: {
+        closure: {
+          event: 'task_closure_decision',
+          action: 'finish',
+          reason: 'trace_complete',
+          assistantMessageId: 'msg_trace_001',
+          classifierRequest: {
+            system: 'strict classifier',
+            prompt: '<instruction>prompt</instruction>',
+            maxTokens: 200,
+          },
+        },
+      },
+    })
+    zero.tracer.endSpan(span.id, 'success')
+
+    const res = await app.request(`/api/sessions/${session.data.id}/task-closure-events`)
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(Array.isArray(data.events)).toBe(true)
+    expect(data.events[0].event).toBe('task_closure_decision')
+    expect(data.events[0].assistantMessageId).toBe('msg_trace_001')
+  })
+
+  test('GET /api/sessions/:id/task-closure-events falls back to session closure ledger', async () => {
     const session = zero.sessionManager.create('web')
     zero.logger.logSessionClosure({
       sessionId: session.data.id,

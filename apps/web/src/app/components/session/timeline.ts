@@ -12,7 +12,7 @@ export interface Message {
   createdAt: string
 }
 
-export interface PersistedTaskClosureEvent {
+export interface SessionTaskClosureEvent {
   ts: string
   event: 'task_closure_decision' | 'task_closure_failed'
   sessionId?: string
@@ -31,6 +31,8 @@ export interface PersistedTaskClosureEvent {
   error?: string
 }
 
+export type PersistedTaskClosureEvent = SessionTaskClosureEvent
+
 export interface TraceSpan {
   id: string
   parentId?: string
@@ -46,13 +48,13 @@ export interface TraceSpan {
 }
 
 interface TaskClosureTraceDetails {
-  event?: PersistedTaskClosureEvent['event']
+  event?: SessionTaskClosureEvent['event']
   called?: boolean
-  action?: PersistedTaskClosureEvent['action']
+  action?: SessionTaskClosureEvent['action']
   reason?: string
-  failureStage?: PersistedTaskClosureEvent['failureStage']
+  failureStage?: SessionTaskClosureEvent['failureStage']
   trimFrom?: string
-  classifierRequest?: PersistedTaskClosureEvent['classifierRequest']
+  classifierRequest?: SessionTaskClosureEvent['classifierRequest']
   classifierResponseRaw?: string
   assistantMessageId?: string
   assistantMessageCreatedAt?: string
@@ -82,7 +84,7 @@ export type TimelineItem =
 export function buildTimeline(
   messages: Message[],
   traces: TraceSpan[] = [],
-  persistedTaskClosureEvents: PersistedTaskClosureEvent[] = [],
+  taskClosureEvents: SessionTaskClosureEvent[] = [],
 ): TimelineItem[] {
   const items: TimelineItem[] = []
   const toolResults = new Map<string, { content: string; isError: boolean }>()
@@ -170,13 +172,13 @@ export function buildTimeline(
     }
   }
 
-  items.push(...buildTaskClosureEvents(traces, persistedTaskClosureEvents))
+  items.push(...buildTaskClosureEvents(traces, taskClosureEvents))
   return items.sort((left, right) => left.createdAt.localeCompare(right.createdAt))
 }
 
 function buildTaskClosureEvents(
   traces: TraceSpan[],
-  persistedTaskClosureEvents: PersistedTaskClosureEvent[],
+  taskClosureEvents: SessionTaskClosureEvent[],
 ): TimelineItem[] {
   const flattenedTraces = flattenTraceSpans(traces)
   const traceItems = flattenedTraces
@@ -191,28 +193,27 @@ function buildTaskClosureEvents(
     })
     .filter((item): item is TimelineItem => item !== null)
 
-  const persistedItems = filterDuplicateTaskClosureEvents(
-    flattenedTraces,
-    persistedTaskClosureEvents,
-  ).map(mapPersistedTaskClosureEvent)
-  return [...traceItems, ...persistedItems]
+  const sessionItems = filterDuplicateTaskClosureEvents(flattenedTraces, taskClosureEvents).map(
+    mapSessionTaskClosureEvent,
+  )
+  return [...traceItems, ...sessionItems]
 }
 
 export function filterDuplicateTaskClosureEvents(
   traces: TraceSpan[],
-  persistedTaskClosureEvents: PersistedTaskClosureEvent[],
-): PersistedTaskClosureEvent[] {
+  taskClosureEvents: SessionTaskClosureEvent[],
+): SessionTaskClosureEvent[] {
   const traceKeys = new Set(
     traces.map(getTaskClosureTraceKey).filter((key): key is string => key !== null),
   )
 
-  return persistedTaskClosureEvents.filter((event) => {
-    const eventKey = getPersistedTaskClosureEventKey(event)
+  return taskClosureEvents.filter((event) => {
+    const eventKey = getSessionTaskClosureEventKey(event)
     return eventKey === null || !traceKeys.has(eventKey)
   })
 }
 
-function mapPersistedTaskClosureEvent(event: PersistedTaskClosureEvent): TimelineItem {
+function mapSessionTaskClosureEvent(event: SessionTaskClosureEvent): TimelineItem {
   const createdAt = event.assistantMessageCreatedAt ?? event.ts
 
   if (event.event === 'task_closure_failed') {
@@ -306,7 +307,7 @@ function getTaskClosureTraceKey(span: TraceSpan): string | null {
   return null
 }
 
-function getPersistedTaskClosureEventKey(event: PersistedTaskClosureEvent): string | null {
+function getSessionTaskClosureEventKey(event: SessionTaskClosureEvent): string | null {
   const assistantMessageId = event.assistantMessageId ?? ''
 
   if (event.event === 'task_closure_decision') {
@@ -374,7 +375,7 @@ export function getTaskClosureTraceDetails(span: TraceSpan): TaskClosureTraceDet
 function resolveClassifierRequest(
   value: unknown,
   fallback: unknown,
-): PersistedTaskClosureEvent['classifierRequest'] | undefined {
+): SessionTaskClosureEvent['classifierRequest'] | undefined {
   if (isClassifierRequest(value)) return value
   if (isClassifierRequest(fallback)) return fallback
   return undefined
@@ -394,21 +395,21 @@ function asBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
 }
 
-function asTaskClosureEvent(value: unknown): PersistedTaskClosureEvent['event'] | undefined {
+function asTaskClosureEvent(value: unknown): SessionTaskClosureEvent['event'] | undefined {
   return value === 'task_closure_decision' || value === 'task_closure_failed' ? value : undefined
 }
 
-function asAction(value: unknown): PersistedTaskClosureEvent['action'] | undefined {
+function asAction(value: unknown): SessionTaskClosureEvent['action'] | undefined {
   return value === 'finish' || value === 'continue' || value === 'block' ? value : undefined
 }
 
-function asFailureStage(value: unknown): PersistedTaskClosureEvent['failureStage'] | undefined {
+function asFailureStage(value: unknown): SessionTaskClosureEvent['failureStage'] | undefined {
   return value === 'parse_classifier_response' || value === 'request_classifier' ? value : undefined
 }
 
 function isClassifierRequest(
   value: unknown,
-): value is PersistedTaskClosureEvent['classifierRequest'] {
+): value is SessionTaskClosureEvent['classifierRequest'] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const candidate = value as Record<string, unknown>
   return (

@@ -316,7 +316,7 @@ export class JsonlLogger {
   }
 
   /**
-   * Read requests for a session, falling back to legacy global requests.jsonl.
+   * Read requests for a session, preferring trace.jsonl and falling back to legacy ledgers.
    */
   readSessionRequests(sessionId: string): RequestLogEntry[] {
     const tracedEntries = projectSessionRequestsFromTraceEntries(
@@ -336,7 +336,7 @@ export class JsonlLogger {
   }
 
   /**
-   * Read task closure events for a session.
+   * Read task closure events for a session, preferring trace.jsonl over closure.jsonl.
    */
   readSessionClosures(sessionId: string): ClosureLogEntry[] {
     const tracedEntries = projectSessionClosuresFromTraceEntries(
@@ -350,7 +350,7 @@ export class JsonlLogger {
   }
 
   /**
-   * Read snapshots for a session, falling back to legacy global snapshots.jsonl.
+   * Read snapshots for a session, preferring trace.jsonl and falling back to legacy ledgers.
    */
   readSessionSnapshots(sessionId: string): SnapshotEntry[] {
     const tracedEntries = projectSessionSnapshotsFromTraceEntries(

@@ -4,7 +4,7 @@ import { toolColors } from '../../lib/colors'
 import { formatCost, formatModelHistory, formatNumber, formatTimeAgo } from '../../lib/format'
 import {
   getTaskClosureTraceDetails,
-  type PersistedTaskClosureEvent,
+  type SessionTaskClosureEvent,
   type TraceSpan,
 } from './timeline'
 
@@ -80,7 +80,7 @@ interface Props {
   llmRequests?: LlmRequestEntry[]
   selectedToolId: string | null
   traces?: TraceSpan[]
-  taskClosureEvents?: PersistedTaskClosureEvent[]
+  taskClosureEvents?: SessionTaskClosureEvent[]
   traceLoading?: boolean
   onJumpToAssistantMessage?: (messageId: string) => void
 }
@@ -131,7 +131,7 @@ export function ContextPanel({
   const totalCalls = toolCalls.length
 
   const taskClosureCards = useMemo(
-    () => taskClosureEvents.map(mapPersistedTaskClosureEventToCard),
+    () => taskClosureEvents.map(mapSessionTaskClosureEventToCard),
     [taskClosureEvents],
   )
 
@@ -486,7 +486,7 @@ export function ContextPanel({
   )
 }
 
-function mapPersistedTaskClosureEventToCard(event: PersistedTaskClosureEvent) {
+function mapSessionTaskClosureEventToCard(event: SessionTaskClosureEvent) {
   return {
     createdAt: event.ts,
     event: event.event,
@@ -507,7 +507,7 @@ function PersistedTaskClosureCard({
   card,
   onJumpToAssistantMessage,
 }: {
-  card: ReturnType<typeof mapPersistedTaskClosureEventToCard>
+  card: ReturnType<typeof mapSessionTaskClosureEventToCard>
   onJumpToAssistantMessage?: (messageId: string) => void
 }) {
   return (

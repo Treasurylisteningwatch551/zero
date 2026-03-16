@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   type Message,
-  type PersistedTaskClosureEvent,
+  type SessionTaskClosureEvent,
   type TraceSpan,
   buildTimeline,
 } from './timeline'
@@ -162,8 +162,8 @@ describe('buildTimeline', () => {
   })
 })
 
-test('adds persisted task closure event when traces are unavailable', () => {
-  const persisted: PersistedTaskClosureEvent[] = [
+test('adds session task closure event when traces are unavailable', () => {
+  const persisted: SessionTaskClosureEvent[] = [
     {
       ts: '2026-03-08T00:00:03.000Z',
       event: 'task_closure_decision',
@@ -222,7 +222,7 @@ test('orders task closure event after its assistant message when assistant times
   expect(items[1].type).toBe('system-event')
 })
 
-test('deduplicates persisted task closure events when matching trace spans exist', () => {
+test('deduplicates session task closure events when matching trace spans exist', () => {
   const traces: TraceSpan[] = [
     {
       id: 'span_1',
@@ -248,7 +248,7 @@ test('deduplicates persisted task closure events when matching trace spans exist
     },
   ]
 
-  const persisted: PersistedTaskClosureEvent[] = [
+  const persisted: SessionTaskClosureEvent[] = [
     {
       ts: '2026-03-08T00:00:01.200Z',
       event: 'task_closure_failed',
