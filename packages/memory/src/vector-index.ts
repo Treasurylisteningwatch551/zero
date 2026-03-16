@@ -12,6 +12,7 @@ export interface VectorIndexLike {
   upsert(memoryId: string, vector: number[], meta: MemoryVectorMeta): Promise<void>
   query(vector: number[], topK: number): Promise<Array<{ memoryId: string; score: number }>>
   delete(memoryId: string): Promise<void>
+  getMetadata?(memoryId: string): Promise<MemoryVectorMeta | undefined>
   getStats(): Promise<{ itemCount: number }>
 }
 
@@ -58,6 +59,14 @@ export class VectorIndex implements VectorIndexLike {
     const existing = await this.index.getItem(memoryId)
     if (!existing) return
     await this.index.deleteItem(memoryId)
+  }
+
+  async getMetadata(memoryId: string): Promise<MemoryVectorMeta | undefined> {
+    const exists = await this.index.isIndexCreated()
+    if (!exists) return undefined
+
+    const item = await this.index.getItem(memoryId)
+    return item?.metadata
   }
 
   async getStats(): Promise<{ itemCount: number }> {

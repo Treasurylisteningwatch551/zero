@@ -28,15 +28,16 @@ import {
 } from '@zero-os/memory'
 import type { MemoryRepository } from '@zero-os/memory'
 import { LiteLLMPricing, ModelRouter } from '@zero-os/model'
-import { ObservabilityStore, MetricsDB, SessionDB, Tracer } from '@zero-os/observe'
+import { MetricsDB, ObservabilityStore, SessionDB, Tracer } from '@zero-os/observe'
 import { CronScheduler } from '@zero-os/scheduler'
 import { Vault, generateMasterKey, getMasterKey, setMasterKey } from '@zero-os/secrets'
 import { OutputSecretFilter } from '@zero-os/secrets'
-import type {
-  ChannelInstanceConfig,
-  Notification,
-  ScheduleConfig,
-  SessionSource,
+import {
+  type ChannelInstanceConfig,
+  type Notification,
+  type ScheduleConfig,
+  type SessionSource,
+  installConsoleTimestamping,
 } from '@zero-os/shared'
 import { RepairEngine } from '@zero-os/supervisor'
 import { HeartbeatWriter } from '@zero-os/supervisor'
@@ -107,6 +108,7 @@ export interface ZeroOS {
  * Initialize and start ZeRo OS.
  */
 export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
+  installConsoleTimestamping()
   const ZERO_DIR = options?.dataDir ?? process.env.ZERO_DATA_DIR ?? join(process.cwd(), '.zero')
   const startedAt = Date.now()
   console.log('[ZeRo OS] Starting...')
@@ -147,6 +149,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   const sessionDb = new SessionDB(join(logsDir, 'sessions.db'))
   const tracer = new Tracer(logsDir)
   const heartbeat = new HeartbeatWriter(join(ZERO_DIR, 'heartbeat.json'))
+  heartbeat.setReady(false, 'booting')
   heartbeat.start()
   console.log('[ZeRo OS] Logging initialized')
   console.log('[ZeRo OS] Heartbeat writer started')
@@ -192,6 +195,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     const apiKey = vault.get(embeddingConfig.apiKeyRef)
     if (apiKey) {
       try {
+        heartbeat.setReady(false, 'memory_indexing')
         embeddingClient = new EmbeddingClient({
           baseUrl: embeddingConfig.baseUrl,
           apiKey,
@@ -276,6 +280,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   )
 
   // 10.5. Restore active sessions from DB
+  heartbeat.setReady(false, 'restoring_sessions')
   const restoredCount = sessionManager.restoreFromDB()
   if (restoredCount > 0) {
     console.log(`[ZeRo OS] Restored ${restoredCount} sessions from DB`)
@@ -285,6 +290,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   const repairEngine = new RepairEngine()
 
   // 13. Scheduler — trigger handler (scheduler + handles created in step 10)
+  heartbeat.setReady(false, 'starting_channels')
   const channels = new Map<string, Channel>()
   const channelDefinitions = new Map<string, ChannelRuntimeDefinition>()
 
@@ -1009,6 +1015,8 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
   console.log(`[ZeRo OS] ${channels.size} channels registered`)
 
+  heartbeat.setReady(true, 'ready')
+  heartbeat.write()
   console.log('[ZeRo OS] System ready.')
 
   globalBus.emit('session:create', { event: 'system_start' })

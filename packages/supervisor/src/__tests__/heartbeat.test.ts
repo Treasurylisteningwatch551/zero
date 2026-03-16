@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { HeartbeatChecker, HeartbeatWriter } from '../heartbeat'
+import { HeartbeatChecker, HeartbeatWriter, waitForHeartbeatReady } from '../heartbeat'
 
 const testDir = join(import.meta.dir, '__fixtures__')
 const heartbeatFile = join(testDir, 'heartbeat.json')
@@ -20,6 +20,8 @@ describe('Heartbeat', () => {
 
     const result = checker.check()
     expect(result.alive).toBe(true)
+    expect(result.ready).toBe(false)
+    expect(result.stage).toBe('booting')
     expect(result.pid).toBe(process.pid)
     expect(result.elapsedMs).toBeLessThan(5000)
   })
@@ -73,5 +75,38 @@ describe('Heartbeat', () => {
       disconnected: 1,
       offline: ['feishu'],
     })
+  })
+
+  test('ready state is persisted in heartbeat file', () => {
+    mkdirSync(testDir, { recursive: true })
+    const file = join(testDir, 'heartbeat-ready.json')
+    const writer = new HeartbeatWriter(file)
+    const checker = new HeartbeatChecker(file)
+
+    writer.setReady(true)
+    writer.write()
+
+    const result = checker.check()
+    expect(result.alive).toBe(true)
+    expect(result.ready).toBe(true)
+    expect(result.stage).toBe('ready')
+  })
+
+  test('waitForHeartbeatReady waits until heartbeat becomes ready', async () => {
+    mkdirSync(testDir, { recursive: true })
+    const file = join(testDir, 'heartbeat-wait-ready.json')
+    const writer = new HeartbeatWriter(file)
+    const checker = new HeartbeatChecker(file)
+
+    writer.write()
+
+    setTimeout(() => {
+      writer.setReady(true)
+      writer.write()
+    }, 50)
+
+    await expect(
+      waitForHeartbeatReady(checker, { timeoutMs: 500, pollIntervalMs: 10 }),
+    ).resolves.toBe(true)
   })
 })

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFAULT_TEMPLATES } from '@zero-os/core'
 import { Vault, generateMasterKey, getMasterKey, setMasterKey } from '@zero-os/secrets'
+import { installConsoleTimestamping } from '@zero-os/shared'
 import { ChatGptOAuthBroker } from './chatgpt-oauth'
 import { ensureChatgptProviderConfig, getChatgptOAuthTokenRef } from './chatgpt-provider'
 import {
@@ -120,6 +121,8 @@ async function init() {
 }
 
 async function start() {
+  installConsoleTimestamping()
+
   // Pre-flight check
   if (!existsSync(join(ZERO_DIR, 'config.yaml'))) {
     console.error('[ZeRo OS] Error: .zero/config.yaml not found. Run `bun zero init` first.')

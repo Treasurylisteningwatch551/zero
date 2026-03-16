@@ -5,20 +5,23 @@ import { join } from 'node:path'
 import type { EmbeddingProvider } from '../embedding'
 import { IndexedMemoryStore } from '../indexed-store'
 import { MemoryStore } from '../store'
-import type { VectorIndexLike } from '../vector-index'
+import type { MemoryVectorMeta, VectorIndexLike } from '../vector-index'
 
 describe('IndexedMemoryStore', () => {
   let dir: string
   let baseStore: MemoryStore
   let upserts: string[]
   let deletes: string[]
+  let batchCalls: string[][]
   let failNextUpsert = false
+  let metadataById: Map<string, MemoryVectorMeta>
 
   const embeddingClient: EmbeddingProvider = {
     async embed(text: string): Promise<number[]> {
       return [text.length, 1]
     },
     async embedBatch(texts: string[]): Promise<number[][]> {
+      batchCalls.push(texts)
       return texts.map((text) => [text.length, 1])
     },
     memoryToText(memory) {
@@ -41,6 +44,9 @@ describe('IndexedMemoryStore', () => {
     async delete(memoryId) {
       deletes.push(memoryId)
     },
+    async getMetadata(memoryId) {
+      return metadataById.get(memoryId)
+    },
     async getStats() {
       return { itemCount: upserts.length }
     },
@@ -51,6 +57,8 @@ describe('IndexedMemoryStore', () => {
     baseStore = new MemoryStore(dir)
     upserts = []
     deletes = []
+    batchCalls = []
+    metadataById = new Map()
   })
 
   afterAll(() => {
@@ -122,6 +130,64 @@ describe('IndexedMemoryStore', () => {
 
     await expect(reindexStore.reindexAll()).resolves.toBe(2)
     expect(seen).toHaveLength(2)
+
+    rmSync(reindexDir, { recursive: true, force: true })
+  })
+
+  test('reindexAll skips memories with current vector metadata', async () => {
+    const reindexDir = mkdtempSync(join(tmpdir(), 'zero-indexed-skip-'))
+    const reindexBaseStore = new MemoryStore(reindexDir)
+    const current = await reindexBaseStore.create('note', 'Current', 'same', { status: 'verified' })
+    const stale = await reindexBaseStore.create('note', 'Stale', 'needs update', {
+      status: 'verified',
+    })
+
+    const seen: string[] = []
+    const embedTexts: string[][] = []
+    const reindexStore = new IndexedMemoryStore(
+      reindexBaseStore,
+      {
+        async embed(): Promise<number[]> {
+          throw new Error('reindexAll should use embedBatch')
+        },
+        async embedBatch(texts: string[]): Promise<number[][]> {
+          embedTexts.push(texts)
+          return texts.map((text) => [text.length, 1])
+        },
+        memoryToText(memory) {
+          return `${memory.title}\n${memory.content}`
+        },
+      },
+      {
+        async ensureIndex() {},
+        async upsert(memoryId) {
+          seen.push(memoryId)
+        },
+        async query() {
+          return []
+        },
+        async delete() {},
+        async getMetadata(memoryId) {
+          if (memoryId === current.id) {
+            return {
+              memoryId: current.id,
+              type: current.type,
+              title: current.title,
+              updatedAt: current.updatedAt,
+            }
+          }
+          return undefined
+        },
+        async getStats() {
+          return { itemCount: seen.length }
+        },
+      },
+    )
+
+    await expect(reindexStore.reindexAll()).resolves.toBe(2)
+    expect(seen).toEqual([stale.id])
+    expect(embedTexts).toHaveLength(1)
+    expect(embedTexts[0]).toEqual([`${stale.title}\n${stale.content}`])
 
     rmSync(reindexDir, { recursive: true, force: true })
   })

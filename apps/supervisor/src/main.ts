@@ -1,6 +1,8 @@
 import { join } from 'node:path'
+import { installConsoleTimestamping } from '@zero-os/shared'
 import { HeartbeatChecker } from '@zero-os/supervisor'
 import { RepairEngine } from '@zero-os/supervisor'
+import { waitForHeartbeatReady } from '@zero-os/supervisor'
 import { getBunExecutable, getRuntimeEnv } from '../../server/src/runtime'
 import { rebuildWebBundle } from '../../server/src/web-build'
 
@@ -11,6 +13,8 @@ const CHECK_INTERVAL = 5_000 // 5 seconds
 
 const checker = new HeartbeatChecker(HEARTBEAT_FILE)
 const repairEngine = new RepairEngine()
+
+installConsoleTimestamping()
 
 console.log('[Supervisor] Starting heartbeat monitor...')
 console.log(`[Supervisor] Checking: ${HEARTBEAT_FILE}`)
@@ -59,10 +63,7 @@ setInterval(async () => {
         return `Started new process PID: ${proc.pid}`
       },
       async () => {
-        // Verify: wait and check heartbeat again
-        await new Promise((resolve) => setTimeout(resolve, 8_000))
-        const verifyResult = checker.check()
-        return verifyResult.alive
+        return waitForHeartbeatReady(checker)
       },
     )
 

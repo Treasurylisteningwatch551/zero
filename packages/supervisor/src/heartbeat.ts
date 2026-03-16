@@ -5,6 +5,8 @@ const HEARTBEAT_INTERVAL = 3_000 // 3 seconds
 const STALE_THRESHOLD = 10_000 // 10 seconds
 const ERROR_THRESHOLD_UNHEALTHY = 10
 const ERROR_THRESHOLD_DEGRADED = 3
+const READY_WAIT_TIMEOUT_MS = 300_000
+const READY_POLL_INTERVAL_MS = 1_000
 
 export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy'
 
@@ -24,6 +26,8 @@ export interface HeartbeatData {
   timestamp: string
   pid: number
   uptime: number
+  ready: boolean
+  stage: string
   health: {
     memoryUsageMB: number
     errorCount: number
@@ -49,6 +53,8 @@ export class HeartbeatWriter {
   private metricsProvider: (() => Partial<HealthMetrics>) | null = null
   private onWrite: ((data: HeartbeatData) => void) | null = null
   private lastHeartbeat: HeartbeatData | null = null
+  private ready = false
+  private stage = 'booting'
 
   constructor(filePath: string) {
     this.filePath = filePath
@@ -91,6 +97,14 @@ export class HeartbeatWriter {
   }
 
   /**
+   * Update runtime readiness state.
+   */
+  setReady(ready: boolean, stage = ready ? 'ready' : this.stage): void {
+    this.ready = ready
+    this.stage = stage
+  }
+
+  /**
    * Start writing heartbeats at the configured interval.
    */
   start(): void {
@@ -130,6 +144,8 @@ export class HeartbeatWriter {
       timestamp: new Date().toISOString(),
       pid: process.pid,
       uptime: process.uptime(),
+      ready: this.ready,
+      stage: this.stage,
       health: {
         memoryUsageMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
         errorCount,
@@ -156,6 +172,8 @@ export interface HeartbeatCheckResult {
   lastBeat?: Date
   elapsedMs?: number
   pid?: number
+  ready?: boolean
+  stage?: string
   health?: HeartbeatData['health']
 }
 
@@ -188,10 +206,32 @@ export class HeartbeatChecker {
         lastBeat,
         elapsedMs,
         pid: data.pid,
+        ready: data.ready,
+        stage: data.stage,
         health: data.health,
       }
     } catch {
       return { alive: false }
     }
   }
+}
+
+export async function waitForHeartbeatReady(
+  checker: HeartbeatChecker,
+  options: { timeoutMs?: number; pollIntervalMs?: number } = {},
+): Promise<boolean> {
+  const timeoutMs = options.timeoutMs ?? READY_WAIT_TIMEOUT_MS
+  const pollIntervalMs = options.pollIntervalMs ?? READY_POLL_INTERVAL_MS
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() <= deadline) {
+    const result = checker.check()
+    if (result.alive && result.ready) {
+      return true
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
+  }
+
+  return false
 }

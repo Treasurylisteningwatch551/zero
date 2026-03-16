@@ -3,6 +3,8 @@ import type { EmbeddingProvider } from './embedding'
 import type { MemoryRepository } from './store'
 import type { MemoryVectorMeta, VectorIndexLike } from './vector-index'
 
+const REINDEX_BATCH_SIZE = 25
+
 export class IndexedMemoryStore implements MemoryRepository {
   constructor(
     private store: MemoryRepository,
@@ -126,16 +128,39 @@ export class IndexedMemoryStore implements MemoryRepository {
       'preference',
       'inbox',
     ]
-    let count = 0
+    const memories: Memory[] = []
 
     for (const type of allTypes) {
-      for (const memory of this.store.list(type)) {
-        await this.upsertMemory(memory)
-        count++
+      memories.push(...this.store.list(type))
+    }
+
+    const pending: Memory[] = []
+
+    for (const memory of memories) {
+      const existingMeta = await this.vectorIndex.getMetadata?.(memory.id)
+      if (existingMeta && this.isIndexedMemoryCurrent(memory, existingMeta)) {
+        continue
+      }
+
+      pending.push(memory)
+    }
+
+    for (let index = 0; index < pending.length; index += REINDEX_BATCH_SIZE) {
+      const batch = pending.slice(index, index + REINDEX_BATCH_SIZE)
+      const texts = batch.map((memory) => this.embeddingClient.memoryToText(memory))
+      const vectors = await this.embeddingClient.embedBatch(texts)
+
+      for (const [offset, memory] of batch.entries()) {
+        const vector = vectors[offset]
+        if (!vector) {
+          throw new Error(`Missing embedding vector for memory ${memory.id}`)
+        }
+
+        await this.vectorIndex.upsert(memory.id, vector, this.toVectorMeta(memory))
       }
     }
 
-    return count
+    return memories.length
   }
 
   private async upsertMemory(memory: Memory): Promise<void> {
@@ -150,5 +175,14 @@ export class IndexedMemoryStore implements MemoryRepository {
       title: memory.title,
       updatedAt: memory.updatedAt,
     }
+  }
+
+  private isIndexedMemoryCurrent(memory: Memory, meta: MemoryVectorMeta): boolean {
+    return (
+      meta.memoryId === memory.id &&
+      meta.type === memory.type &&
+      meta.title === memory.title &&
+      meta.updatedAt === memory.updatedAt
+    )
   }
 }
