@@ -18,6 +18,7 @@ const DIMENSION_LABELS: Record<SessionJudgeDimensionKey, string> = {
   evidence_grounding: 'Evidence Grounding',
   tool_efficiency: 'Tool Efficiency',
   cost_efficiency: 'Cost Efficiency',
+  human_intervention: 'Human Intervention Judgment',
   recovery_honesty: 'Recovery & Honesty',
 }
 
@@ -32,6 +33,7 @@ Score these dimensions from 0 to 5:
 - evidence_grounding: are conclusions grounded in tool outputs, memory evidence, or trace evidence?
 - tool_efficiency: were tools chosen well, with minimal useless duplicate calls?
 - cost_efficiency: was request/tool usage proportionate, or obviously wasteful?
+- human_intervention: did it ask for human intervention only when genuinely necessary, and did it stop to ask when truly blocked by missing authority, approvals, credentials, private facts, or required user choices?
 - recovery_honesty: did it surface blockers/errors honestly instead of bluffing completion?
 
 Return ONLY valid JSON with this exact shape:
@@ -57,6 +59,22 @@ Return ONLY valid JSON with this exact shape:
     }
   ]
 }`
+
+const JUDGE_REPAIR_SYSTEM_PROMPT = `You repair malformed JSON produced by a session judge.
+Return ONLY valid JSON matching the original judge schema.
+Preserve the original meaning, scores, verdict, confidence, summary, dimensions, and findings whenever possible.
+If a field is missing, fill it conservatively rather than inventing strong claims.`
+
+type JudgeCompletionAdapter = {
+  complete(request: {
+    messages: Message[]
+    system?: string
+    stream: boolean
+    maxTokens?: number
+  }): Promise<{
+    content: Array<{ type: string; text?: string }>
+  }>
+}
 
 export async function runSessionJudge(
   zero: ZeroOS,
@@ -109,7 +127,11 @@ export async function runSessionJudge(
     maxTokens: 1600,
   })
 
-  const parsed = parseJudgeResponse(extractResponseText(response))
+  const parsed = await parseOrRepairJudgeResponse(
+    resolved.adapter,
+    sessionId,
+    extractResponseText(response),
+  )
 
   return {
     sessionId,
@@ -183,6 +205,12 @@ function buildJudgePayload(
 
   const memorySignals = collectMemorySignals(input.requests, filter)
   const toolSignals = collectToolSignals(input.requests, filter)
+  const interventionSignals = collectInterventionSignals(
+    input.messages,
+    input.requests,
+    input.closures,
+    filter,
+  )
   const latestSnapshot = input.snapshots.at(-1)
 
   return {
@@ -217,6 +245,7 @@ function buildJudgePayload(
       failureStage: 'failureStage' in closure ? closure.failureStage : undefined,
       ts: closure.ts,
     })),
+    interventionSignals,
     costSignals: {
       totalCost: input.signals.totalCost,
       requestCount: input.signals.requestCount,
@@ -234,10 +263,54 @@ function buildJudgePayload(
 
 function buildJudgePrompt(payload: Record<string, unknown>): string {
   return [
-    'Evaluate this ZeRo OS session package. Focus on process quality, evidence usage, memory usage, tool duplication, and cost discipline.',
+    'Evaluate this ZeRo OS session package. Focus on process quality, evidence usage, memory usage, tool duplication, cost discipline, and human intervention judgment.',
     'If evidence is missing, say so and lower confidence instead of guessing.',
     '',
     JSON.stringify(payload, null, 2),
+  ].join('\n')
+}
+
+async function parseOrRepairJudgeResponse(
+  adapter: JudgeCompletionAdapter,
+  sessionId: string,
+  raw: string,
+): Promise<Omit<SessionJudgeResult, 'signals'>> {
+  try {
+    return parseJudgeResponse(raw)
+  } catch (parseError) {
+    const repaired = await adapter.complete({
+      messages: [
+        {
+          id: `judge_repair_${sessionId}`,
+          sessionId,
+          role: 'user',
+          messageType: 'message',
+          content: [
+            {
+              type: 'text',
+              text: buildJudgeRepairPrompt(raw, parseError),
+            },
+          ],
+          createdAt: now(),
+        },
+      ],
+      system: JUDGE_REPAIR_SYSTEM_PROMPT,
+      stream: false,
+      maxTokens: 1800,
+    })
+
+    return parseJudgeResponse(extractResponseText(repaired))
+  }
+}
+
+function buildJudgeRepairPrompt(raw: string, parseError: unknown): string {
+  const detail = parseError instanceof Error ? parseError.message : String(parseError)
+  return [
+    'Repair this malformed session-judge JSON into valid JSON.',
+    'Keep the original intent and values whenever possible.',
+    `Parse error: ${detail}`,
+    '',
+    raw,
   ].join('\n')
 }
 
@@ -305,15 +378,18 @@ function normalizeDimensions(value: unknown): SessionJudgeDimension[] {
     })
     .filter((item): item is SessionJudgeDimension => item !== null)
 
-  if (normalized.length > 0) return normalized
-
-  return Object.entries(DIMENSION_LABELS).map(([key, label]) => ({
+  const defaults = Object.entries(DIMENSION_LABELS).map(([key, label]) => ({
     key: key as SessionJudgeDimensionKey,
     label,
     score: 0,
     maxScore: 5,
     rationale: 'Dimension missing from judge output.',
   }))
+
+  if (normalized.length === 0) return defaults
+
+  const byKey = new Map(normalized.map((dimension) => [dimension.key, dimension]))
+  return defaults.map((dimension) => byKey.get(dimension.key) ?? dimension)
 }
 
 function normalizeFindings(value: unknown): SessionJudgeFinding[] {
@@ -407,6 +483,96 @@ function collectMemorySignals(requests: RequestLogEntry[], filter: (value: strin
     memoryPaths: unique(paths).slice(0, 5),
     memoryWriteCalls,
   }
+}
+
+const HUMAN_INTERVENTION_HINTS = [
+  'please',
+  'can you',
+  'could you',
+  'need you',
+  'provide',
+  'confirm',
+  'approval',
+  'approve',
+  'permission',
+  'access',
+  'auth code',
+  'authorize',
+  'manual',
+  'human',
+  'user input',
+  'credential',
+  'token',
+  'login',
+  'share',
+  'upload',
+  '请',
+  '麻烦',
+  '提供',
+  '确认',
+  '授权',
+  '权限',
+  '验证码',
+  '凭证',
+  '登录',
+  '人工',
+]
+
+function collectInterventionSignals(
+  messages: Message[],
+  requests: RequestLogEntry[],
+  closures: ReturnType<ZeroOS['observability']['readSessionClosures']>,
+  filter: (value: string) => string,
+) {
+  const recentHumanAskSamples = messages
+    .filter((message) => message.role === 'assistant')
+    .map((message) => previewText(filter(extractMessageText(message)), 220))
+    .filter((text) => text.length > 0 && looksLikeHumanInterventionAsk(text))
+
+  const closureActions = closures
+    .filter(
+      (
+        closure,
+      ): closure is Extract<typeof closure, { action: 'continue' | 'finish' | 'block' }> =>
+        'action' in closure,
+    )
+    .map((closure) => closure.action)
+
+  const recentBlockReasons = closures
+    .filter((closure) => 'action' in closure && closure.action === 'block')
+    .slice(-4)
+    .map((closure) => previewText(filter(closure.reason), 180))
+    .filter((reason) => reason.length > 0)
+
+  const toolErrorCount = requests.reduce(
+    (sum, request) => sum + request.toolResults.filter((result) => result.isError === true).length,
+    0,
+  )
+  const errorRequestCount = requests.filter((request) =>
+    request.toolResults.some((result) => result.isError === true),
+  ).length
+  const unresolvedErrorTurnCount = requests.filter(
+    (request) =>
+      request.stopReason === 'end_turn' &&
+      request.toolResults.some((result) => result.isError === true),
+  ).length
+
+  return {
+    blockDecisionCount: closureActions.filter((action) => action === 'block').length,
+    continueDecisionCount: closureActions.filter((action) => action === 'continue').length,
+    finishDecisionCount: closureActions.filter((action) => action === 'finish').length,
+    assistantHumanAskCount: recentHumanAskSamples.length,
+    recentHumanAskSamples: recentHumanAskSamples.slice(-4),
+    recentBlockReasons,
+    toolErrorCount,
+    errorRequestCount,
+    unresolvedErrorTurnCount,
+  }
+}
+
+function looksLikeHumanInterventionAsk(text: string): boolean {
+  const normalized = text.toLowerCase()
+  return normalized.includes('?') || HUMAN_INTERVENTION_HINTS.some((hint) => normalized.includes(hint))
 }
 
 function collectToolSignals(requests: RequestLogEntry[], filter: (value: string) => string) {

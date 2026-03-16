@@ -496,6 +496,13 @@ describe('API Routes Extended', () => {
                   rationale: 'The duplicate check increased cost slightly.',
                 },
                 {
+                  key: 'human_intervention',
+                  label: 'Human Intervention Judgment',
+                  score: 4,
+                  maxScore: 5,
+                  rationale: 'The agent blocked only after a real access dependency appeared.',
+                },
+                {
                   key: 'recovery_honesty',
                   label: 'Recovery & Honesty',
                   score: 5,
@@ -532,9 +539,12 @@ describe('API Routes Extended', () => {
       expect(data.result.verdict).toBe('mixed')
       expect(data.result.signals.memorySearchCount).toBe(1)
       expect(data.result.signals.duplicateToolCallCount).toBe(1)
+      expect(data.result.dimensions.some((dimension: { key: string }) => dimension.key === 'human_intervention')).toBe(true)
       expect(capturedPrompt).toContain('memory_search')
       expect(capturedPrompt).toContain('duplicateCalls')
       expect(capturedPrompt).toContain('totalCost')
+      expect(capturedPrompt).toContain('interventionSignals')
+      expect(capturedPrompt).toContain('blockDecisionCount')
     } finally {
       ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete =
         originalComplete
@@ -692,6 +702,7 @@ describe('API Routes Extended', () => {
       const data = await res.json()
       expect(data.result.overallScore).toBe(60)
       expect(data.result.dimensions[0].maxScore).toBe(5)
+      expect(data.result.dimensions.some((dimension: { key: string }) => dimension.key === 'human_intervention')).toBe(true)
     } finally {
       ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete =
         originalComplete
@@ -732,6 +743,100 @@ describe('API Routes Extended', () => {
       const data = await res.json()
       expect(data.result.overallScore).toBe(60)
       expect(data.result.summary).toBe('ok')
+    } finally {
+      ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete =
+        originalComplete
+    }
+  })
+
+  test('POST /api/sessions/:id/llm-judge repairs malformed JSON with a retry pass', async () => {
+    const session = zero.sessionManager.create('web')
+
+    const resolved = zero.modelRouter.resolveModel(session.data.currentModel)
+    expect(resolved).toBeDefined()
+    if (!resolved) {
+      throw new Error('Expected resolved model for llm judge repair retry test')
+    }
+
+    let callCount = 0
+    const originalComplete = resolved.adapter.complete
+    ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete = async (
+      request,
+    ) => {
+      callCount++
+      if (callCount === 1) {
+        return {
+          id: 'judge_resp_retry_raw_001',
+          content: [
+            {
+              type: 'text',
+              text: '{"overallScore" 3, "verdict": "mixed", "confidence": "medium"}',
+            },
+          ],
+          stopReason: 'end_turn',
+          usage: { input: 8, output: 12 },
+          model: session.data.currentModel,
+        }
+      }
+
+      const firstBlock = request.messages[0]?.content[0]
+      const repairPrompt = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
+      expect(repairPrompt).toContain('Parse error:')
+      expect(repairPrompt).toContain('overallScore')
+
+      return {
+        id: 'judge_resp_retry_fixed_001',
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              overallScore: 3,
+              verdict: 'mixed',
+              confidence: 'medium',
+              summary: 'Recovered by repair pass.',
+              dimensions: [
+                {
+                  key: 'task_completion',
+                  label: 'Task Completion',
+                  score: 3,
+                  maxScore: 5,
+                  rationale: 'Recovered output.',
+                },
+                {
+                  key: 'human_intervention',
+                  label: 'Human Intervention Judgment',
+                  score: 4,
+                  maxScore: 5,
+                  rationale: 'The stop point was appropriate.',
+                },
+              ],
+              findings: [],
+            }),
+          },
+        ],
+        stopReason: 'end_turn',
+        usage: { input: 8, output: 12 },
+        model: session.data.currentModel,
+      }
+    }
+
+    try {
+      const res = await app.request(`/api/sessions/${session.data.id}/llm-judge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(callCount).toBe(2)
+      expect(data.result.overallScore).toBe(60)
+      expect(data.result.summary).toBe('Recovered by repair pass.')
+      expect(
+        data.result.dimensions.some(
+          (dimension: { key: string }) => dimension.key === 'human_intervention',
+        ),
+      ).toBe(true)
     } finally {
       ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete =
         originalComplete

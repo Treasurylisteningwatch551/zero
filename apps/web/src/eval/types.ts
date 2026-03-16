@@ -5,6 +5,7 @@ export type SessionJudgeDimensionKey =
   | 'evidence_grounding'
   | 'tool_efficiency'
   | 'cost_efficiency'
+  | 'human_intervention'
   | 'recovery_honesty'
 
 export interface SessionJudgeDimension {
