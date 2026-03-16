@@ -179,6 +179,23 @@ export class FeishuChannel implements Channel {
   async send(sessionId: string, content: string): Promise<void> {
     if (!this.client) return
 
+    const card = this.detectCardJson(content)
+    if (card) {
+      const cardContent = JSON.stringify(card)
+      try {
+        await this.client.im.message.create({
+          params: { receive_id_type: 'chat_id' as any },
+          data: { receive_id: sessionId, msg_type: 'interactive', content: cardContent },
+        })
+        return
+      } catch (error) {
+        console.warn(
+          '[FeishuChannel] Card JSON send failed, falling back to text:',
+          this.describeError(error),
+        )
+      }
+    }
+
     const rendered = renderMarkdownForFeishu(content)
     const isNotification = content.startsWith('[notification]')
     const cleanContent = isNotification ? rendered.replace('[notification]', '').trim() : rendered
@@ -388,10 +405,176 @@ export class FeishuChannel implements Channel {
    */
   async reply(messageId: string, content: string): Promise<void> {
     if (!this.client) return
+
+    const card = this.detectCardJson(content)
+    if (card) {
+      const cardContent = JSON.stringify(card)
+      try {
+        await this.client.im.message.reply({
+          path: { message_id: messageId },
+          data: { content: cardContent, msg_type: 'interactive' },
+        })
+        return
+      } catch (error) {
+        console.warn(
+          '[FeishuChannel] Card JSON reply failed, falling back to text:',
+          this.describeError(error),
+        )
+      }
+    }
+
     const rendered = renderMarkdownForFeishu(content)
     const chunks = this.chunkRichContent(rendered)
     for (const chunk of chunks) {
       await this.sendReplyWithFallback(messageId, chunk)
+    }
+  }
+
+  /**
+   * Upload an image buffer to Feishu and send it as an image message.
+   * @param chatId - Target chat ID
+   * @param image - Image buffer or local file path
+   * @param replyToMessageId - Optional message ID to reply to
+   */
+  async sendImage(chatId: string, image: Buffer | string, replyToMessageId?: string): Promise<void> {
+    if (!this.client) return
+
+    try {
+      const imageBuffer =
+        typeof image === 'string' ? (await import('node:fs')).readFileSync(image) : image
+
+      const { Readable } = await import('node:stream')
+      const uploadResp = await this.client.im.image.create({
+        data: {
+          image_type: 'message',
+          image: Readable.from(imageBuffer) as any,
+        },
+      })
+
+      const imageKey = (uploadResp as any)?.data?.image_key ?? (uploadResp as any)?.image_key
+      if (!imageKey) {
+        console.warn('[FeishuChannel] Image upload failed: no image_key in response')
+        return
+      }
+
+      const content = JSON.stringify({ image_key: imageKey })
+
+      if (replyToMessageId) {
+        await this.client.im.message.reply({
+          path: { message_id: replyToMessageId },
+          data: { content, msg_type: 'image' },
+        })
+      } else {
+        await this.client.im.message.create({
+          params: { receive_id_type: 'chat_id' as any },
+          data: { receive_id: chatId, msg_type: 'image', content },
+        })
+      }
+
+      console.log('[FeishuChannel] Image sent successfully')
+    } catch (error) {
+      console.error('[FeishuChannel] Failed to send image:', this.describeError(error))
+    }
+  }
+
+  /**
+   * Upload a file to Feishu and send it as a file message.
+   * @param chatId - Target chat ID
+   * @param file - File buffer or local file path
+   * @param fileName - Display name of the file
+   * @param replyToMessageId - Optional message ID to reply to
+   */
+  async sendFile(
+    chatId: string,
+    file: Buffer | string,
+    fileName: string,
+    replyToMessageId?: string,
+  ): Promise<void> {
+    if (!this.client) return
+
+    try {
+      const fileBuffer =
+        typeof file === 'string' ? (await import('node:fs')).readFileSync(file) : file
+
+      const fileType = this.detectFileType(fileName)
+
+      const { Readable } = await import('node:stream')
+      const uploadResp = await this.client.im.file.create({
+        data: {
+          file_type: fileType,
+          file_name: fileName,
+          file: Readable.from(fileBuffer),
+        } as any,
+      })
+
+      const fileKey = (uploadResp as any)?.data?.file_key ?? (uploadResp as any)?.file_key
+      if (!fileKey) {
+        console.warn('[FeishuChannel] File upload failed: no file_key in response')
+        return
+      }
+
+      const content = JSON.stringify({ file_key: fileKey })
+
+      if (replyToMessageId) {
+        await this.client.im.message.reply({
+          path: { message_id: replyToMessageId },
+          data: { content, msg_type: 'file' },
+        })
+      } else {
+        await this.client.im.message.create({
+          params: { receive_id_type: 'chat_id' as any },
+          data: { receive_id: chatId, msg_type: 'file', content },
+        })
+      }
+
+      console.log(`[FeishuChannel] File "${fileName}" sent successfully`)
+    } catch (error) {
+      console.error('[FeishuChannel] Failed to send file:', this.describeError(error))
+    }
+  }
+
+  /**
+   * Detect if text content is a complete Feishu card JSON.
+   * Supports v1 (Message Card), v2 (CardKit), and template cards.
+   * Returns the parsed card object or null.
+   */
+  private detectCardJson(text: string): Record<string, unknown> | null {
+    const trimmed = text.trim()
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null
+
+    try {
+      const parsed: unknown = JSON.parse(trimmed)
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null
+
+      const card = parsed as Record<string, unknown>
+      const data =
+        typeof card.data === 'object' && card.data !== null
+          ? (card.data as Record<string, unknown>)
+          : null
+
+      if (card.schema === '2.0') return card
+
+      if (
+        Array.isArray(card.elements) &&
+        (card.config !== undefined || card.header !== undefined)
+      ) {
+        return card
+      }
+
+      if (card.type === 'template' && data?.template_id) return card
+
+      if (
+        (card.msg_type === 'interactive' || card.type === 'interactive') &&
+        typeof card.card === 'object' &&
+        card.card !== null &&
+        !Array.isArray(card.card)
+      ) {
+        return card.card as Record<string, unknown>
+      }
+
+      return null
+    } catch {
+      return null
     }
   }
 
@@ -581,6 +764,31 @@ export class FeishuChannel implements Channel {
 
   private byteLength(value: string): number {
     return Buffer.byteLength(value, 'utf8')
+  }
+
+  /**
+   * Detect Feishu file type from file extension.
+   */
+  private detectFileType(fileName: string): string {
+    const ext = fileName.toLowerCase().split('.').pop() ?? ''
+    const typeMap: Record<string, string> = {
+      opus: 'opus',
+      ogg: 'opus',
+      mp4: 'mp4',
+      mov: 'mp4',
+      avi: 'mp4',
+      mkv: 'mp4',
+      webm: 'mp4',
+      pdf: 'pdf',
+      doc: 'doc',
+      docx: 'doc',
+      xls: 'xls',
+      xlsx: 'xls',
+      csv: 'xls',
+      ppt: 'ppt',
+      pptx: 'ppt',
+    }
+    return typeMap[ext] ?? 'stream'
   }
 
   private async createStreamingSession(
