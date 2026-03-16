@@ -1,9 +1,9 @@
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChannelSessionSelector } from '../components/session/ChannelSessionSelector'
 import { SessionDetailScreen } from '../components/session/SessionDetailScreen'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { apiFetch } from '../lib/api'
-import { formatTimeAgo } from '../lib/format'
 import {
   type ChannelSessionCandidate,
   resolveChannelSessionCandidate,
@@ -115,70 +115,33 @@ export function SessionChannelDetailPage() {
   }, [channel, loading, navigate, search.channelName, search.source, selectedCandidate])
 
   const selector = (
-    <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-[10px] text-[var(--color-text-disabled)] uppercase tracking-wide">
-        Source
-      </span>
-      <span className="text-[11px] font-mono text-[var(--color-text-secondary)]">
-        {selectedCandidate?.source ?? activeSource ?? '—'}
-      </span>
-      <span className="text-[10px] text-[var(--color-text-disabled)] uppercase tracking-wide ml-2">
-        Channel
-      </span>
-      <span className="text-[11px] font-mono text-[var(--color-text-secondary)]">
-        {selectedCandidate?.channelName ?? '—'}
-      </span>
-      <span className="text-[10px] text-[var(--color-text-disabled)] uppercase tracking-wide ml-2">
-        Channel ID
-      </span>
-      <select
-        className="input-field py-1.5 px-2.5 min-w-[220px]"
-        value={
-          selectedCandidate
-            ? `${selectedCandidate.channelName ?? selectedCandidate.source}::${selectedCandidate.channelId}`
-            : ''
-        }
-        disabled={loading || candidates.length === 0}
-        onChange={(e) => {
-          const next = candidates.find(
-            (candidate) =>
-              `${candidate.channelName ?? candidate.source}::${candidate.channelId}` ===
-              e.target.value,
-          )
-          navigate({
-            to: '/sessions/channel/$channel/detail',
-            params: { channel: next?.channelId ?? e.target.value },
-            search: {
-              source: next?.source ?? selectedCandidate?.source ?? activeSource ?? undefined,
-              channelName: next?.channelName,
-            },
-          })
-        }}
-      >
-        {candidates.map((candidate) => (
-          <option
-            key={`${candidate.channelName ?? candidate.source}-${candidate.channelId}-${candidate.id}`}
-            value={`${candidate.channelName ?? candidate.source}::${candidate.channelId}`}
-          >
-            {candidate.channelName ?? candidate.source} · {candidate.channelId} · {candidate.status}{' '}
-            · {formatTimeAgo(candidate.updatedAt)}
-          </option>
-        ))}
-      </select>
-    </div>
+    <ChannelSessionSelector
+      candidates={candidates}
+      selectedCandidate={selectedCandidate}
+      activeSource={activeSource}
+      loading={loading}
+      onSelect={(next, rawValue) => {
+        navigate({
+          to: '/sessions/channel/$channel/detail',
+          params: { channel: next?.channelId ?? rawValue },
+          search: {
+            source: next?.source ?? selectedCandidate?.source ?? activeSource ?? undefined,
+            channelName: next?.channelName,
+          },
+        })
+      }}
+    />
   )
 
   return (
     <SessionDetailScreen
       sessionId={selectedCandidate?.id}
-      headerContent={selector}
+      topContent={selector}
       emptyState={
-        <div className="p-6 max-w-[1400px] mx-auto">
-          <div className="card p-8 text-center text-[13px] text-[var(--color-text-muted)]">
-            {loading
-              ? 'Loading active channel sessions...'
-              : `No active or idle sessions found${activeSource ? ` for source ${activeSource}` : ''}.`}
-          </div>
+        <div className="card p-8 text-center text-[13px] text-[var(--color-text-muted)]">
+          {loading
+            ? 'Loading active channel sessions...'
+            : `No active or idle sessions found${activeSource ? ` for source ${activeSource}` : ''}.`}
         </div>
       }
     />

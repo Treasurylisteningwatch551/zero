@@ -94,7 +94,7 @@ interface SessionDetail {
 
 interface SessionDetailScreenProps {
   sessionId?: string | null
-  headerContent?: ReactNode
+  topContent?: ReactNode
   emptyState?: ReactNode
 }
 
@@ -102,7 +102,7 @@ const DETAIL_PANE_HEIGHT = 'calc(100vh - 280px)'
 
 export function SessionDetailScreen({
   sessionId,
-  headerContent,
+  topContent,
   emptyState,
 }: SessionDetailScreenProps) {
   const { setSelectedSessionId } = useUIStore()
@@ -282,29 +282,43 @@ export function SessionDetailScreen({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
 
+  const pageHeader = (
+    <>
+      <button
+        type="button"
+        onClick={goBack}
+        className="flex items-center gap-1.5 text-[13px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors mb-4"
+      >
+        <ArrowLeft size={16} /> Sessions
+      </button>
+      {topContent ? <div className="mb-4">{topContent}</div> : null}
+    </>
+  )
+
   if (!sessionId) {
     return (
-      emptyState ?? (
-        <div className="p-6 text-center text-[var(--color-text-muted)]">
-          No session selected.{' '}
-          <button type="button" onClick={goBack} className="text-[var(--color-accent)] underline">
-            Back to sessions
-          </button>
-        </div>
-      )
+      <div className="p-6 max-w-[1400px] mx-auto">
+        {pageHeader}
+        {emptyState ?? (
+          <div className="p-6 text-center text-[var(--color-text-muted)]">
+            No session selected.{' '}
+            <button
+              type="button"
+              onClick={goBack}
+              className="text-[var(--color-accent)] underline"
+            >
+              Back to sessions
+            </button>
+          </div>
+        )}
+      </div>
     )
   }
 
   if (loading) {
     return (
       <div className="p-6 max-w-[1400px] mx-auto">
-        <button
-          type="button"
-          onClick={goBack}
-          className="flex items-center gap-1.5 text-[13px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors mb-4"
-        >
-          <ArrowLeft size={16} /> Sessions
-        </button>
+        {pageHeader}
         <Skeleton className="h-3 w-48 mb-3" />
         <div className="card p-4 mb-4">
           <div className="flex gap-4">
@@ -337,13 +351,7 @@ export function SessionDetailScreen({
   if (!session) {
     return (
       <div className="p-6 max-w-[1400px] mx-auto">
-        <button
-          type="button"
-          onClick={goBack}
-          className="flex items-center gap-1.5 text-[13px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors mb-4"
-        >
-          <ArrowLeft size={16} /> Sessions
-        </button>
+        {pageHeader}
         <div className="card p-8 text-center text-[13px] text-[var(--color-text-muted)]">
           Session not found.
         </div>
@@ -353,19 +361,12 @@ export function SessionDetailScreen({
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
-      <button
-        type="button"
-        onClick={goBack}
-        className="flex items-center gap-1.5 text-[13px] text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors mb-4"
-      >
-        <ArrowLeft size={16} /> Sessions
-      </button>
+      {pageHeader}
 
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         <span className="text-[11px] font-mono text-[var(--color-text-disabled)]">
           {session.id}
         </span>
-        {headerContent}
       </div>
 
       <MetadataBar
