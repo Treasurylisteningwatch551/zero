@@ -133,7 +133,7 @@ export async function runSessionJudge(
     ],
     system: primarySystemPrompt,
     stream: false,
-    maxTokens: 1600,
+    maxTokens: 3200,
   })
   const primaryRawText = extractResponseText(primaryCompletion)
 
@@ -161,7 +161,7 @@ export async function runSessionJudge(
         systemPrompt: primarySystemPrompt,
         userPrompt: primaryUserPrompt,
         model: resolved.modelConfig.modelId,
-        maxTokens: 1600,
+        maxTokens: 3200,
         stream: false,
       },
       response: {
