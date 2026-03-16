@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { ContextPanel, TraceSummaryCard } from './ContextPanel'
 
 describe('TraceSummaryCard', () => {
-  test('renders classifier request details from span metadata without throwing', () => {
+  test('renders classifier request details from trace data before metadata fallback', () => {
     const html = renderToStaticMarkup(
       <TraceSummaryCard
         span={{
@@ -14,14 +14,26 @@ describe('TraceSummaryCard', () => {
           endTime: '2026-03-08T00:00:01.000Z',
           durationMs: 1000,
           status: 'success',
+          data: {
+            closure: {
+              event: 'task_closure_decision',
+              action: 'continue',
+              reason: 'still researching',
+              assistantMessageId: 'msg_assistant_1',
+              classifierRequest: {
+                system: 'strict classifier',
+                prompt: '<instruction>research this deeply</instruction>',
+                maxTokens: 200,
+              },
+            },
+          },
           metadata: {
-            action: 'continue',
-            reason: 'still researching',
-            assistantMessageId: 'msg_assistant_1',
+            action: 'block',
+            reason: 'stale metadata should not win',
             classifierRequest: {
-              system: 'strict classifier',
-              prompt: '<instruction>research this deeply</instruction>',
-              maxTokens: 200,
+              system: 'legacy classifier',
+              prompt: '<instruction>stale</instruction>',
+              maxTokens: 100,
             },
           },
           children: [],
@@ -31,6 +43,8 @@ describe('TraceSummaryCard', () => {
 
     expect(html).toContain('classifier_request')
     expect(html).toContain('strict classifier')
+    expect(html).toContain('still researching')
+    expect(html).not.toContain('legacy classifier')
   })
 
   test('keeps context panel height constrained', () => {

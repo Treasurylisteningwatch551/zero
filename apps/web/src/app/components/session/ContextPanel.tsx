@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import { toolColors } from '../../lib/colors'
 import { formatCost, formatModelHistory, formatNumber, formatTimeAgo } from '../../lib/format'
-import type { PersistedTaskClosureEvent } from './timeline'
+import {
+  getTaskClosureTraceDetails,
+  type PersistedTaskClosureEvent,
+  type TraceSpan,
+} from './timeline'
 
 interface ModelHistoryEntry {
   model: string
@@ -54,19 +58,6 @@ interface LlmRequestEntry {
   cost: number
   durationMs?: number
   ts: string
-}
-
-interface TraceSpan {
-  id: string
-  parentId?: string
-  sessionId: string
-  name: string
-  startTime: string
-  endTime?: string
-  durationMs?: number
-  status: 'running' | 'success' | 'error'
-  metadata?: Record<string, unknown>
-  children: TraceSpan[]
 }
 
 interface Props {
@@ -139,7 +130,7 @@ export function ContextPanel({
   }
   const totalCalls = toolCalls.length
 
-  const persistedTaskClosureCards = useMemo(
+  const taskClosureCards = useMemo(
     () => taskClosureEvents.map(mapPersistedTaskClosureEventToCard),
     [taskClosureEvents],
   )
@@ -457,13 +448,13 @@ export function ContextPanel({
           <Section title="Task Closure">
             {traceLoading ? (
               <p className="text-[12px] text-[var(--color-text-disabled)]">Loading trace…</p>
-            ) : persistedTaskClosureCards.length === 0 ? (
+            ) : taskClosureCards.length === 0 ? (
               <p className="text-[12px] text-[var(--color-text-disabled)]">
                 No task closure events for this session.
               </p>
             ) : (
               <div className="space-y-2">
-                {persistedTaskClosureCards.map((card, index) => (
+                {taskClosureCards.map((card, index) => (
                   <PersistedTaskClosureCard
                     key={`${card.createdAt}-${index}`}
                     card={card}
@@ -525,7 +516,7 @@ function PersistedTaskClosureCard({
         <div className="flex items-center gap-2">
           <code className="text-[11px] text-cyan-300">{card.event}</code>
           <span className="rounded px-1.5 py-0.5 text-[10px] text-cyan-200 bg-cyan-400/10">
-            persisted
+            session
           </span>
         </div>
         <span className="text-[10px] font-mono text-[var(--color-text-disabled)]">
@@ -597,19 +588,16 @@ function PersistedTaskClosureCard({
 }
 
 export function TraceSummaryCard({ span }: { span: TraceSpan }) {
-  const metadata = span.metadata ?? {}
-  const action = typeof metadata.action === 'string' ? metadata.action : undefined
-  const reason = typeof metadata.reason === 'string' ? metadata.reason : undefined
-  const failureStage = typeof metadata.failureStage === 'string' ? metadata.failureStage : undefined
-  const trimFrom = typeof metadata.trimFrom === 'string' ? metadata.trimFrom : undefined
-  const classifierResponseRaw =
-    typeof metadata.classifierResponseRaw === 'string' ? metadata.classifierResponseRaw : undefined
-  const assistantMessageId =
-    typeof metadata.assistantMessageId === 'string' ? metadata.assistantMessageId : undefined
-  const classifierRequest = isClassifierRequest(metadata.classifierRequest)
-    ? metadata.classifierRequest
-    : undefined
-  const error = typeof metadata.error === 'string' ? metadata.error : undefined
+  const {
+    action,
+    reason,
+    failureStage,
+    trimFrom,
+    classifierResponseRaw,
+    assistantMessageId,
+    classifierRequest,
+    error,
+  } = getTaskClosureTraceDetails(span)
 
   return (
     <div className="rounded border border-white/8 bg-white/[0.02] p-3">
@@ -748,18 +736,6 @@ function formatMetadataValue(value: unknown): string {
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   if (value === null || value === undefined) return '-'
   return '…'
-}
-
-function isClassifierRequest(
-  value: unknown,
-): value is PersistedTaskClosureEvent['classifierRequest'] {
-  if (!value || typeof value !== 'object') return false
-  const candidate = value as Record<string, unknown>
-  return (
-    typeof candidate.system === 'string' &&
-    typeof candidate.prompt === 'string' &&
-    typeof candidate.maxTokens === 'number'
-  )
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

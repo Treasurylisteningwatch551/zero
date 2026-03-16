@@ -7,7 +7,7 @@ import {
 } from './timeline'
 
 describe('buildTimeline', () => {
-  test('adds task closure decision span as a system event', () => {
+  test('adds task closure decision span as a system event from trace data', () => {
     const messages: Message[] = [
       {
         id: 'msg_1',
@@ -44,10 +44,17 @@ describe('buildTimeline', () => {
             endTime: '2026-03-08T00:00:01.200Z',
             durationMs: 100,
             status: 'success',
+            data: {
+              closure: {
+                event: 'task_closure_decision',
+                action: 'continue',
+                reason: 'remaining work is required',
+              },
+            },
             metadata: {
               called: true,
-              action: 'continue',
-              reason: 'remaining work is required',
+              action: 'block',
+              reason: 'stale metadata should not win',
             },
             children: [],
           },
@@ -59,10 +66,10 @@ describe('buildTimeline', () => {
     const systemEvent = items.find((item) => item.type === 'system-event')
 
     expect(systemEvent).toBeDefined()
-    expect(systemEvent?.text).toContain('Task closure continue')
+    expect(systemEvent?.text).toBe('Task closure continue: remaining work is required')
   })
 
-  test('adds failed span as warning event', () => {
+  test('adds failed span as warning event from trace data', () => {
     const items = buildTimeline(
       [],
       [
@@ -74,7 +81,17 @@ describe('buildTimeline', () => {
           endTime: '2026-03-08T00:00:01.100Z',
           durationMs: 100,
           status: 'error',
-          metadata: { reason: 'invalid_classifier_output', failureStage: 'parse_classifier_response' },
+          data: {
+            closure: {
+              event: 'task_closure_failed',
+              reason: 'invalid_classifier_output',
+              failureStage: 'parse_classifier_response',
+            },
+          },
+          metadata: {
+            reason: 'stale metadata should not win',
+            failureStage: 'request_classifier',
+          },
           children: [],
         },
       ],
@@ -84,7 +101,7 @@ describe('buildTimeline', () => {
     expect(items[0].type).toBe('system-event')
     if (items[0].type === 'system-event') {
       expect(items[0].variant).toBe('warning')
-      expect(items[0].text).toContain('Task closure failed')
+      expect(items[0].text).toBe('Task closure failed: invalid_classifier_output')
     }
   })
 
@@ -215,10 +232,17 @@ test('deduplicates persisted task closure events when matching trace spans exist
       endTime: '2026-03-08T00:00:01.100Z',
       durationMs: 100,
       status: 'success',
+      data: {
+        closure: {
+          event: 'task_closure_failed',
+          reason: 'invalid_classifier_output',
+          failureStage: 'parse_classifier_response',
+          assistantMessageId: 'msg_1',
+        },
+      },
       metadata: {
-        reason: 'invalid_classifier_output',
-        failureStage: 'parse_classifier_response',
-        assistantMessageId: 'msg_1',
+        reason: 'stale metadata should not win',
+        failureStage: 'request_classifier',
       },
       children: [],
     },

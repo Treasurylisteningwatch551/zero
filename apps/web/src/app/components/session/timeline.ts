@@ -40,8 +40,23 @@ export interface TraceSpan {
   endTime?: string
   durationMs?: number
   status: 'running' | 'success' | 'error'
+  data?: Record<string, unknown>
   metadata?: Record<string, unknown>
   children: TraceSpan[]
+}
+
+interface TaskClosureTraceDetails {
+  event?: PersistedTaskClosureEvent['event']
+  called?: boolean
+  action?: PersistedTaskClosureEvent['action']
+  reason?: string
+  failureStage?: PersistedTaskClosureEvent['failureStage']
+  trimFrom?: string
+  classifierRequest?: PersistedTaskClosureEvent['classifierRequest']
+  classifierResponseRaw?: string
+  assistantMessageId?: string
+  assistantMessageCreatedAt?: string
+  error?: string
 }
 
 export type TimelineItem =
@@ -224,21 +239,14 @@ function mapPersistedTaskClosureEvent(event: PersistedTaskClosureEvent): Timelin
 }
 
 function mapTaskClosureDecision(span: TraceSpan): TimelineItem | null {
-  const metadata = span.metadata ?? {}
-  const called = metadata.called === true
-  const action = typeof metadata.action === 'string' ? metadata.action : undefined
-  const reason = typeof metadata.reason === 'string' ? metadata.reason : undefined
-  const assistantMessageCreatedAt =
-    typeof metadata.assistantMessageCreatedAt === 'string'
-      ? metadata.assistantMessageCreatedAt
-      : undefined
-  const createdAt = assistantMessageCreatedAt ?? span.endTime ?? span.startTime
+  const details = getTaskClosureTraceDetails(span)
+  const createdAt = details.assistantMessageCreatedAt ?? span.endTime ?? span.startTime
 
-  if (!called) return null
+  if (details.called === false) return null
 
-  const label = action ?? 'unknown'
-  const text = reason ? `Task closure ${label}: ${reason}` : `Task closure ${label}`
-  const variant = action === 'block' ? 'warning' : 'info'
+  const label = details.action ?? 'unknown'
+  const text = details.reason ? `Task closure ${label}: ${details.reason}` : `Task closure ${label}`
+  const variant = details.action === 'block' ? 'warning' : 'info'
 
   return {
     type: 'system-event',
@@ -249,17 +257,13 @@ function mapTaskClosureDecision(span: TraceSpan): TimelineItem | null {
 }
 
 function mapTaskClosureFailed(span: TraceSpan): TimelineItem {
-  const metadata = span.metadata ?? {}
-  const reason = typeof metadata.reason === 'string' ? metadata.reason : 'task closure failed'
-  const assistantMessageCreatedAt =
-    typeof metadata.assistantMessageCreatedAt === 'string'
-      ? metadata.assistantMessageCreatedAt
-      : undefined
+  const details = getTaskClosureTraceDetails(span)
+  const reason = details.reason ?? 'task closure failed'
   return {
     type: 'system-event',
     variant: 'warning',
     text: `Task closure failed: ${reason}`,
-    createdAt: assistantMessageCreatedAt ?? span.endTime ?? span.startTime,
+    createdAt: details.assistantMessageCreatedAt ?? span.endTime ?? span.startTime,
   }
 }
 
@@ -282,22 +286,20 @@ function extractToolDurations(traces: TraceSpan[]): Map<string, number> {
 }
 
 function getTaskClosureTraceKey(span: TraceSpan): string | null {
-  const metadata = span.metadata ?? {}
-  const assistantMessageId =
-    typeof metadata.assistantMessageId === 'string' ? metadata.assistantMessageId : ''
+  const details = getTaskClosureTraceDetails(span)
+  const assistantMessageId = details.assistantMessageId ?? ''
 
   if (span.name === 'task_closure_decision') {
-    if (metadata.called === false) return null
+    if (details.called === false) return null
 
-    const action = typeof metadata.action === 'string' ? metadata.action : 'unknown'
-    const reason = typeof metadata.reason === 'string' ? metadata.reason : ''
+    const action = details.action ?? 'unknown'
+    const reason = details.reason ?? ''
     return `decision|${action}|${reason}|${assistantMessageId}`
   }
 
   if (span.name === 'task_closure_failed') {
-    const reason = typeof metadata.reason === 'string' ? metadata.reason : 'task_closure_failed'
-    const failureStage =
-      typeof metadata.failureStage === 'string' ? metadata.failureStage : 'unknown'
+    const reason = details.reason ?? 'task_closure_failed'
+    const failureStage = details.failureStage ?? 'unknown'
     return `failed|${failureStage}|${reason}|${assistantMessageId}`
   }
 
@@ -329,4 +331,89 @@ export function extractFilesTouched(items: TimelineItem[]): string[] {
     }
   }
   return Array.from(files)
+}
+
+export function getTaskClosureTraceDetails(span: TraceSpan): TaskClosureTraceDetails {
+  const metadata = span.metadata ?? {}
+  const closure = asRecord(asRecord(span.data)?.closure)
+  const action = asAction(asString(closure?.action)) ?? asAction(asString(metadata.action))
+  const reason = asString(closure?.reason) ?? asString(metadata.reason)
+
+  return {
+    event:
+      asTaskClosureEvent(asString(closure?.event)) ??
+      asTaskClosureEvent(
+        span.name === 'task_closure_decision' || span.name === 'task_closure_failed'
+          ? span.name
+          : undefined,
+      ),
+    called:
+      asBoolean(closure?.called) ??
+      asBoolean(metadata.called) ??
+      (action !== undefined || reason !== undefined ? true : undefined),
+    action,
+    reason,
+    failureStage:
+      asFailureStage(asString(closure?.failureStage)) ??
+      asFailureStage(asString(metadata.failureStage)),
+    trimFrom: asString(closure?.trimFrom) ?? asString(metadata.trimFrom),
+    classifierRequest: resolveClassifierRequest(
+      closure?.classifierRequest,
+      metadata.classifierRequest,
+    ),
+    classifierResponseRaw:
+      asString(closure?.classifierResponseRaw) ?? asString(metadata.classifierResponseRaw),
+    assistantMessageId:
+      asString(closure?.assistantMessageId) ?? asString(metadata.assistantMessageId),
+    assistantMessageCreatedAt:
+      asString(closure?.assistantMessageCreatedAt) ?? asString(metadata.assistantMessageCreatedAt),
+    error: asString(closure?.error) ?? asString(metadata.error),
+  }
+}
+
+function resolveClassifierRequest(
+  value: unknown,
+  fallback: unknown,
+): PersistedTaskClosureEvent['classifierRequest'] | undefined {
+  if (isClassifierRequest(value)) return value
+  if (isClassifierRequest(fallback)) return fallback
+  return undefined
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
+}
+
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined
+}
+
+function asTaskClosureEvent(value: unknown): PersistedTaskClosureEvent['event'] | undefined {
+  return value === 'task_closure_decision' || value === 'task_closure_failed' ? value : undefined
+}
+
+function asAction(value: unknown): PersistedTaskClosureEvent['action'] | undefined {
+  return value === 'finish' || value === 'continue' || value === 'block' ? value : undefined
+}
+
+function asFailureStage(value: unknown): PersistedTaskClosureEvent['failureStage'] | undefined {
+  return value === 'parse_classifier_response' || value === 'request_classifier' ? value : undefined
+}
+
+function isClassifierRequest(
+  value: unknown,
+): value is PersistedTaskClosureEvent['classifierRequest'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Record<string, unknown>
+  return (
+    typeof candidate.system === 'string' &&
+    typeof candidate.prompt === 'string' &&
+    typeof candidate.maxTokens === 'number'
+  )
 }
