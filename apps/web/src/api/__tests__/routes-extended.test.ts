@@ -151,6 +151,27 @@ describe('API Routes Extended', () => {
     expect(newEntries.some((entry) => entry.event === 'message_handled')).toBe(true)
   })
 
+  test('session:update preserves spanId in events.jsonl', () => {
+    const before = zero.logger.readEntries<Record<string, unknown>>('events.jsonl').length
+
+    zero.bus.emit('session:update', {
+      sessionId: 'sess_signal_with_span',
+      spanId: 'span_signal_001',
+      event: 'task_closure_decision',
+      action: 'finish',
+      reason: 'done',
+    })
+
+    const newEntries = zero.logger
+      .readEntries<Record<string, unknown>>('events.jsonl')
+      .slice(before)
+    const entry = newEntries.find((item) => item.event === 'task_closure_decision')
+
+    expect(entry).toBeDefined()
+    expect(entry?.sessionId).toBe('sess_signal_with_span')
+    expect(entry?.spanId).toBe('span_signal_001')
+  })
+
   test('GET /api/channels/status returns channel statuses', async () => {
     const res = await app.request('/api/channels/status')
     expect(res.status).toBe(200)

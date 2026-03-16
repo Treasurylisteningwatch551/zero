@@ -119,6 +119,7 @@ interface TaskClosureEvaluation {
 type SessionTaskClosureEvent =
   | {
       sessionId: string
+      spanId?: string
       event: 'task_closure_decision'
       action: 'finish' | 'continue' | 'block'
       reason: string
@@ -128,6 +129,7 @@ type SessionTaskClosureEvent =
     }
   | {
       sessionId: string
+      spanId?: string
       event: 'task_closure_failed'
       reason: 'invalid_classifier_output' | 'classifier_failed'
       failureStage: 'parse_classifier_response' | 'request_classifier'
@@ -375,8 +377,9 @@ export class Agent {
       }
 
       if (taskClosureEvaluation.eventPayload) {
-        const sessionEvent: ClosureLogEntryInput = {
+        const sessionEvent: ClosureLogEntryInput & { spanId?: string } = {
           ...taskClosureEvaluation.eventPayload,
+          spanId: taskClosureEvaluation.traceSpanId,
           assistantMessageId: assistantMsg.id,
           assistantMessageCreatedAt: assistantMsg.createdAt,
         }

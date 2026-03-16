@@ -276,6 +276,44 @@ describe('Agent task closure gate', () => {
     expect(taskClosureSpan?.metadata?.trimFrom).toContain('如果你愿意')
   })
 
+  test('emits task closure session events with the trace span id', async () => {
+    const registry = new ToolRegistry()
+    const adapter = new TaskClosureAdapter('continue')
+    const tracer = new Tracer()
+    const emitted: Array<{ topic: string; data: Record<string, unknown> }> = []
+    const agent = new Agent(
+      { name: 'test-agent', agentInstruction: 'Test prompt' },
+      adapter,
+      registry,
+      createToolContext(),
+      {
+        tracer,
+        bus: {
+          emit(topic, data) {
+            emitted.push({ topic, data })
+          },
+        },
+      },
+    )
+
+    await agent.run(createContext(registry), '帮我看看这帖值不值得信')
+
+    const closureSpan = tracer
+      .exportSession('test-session')
+      .flatMap(flattenTraceSpans)
+      .find((span) => span.name === 'task_closure_decision')
+
+    const closureEvent = emitted.find(
+      (entry) =>
+        entry.topic === 'session:update' && entry.data.event === 'task_closure_decision',
+    )
+
+    expect(closureSpan).toBeDefined()
+    expect(closureEvent).toBeDefined()
+    expect(closureEvent?.data.spanId).toBe(closureSpan?.id)
+    expect(closureEvent?.data.sessionId).toBe('test-session')
+  })
+
   test('passes explicit system prompt into the classifier request', async () => {
     const registry = new ToolRegistry()
     const adapter = new TaskClosureAdapter('finish')
