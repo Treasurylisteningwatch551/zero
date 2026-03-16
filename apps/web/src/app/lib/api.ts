@@ -10,6 +10,10 @@ function showErrorToast(message: string) {
   useUIStore.getState().addToast('error', message)
 }
 
+export function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init)
   if (!res.ok) {
@@ -27,7 +31,10 @@ async function readErrorDetail(res: Response): Promise<string> {
   const contentType = res.headers.get('content-type') ?? ''
 
   if (contentType.includes('application/json')) {
-    const payload = (await res.json().catch(() => null)) as { error?: unknown; message?: unknown } | null
+    const payload = (await res.json().catch(() => null)) as {
+      error?: unknown
+      message?: unknown
+    } | null
     if (typeof payload?.error === 'string' && payload.error.trim().length > 0) {
       return payload.error.trim()
     }

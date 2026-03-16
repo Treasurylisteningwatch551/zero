@@ -2,7 +2,7 @@ import { ArrowLeft } from '@phosphor-icons/react'
 import { useNavigate } from '@tanstack/react-router'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWebSocket } from '../../hooks/useWebSocket'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, isAbortError } from '../../lib/api'
 import { useUIStore } from '../../stores/ui'
 import { Skeleton, SkeletonText } from '../shared/Skeleton'
 import { ContextPanel } from './ContextPanel'
@@ -123,40 +123,89 @@ export function SessionDetailScreen({
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const wasAtBottomRef = useRef(true)
   const previousSessionIdRef = useRef<string | null | undefined>(undefined)
+  const requestIdRef = useRef(0)
+  const abortRef = useRef<AbortController | null>(null)
+  const lastTimelineSnapshotRef = useRef({
+    sessionId: null as string | null,
+    messageCount: 0,
+    traceCount: 0,
+    taskClosureCount: 0,
+  })
 
   const fetchSession = useCallback(
     (showLoading = false) => {
       if (!sessionId) return Promise.resolve()
+      const requestId = ++requestIdRef.current
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+
       if (showLoading) {
         setLoading(true)
-        setSession(null)
-        setTraces([])
-        setTaskClosureEvents([])
-        setLlmRequests([])
       }
       setTraceLoading(true)
       return Promise.all([
-        apiFetch<SessionDetail>(`/api/sessions/${sessionId}`),
-        apiFetch<{ traces: TraceSpan[] }>(`/api/sessions/${sessionId}/traces`),
+        apiFetch<SessionDetail>(`/api/sessions/${sessionId}`, { signal: controller.signal }),
+        apiFetch<{ traces: TraceSpan[] }>(`/api/sessions/${sessionId}/traces`, {
+          signal: controller.signal,
+        }),
         apiFetch<{ events: SessionTaskClosureEvent[] }>(
           `/api/sessions/${sessionId}/task-closure-events`,
+          { signal: controller.signal },
         ),
-        apiFetch<{ requests: SessionRequestEntry[] }>(`/api/sessions/${sessionId}/requests`),
+        apiFetch<{ requests: SessionRequestEntry[] }>(`/api/sessions/${sessionId}/requests`, {
+          signal: controller.signal,
+        }),
       ])
         .then(([data, traceResponse, taskClosureResponse, requestResponse]) => {
+          if (requestId !== requestIdRef.current) return
+
+          const nextTraces = traceResponse.traces ?? []
+          const nextTaskClosureEvents = taskClosureResponse.events ?? []
+          const previousSnapshot = lastTimelineSnapshotRef.current
+          const isSameSession = previousSnapshot.sessionId === data.id
+          const timelineExpanded =
+            data.messages.length > previousSnapshot.messageCount ||
+            nextTraces.length > previousSnapshot.traceCount ||
+            nextTaskClosureEvents.length > previousSnapshot.taskClosureCount
+
           setSession(data)
-          setTraces(traceResponse.traces ?? [])
-          setTaskClosureEvents(taskClosureResponse.events ?? [])
+          setTraces(nextTraces)
+          setTaskClosureEvents(nextTaskClosureEvents)
           setLlmRequests(requestResponse.requests ?? [])
-          if (wasAtBottomRef.current) {
+
+          lastTimelineSnapshotRef.current = {
+            sessionId: data.id,
+            messageCount: data.messages.length,
+            traceCount: nextTraces.length,
+            taskClosureCount: nextTaskClosureEvents.length,
+          }
+
+          if (wasAtBottomRef.current && (!isSameSession || timelineExpanded)) {
             requestAnimationFrame(() => {
               const el = timelineRef.current
-              if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+              if (el) el.scrollTo({ top: el.scrollHeight })
             })
           }
         })
-        .catch(() => {})
+        .catch((error) => {
+          if (requestId !== requestIdRef.current || isAbortError(error)) return
+
+          if (showLoading) {
+            setSession(null)
+            setTraces([])
+            setTaskClosureEvents([])
+            setLlmRequests([])
+            lastTimelineSnapshotRef.current = {
+              sessionId: null,
+              messageCount: 0,
+              traceCount: 0,
+              taskClosureCount: 0,
+            }
+          }
+        })
         .finally(() => {
+          if (requestId !== requestIdRef.current) return
           setTraceLoading(false)
           if (showLoading) setLoading(false)
         })
@@ -172,7 +221,13 @@ export function SessionDetailScreen({
   }, [sessionId])
 
   useEffect(() => {
-    if (!sessionId) return
+    if (!sessionId) {
+      abortRef.current?.abort()
+      setLoading(false)
+      setTraceLoading(false)
+      return
+    }
+
     void fetchSession(true)
   }, [sessionId, fetchSession])
 
@@ -188,7 +243,13 @@ export function SessionDetailScreen({
     return () => el.removeEventListener('scroll', onScroll)
   }, [session?.id])
 
-  useEffect(() => () => clearTimeout(debounceRef.current), [])
+  useEffect(
+    () => () => {
+      clearTimeout(debounceRef.current)
+      abortRef.current?.abort()
+    },
+    [],
+  )
 
   const onEvent = useCallback(
     (_: string, data: unknown) => {
@@ -302,11 +363,7 @@ export function SessionDetailScreen({
         {emptyState ?? (
           <div className="p-6 text-center text-[var(--color-text-muted)]">
             No session selected.{' '}
-            <button
-              type="button"
-              onClick={goBack}
-              className="text-[var(--color-accent)] underline"
-            >
+            <button type="button" onClick={goBack} className="text-[var(--color-accent)] underline">
               Back to sessions
             </button>
           </div>
@@ -315,7 +372,7 @@ export function SessionDetailScreen({
     )
   }
 
-  if (loading) {
+  if (loading && !session) {
     return (
       <div className="p-6 max-w-[1400px] mx-auto">
         {pageHeader}

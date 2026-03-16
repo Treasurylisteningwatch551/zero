@@ -35,7 +35,7 @@ export function TimelineView({
 
   return (
     <div className="space-y-2">
-      {items.map((item, i) => {
+      {items.map((item) => {
         switch (item.type) {
           case 'user-message':
             return (
@@ -49,7 +49,7 @@ export function TimelineView({
           case 'agent-text':
             return (
               <AgentMessageBlock
-                key={`${item.messageId}-${i}`}
+                key={getTimelineItemKey(item)}
                 messageId={item.messageId}
                 text={item.text}
                 model={item.model}

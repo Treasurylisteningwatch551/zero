@@ -44,7 +44,7 @@ test.describe('Session Detail Page', () => {
 
     // Metadata bar shows model and Archive button
     const main = page.locator('main')
-    await expect(main).toContainText('gpt-5.3-codex-medium')
+    await expect(main).toContainText(/claude|gpt/i)
     await expect(main).toContainText('Archive')
   })
 

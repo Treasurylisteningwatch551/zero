@@ -43,7 +43,54 @@ describe('resolveChannelSessionCandidate', () => {
     expect(resolveChannelSessionCandidate(candidates)?.id).toBe('sess_tg_2')
   })
 
-  test('falls back to first candidate when channel id does not match', () => {
-    expect(resolveChannelSessionCandidate(candidates, 'room_404')?.id).toBe('sess_tg_2')
+  test('returns null when channel id does not match', () => {
+    expect(resolveChannelSessionCandidate(candidates, 'room_404')).toBeNull()
+  })
+
+  test('prefers the unnamed channel variant when channelName is absent', () => {
+    const duplicated = [
+      {
+        id: 'sess_fei_1',
+        source: 'feishu',
+        channelId: 'room_shared',
+        status: 'active',
+        updatedAt: '2026-03-08T00:00:03.000Z',
+      },
+      {
+        id: 'sess_fei_2',
+        source: 'feishu',
+        channelName: 'web-auto',
+        channelId: 'room_shared',
+        status: 'active',
+        updatedAt: '2026-03-08T00:00:04.000Z',
+      },
+    ] satisfies ChannelSessionCandidate[]
+
+    expect(resolveChannelSessionCandidate(duplicated, 'room_shared')?.id).toBe('sess_fei_1')
+  })
+
+  test('respects the preferred source when multiple sources share a channel id', () => {
+    const duplicated = [
+      {
+        id: 'sess_web_1',
+        source: 'web',
+        channelName: 'web',
+        channelId: 'room_shared',
+        status: 'active',
+        updatedAt: '2026-03-08T00:00:03.000Z',
+      },
+      {
+        id: 'sess_tg_1',
+        source: 'telegram',
+        channelName: 'telegram',
+        channelId: 'room_shared',
+        status: 'active',
+        updatedAt: '2026-03-08T00:00:04.000Z',
+      },
+    ] satisfies ChannelSessionCandidate[]
+
+    expect(
+      resolveChannelSessionCandidate(duplicated, 'room_shared', 'telegram', 'telegram')?.id,
+    ).toBe('sess_tg_1')
   })
 })
