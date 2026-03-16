@@ -100,16 +100,12 @@ export interface TaskClosureClassifierRequest {
 
 export type TaskClosureClassifierResponse = CompletionResponse
 
-export interface OperationLogEntry {
+export interface EventLogEntry {
   ts: string
   level: LogLevel
-  sessionId: string
+  sessionId?: string
   event: string
-  tool: string
-  input: string
-  outputSummary: string
-  durationMs: number
-  model?: string
+  [key: string]: unknown
 }
 
 export interface TaskClosureDecisionLogEntry {
@@ -156,6 +152,7 @@ export class JsonlLogger {
     this.ensureDir(basePath)
     this.ensureDir(this.getSessionsRoot())
     this.ensureDir(this.getActiveSessionsRoot())
+    this.migrateLegacyOperationsFile()
   }
 
   private ensureDir(dir: string): void {
@@ -241,10 +238,10 @@ export class JsonlLogger {
   }
 
   /**
-   * Log a general operation event.
+   * Log a general event entry.
    */
-  logOperation(entry: Omit<OperationLogEntry, 'ts'>): void {
-    this.appendLine('operations.jsonl', { ...entry, ts: now() })
+  logEvent(entry: Omit<EventLogEntry, 'ts'>): void {
+    this.appendLine('events.jsonl', { ...entry, ts: now() })
   }
 
   /**
@@ -290,7 +287,7 @@ export class JsonlLogger {
    * General log entry.
    */
   log(level: LogLevel, event: string, data?: Record<string, unknown>): void {
-    this.appendLine('operations.jsonl', { ts: now(), level, event, ...data })
+    this.appendLine('events.jsonl', { ts: now(), level, event, ...data })
   }
 
   /**
@@ -471,5 +468,24 @@ export class JsonlLogger {
       classifierResponseRaw: entry.classifierResponseRaw ?? '',
       error: entry.error ?? '',
     })
+  }
+
+  private migrateLegacyOperationsFile(): void {
+    const legacyPath = join(this.basePath, 'operations.jsonl')
+    const nextPath = join(this.basePath, 'events.jsonl')
+    if (!existsSync(legacyPath)) return
+
+    if (!existsSync(nextPath)) {
+      this.ensureDir(dirname(nextPath))
+      appendFileSync(nextPath, readFileSync(legacyPath, 'utf-8'), 'utf-8')
+      this.removePathIfExists(legacyPath)
+      return
+    }
+
+    const legacyContent = readFileSync(legacyPath, 'utf-8')
+    if (legacyContent.trim().length > 0) {
+      appendFileSync(nextPath, legacyContent, 'utf-8')
+    }
+    this.removePathIfExists(legacyPath)
   }
 }

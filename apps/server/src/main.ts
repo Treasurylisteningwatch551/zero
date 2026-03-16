@@ -145,7 +145,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   const logger = new JsonlLogger(logsDir)
   const metrics = new MetricsDB(join(logsDir, 'metrics.db'))
   const sessionDb = new SessionDB(join(logsDir, 'sessions.db'))
-  const tracer = new Tracer()
+  const tracer = new Tracer(logsDir)
   const heartbeat = new HeartbeatWriter(join(ZERO_DIR, 'heartbeat.json'))
   heartbeat.start()
   console.log('[ZeRo OS] Logging initialized')
@@ -518,10 +518,50 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   heartbeat.write()
 
   let shuttingDown = false
+  const wildcardLogListener = (payload: { topic: string; data: Record<string, unknown> }) => {
+    if (
+      payload.topic === 'tool:call' ||
+      payload.topic === 'tool:result' ||
+      payload.topic === 'heartbeat'
+    ) {
+      return
+    }
+    logger.log('info', payload.topic, payload.data)
+  }
+  const repairMetricsListener = (payload: { data: Record<string, unknown> }) => {
+    metrics.recordRepair({
+      sessionId: payload.data.sessionId as string | undefined,
+      status: (payload.data.status as string) === 'success' ? 'success' : 'failed',
+      diagnosis: (payload.data.diagnosis as string) ?? '',
+      action: (payload.data.action as string) ?? '',
+      result: (payload.data.result as string) ?? '',
+    })
+  }
+  const toolMetricsListener = (payload: { data: Record<string, unknown>; timestamp: string }) => {
+    const sessionId = payload.data.sessionId as string | undefined
+    if (!sessionId) return
+
+    metrics.recordOperation({
+      sessionId,
+      tool: (payload.data.tool as string) ?? '',
+      event: 'tool:call',
+      success: true,
+      durationMs: 0,
+      createdAt: payload.timestamp,
+    })
+  }
+
+  globalBus.on('*', wildcardLogListener)
+  globalBus.on('repair:end', repairMetricsListener)
+  globalBus.on('tool:call', toolMetricsListener)
+
   const shutdown = async () => {
     if (shuttingDown) return
     shuttingDown = true
     console.log('\n[ZeRo OS] Shutting down...')
+    globalBus.off('*', wildcardLogListener)
+    globalBus.off('repair:end', repairMetricsListener)
+    globalBus.off('tool:call', toolMetricsListener)
     litellmPricing.dispose()
     console.log('[ZeRo OS] LiteLLM pricing disposed')
     scheduler.stop()
@@ -955,44 +995,6 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   }
 
   console.log(`[ZeRo OS] ${channels.size} channels registered`)
-
-  // 16. Event bus — wildcard logging
-  globalBus.on('*', (payload) => {
-    if (
-      payload.topic === 'tool:call' ||
-      payload.topic === 'tool:result' ||
-      payload.topic === 'heartbeat'
-    ) {
-      return
-    }
-    logger.log('info', payload.topic, payload.data)
-  })
-
-  // Record repair attempts to MetricsDB
-  globalBus.on('repair:end', (payload) => {
-    metrics.recordRepair({
-      sessionId: payload.data.sessionId as string | undefined,
-      status: (payload.data.status as string) === 'success' ? 'success' : 'failed',
-      diagnosis: (payload.data.diagnosis as string) ?? '',
-      action: (payload.data.action as string) ?? '',
-      result: (payload.data.result as string) ?? '',
-    })
-  })
-
-  // Record tool call metrics from bus events
-  globalBus.on('tool:call', (payload) => {
-    const sessionId = payload.data.sessionId as string | undefined
-    if (!sessionId) return
-
-    metrics.recordOperation({
-      sessionId,
-      tool: (payload.data.tool as string) ?? '',
-      event: 'tool:call',
-      success: true,
-      durationMs: 0,
-      createdAt: payload.timestamp,
-    })
-  })
 
   console.log('[ZeRo OS] System ready.')
 

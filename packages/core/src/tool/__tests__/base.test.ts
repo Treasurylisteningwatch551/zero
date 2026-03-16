@@ -17,10 +17,10 @@ class NoopTool extends BaseTool {
 }
 
 describe('BaseTool observability', () => {
-  test('records metrics without writing operations logs', async () => {
+  test('records metrics without writing event logs', async () => {
     const tool = new NoopTool()
     const calls = {
-      logOperation: 0,
+      logEvent: 0,
       recordOperation: 0,
     }
 
@@ -33,8 +33,8 @@ describe('BaseTool observability', () => {
         error: () => {},
       },
       observability: {
-        logOperation: () => {
-          calls.logOperation++
+        logEvent: () => {
+          calls.logEvent++
         },
         recordOperation: () => {
           calls.recordOperation++
@@ -45,7 +45,7 @@ describe('BaseTool observability', () => {
     const result = await tool.run(ctx, {})
 
     expect(result.success).toBe(true)
-    expect(calls.logOperation).toBe(0)
+    expect(calls.logEvent).toBe(0)
     expect(calls.recordOperation).toBe(1)
   })
 })

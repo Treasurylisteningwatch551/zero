@@ -62,7 +62,7 @@ const levelRowBg: Record<string, string> = {
   warn: 'bg-amber-400/[0.05]',
 }
 
-const LOG_TYPES = ['operations', 'requests', 'snapshots', 'trace'] as const
+const LOG_TYPES = ['events', 'requests', 'snapshots', 'trace'] as const
 type LogType = (typeof LOG_TYPES)[number]
 
 const TIME_RANGES = [
@@ -80,10 +80,10 @@ interface ColumnConfig {
 
 function getColumnConfig(type: LogType): ColumnConfig {
   switch (type) {
-    case 'operations':
+    case 'events':
       return {
         cols: 'grid-cols-[90px_60px_90px_70px_1fr_1fr]',
-        headers: ['Time', 'Level', 'Session', 'Tool', 'Input', 'Output'],
+        headers: ['Time', 'Level', 'Session', 'Source', 'Event', 'Summary'],
         render: (e) => [
           <span key="ts" className="text-[var(--color-text-disabled)] truncate">
             {e.ts ? formatTimeAgo(e.ts) : '-'}
@@ -93,10 +93,10 @@ function getColumnConfig(type: LogType): ColumnConfig {
             {getSid(e)}
           </span>,
           <span key="tool" className="text-[var(--color-accent)]">
-            {e.tool ?? '-'}
+            {e.tool ?? e.event ?? '-'}
           </span>,
           <span key="input" className="text-[var(--color-text-secondary)] truncate">
-            {e.input ?? e.event ?? '-'}
+            {e.event ?? e.input ?? '-'}
           </span>,
           <span key="output" className="text-[var(--color-text-muted)] truncate">
             {e.outputSummary ?? '-'}
@@ -301,7 +301,7 @@ export function LogsPage() {
   const [entries, setEntries] = useState<LogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [levels, setLevels] = useState<Set<string>>(new Set(['info', 'warn', 'error']))
-  const [logType, setLogType] = useState<LogType>('operations')
+  const [logType, setLogType] = useState<LogType>('events')
   const [timeRange, setTimeRange] = useState('1h')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')

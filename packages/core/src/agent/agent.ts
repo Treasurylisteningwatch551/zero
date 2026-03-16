@@ -80,7 +80,7 @@ export interface AgentContext {
 export interface AgentObservability {
   logger?: Pick<JsonlLogger, 'logSessionRequest' | 'logSessionClosure'>
   metrics?: MetricsDB
-  tracer?: Tracer
+  tracer?: Pick<Tracer, 'startSpan' | 'updateSpan' | 'endSpan' | 'getSpan'>
   secretFilter?: SecretFilter
   bus?: {
     emit(topic: string, data: Record<string, unknown>): void
@@ -177,11 +177,18 @@ export class Agent {
     let emptyResponseRetryCount = 0
     const messages: Message[] = [...prepareConversationHistory(context.conversationHistory)]
     const newMessages: Message[] = []
+    const turnIndex = requestLogMeta?.turnIndex ?? 1
 
     // Start root trace span
     const rootSpan = this.obs.tracer?.startSpan(
       this.toolContext.sessionId,
-      `agent.run:${this.config.name}`,
+      `turn:${this.config.name}`,
+      this.toolContext.currentTraceSpanId,
+      {
+        kind: 'turn',
+        agentName: this.config.name,
+        data: { turnIndex },
+      },
     )
 
     // Add user message (text + optional images)
@@ -221,87 +228,115 @@ export class Agent {
     let hadQueuedMessages = false
     let pendingParentRequestId: string | undefined
     let currentRequestToolResults: RequestToolResultEntry[] = []
-    const turnIndex = requestLogMeta?.turnIndex ?? 1
 
-    while (true) {
-      const request: CompletionRequest = {
-        messages,
-        tools: context.tools,
-        system,
-        stream: true,
-        maxTokens: context.maxOutput ?? 16384,
-      }
-
-      const llmStart = Date.now()
-      const response = await this.completeWithStreamFallback(request, onTextDelta)
-      const llmDurationMs = Date.now() - llmStart
-
-      // Log LLM request to observability
-      this.logLLMRequest(
-        request,
-        response,
-        userMessage,
-        llmDurationMs,
-        {
-          turnIndex,
-          parentId: pendingParentRequestId,
-        },
-        currentRequestToolResults,
-      )
-      currentRequestToolResults = []
-      pendingParentRequestId = response.stopReason === 'tool_use' ? response.id : undefined
-
-      if (response.content.length === 0) {
-        this.toolContext.logger.warn('llm_empty_response', {
-          sessionId: this.toolContext.sessionId,
-          stopReason: response.stopReason,
-          retryCount: emptyResponseRetryCount,
-        })
-
-        if (emptyResponseRetryCount < CONTEXT_PARAMS.completion.maxEmptyResponseRetries) {
-          const retryMsg: Message = {
-            id: generateId(),
-            sessionId: this.toolContext.sessionId,
-            role: 'user',
-            messageType: 'message',
-            content: [{ type: 'text', text: EMPTY_RESPONSE_RETRY_PROMPT }],
-            createdAt: now(),
-          }
-          messages.push(retryMsg)
-          newMessages.push(retryMsg)
-          emptyResponseRetryCount++
-          continue
+    try {
+      while (true) {
+        const request: CompletionRequest = {
+          messages,
+          tools: context.tools,
+          system,
+          stream: true,
+          maxTokens: context.maxOutput ?? 16384,
         }
 
-        throw new Error(`LLM returned empty response (stopReason=${response.stopReason})`)
-      }
-
-      emptyResponseRetryCount = 0
-
-      let taskClosureEvaluation: TaskClosureEvaluation = {
-        decision: null,
-        eventPayload: null,
-      }
-      const shouldEvaluateTaskClosure =
-        response.stopReason === 'end_turn' &&
-        !hadQueuedMessages &&
-        hasAssistantText(response.content) &&
-        extractAssistantTail(response.content).length > 0
-
-      if (shouldEvaluateTaskClosure) {
-        taskClosureEvaluation = await this.decideTaskClosure(
-          userMessage,
-          messages,
-          response,
-          hadQueuedMessages,
+        const llmSpan = this.obs.tracer?.startSpan(
+          this.toolContext.sessionId,
+          'llm_request',
           rootSpan?.id,
+          {
+            kind: 'llm_request',
+            agentName: this.config.name,
+            data: {
+              turnIndex,
+              parentId: pendingParentRequestId,
+              spawnedByRequestId: this.toolContext.spawnedByRequestId,
+            },
+          },
         )
-      }
-      const taskClosureDecision = taskClosureEvaluation.decision
-      const displayContent = taskClosureEvaluation.trimmedContent ?? response.content
-      const shouldAutoContinueTaskClosure =
-        taskClosureDecision?.action === 'continue' &&
-        taskClosureEvaluation.trimmedContent !== undefined
+        const llmStart = Date.now()
+        let response: CompletionResponse
+        try {
+          response = await this.completeWithStreamFallback(request, onTextDelta)
+        } catch (error) {
+          if (llmSpan) {
+            this.obs.tracer?.updateSpan(llmSpan.id, {
+              metadata: {
+                error: error instanceof Error ? error.message : String(error),
+              },
+            })
+            this.obs.tracer?.endSpan(llmSpan.id, 'error')
+          }
+          throw error
+        }
+        const llmDurationMs = Date.now() - llmStart
+
+        // Log LLM request to observability
+        this.logLLMRequest(
+          request,
+          response,
+          userMessage,
+          llmDurationMs,
+          {
+            turnIndex,
+            parentId: pendingParentRequestId,
+          },
+          currentRequestToolResults,
+          llmSpan?.id,
+        )
+        currentRequestToolResults = []
+        pendingParentRequestId = response.stopReason === 'tool_use' ? response.id : undefined
+
+        if (response.content.length === 0) {
+          this.toolContext.logger.warn('llm_empty_response', {
+            sessionId: this.toolContext.sessionId,
+            stopReason: response.stopReason,
+            retryCount: emptyResponseRetryCount,
+          })
+
+          if (emptyResponseRetryCount < CONTEXT_PARAMS.completion.maxEmptyResponseRetries) {
+            const retryMsg: Message = {
+              id: generateId(),
+              sessionId: this.toolContext.sessionId,
+              role: 'user',
+              messageType: 'message',
+              content: [{ type: 'text', text: EMPTY_RESPONSE_RETRY_PROMPT }],
+              createdAt: now(),
+            }
+            messages.push(retryMsg)
+            newMessages.push(retryMsg)
+            emptyResponseRetryCount++
+            continue
+          }
+
+          throw new Error(`LLM returned empty response (stopReason=${response.stopReason})`)
+        }
+
+        emptyResponseRetryCount = 0
+
+        let taskClosureEvaluation: TaskClosureEvaluation = {
+          decision: null,
+          eventPayload: null,
+        }
+        const shouldEvaluateTaskClosure =
+          response.stopReason === 'end_turn' &&
+          !hadQueuedMessages &&
+          hasAssistantText(response.content) &&
+          extractAssistantTail(response.content).length > 0
+
+        if (shouldEvaluateTaskClosure) {
+          taskClosureEvaluation = await this.decideTaskClosure(
+            userMessage,
+            messages,
+            response,
+            hadQueuedMessages,
+            llmSpan?.id,
+          )
+        }
+        const taskClosureDecision = taskClosureEvaluation.decision
+        const displayContent = taskClosureEvaluation.trimmedContent ?? response.content
+        const shouldAutoContinueTaskClosure =
+          taskClosureDecision?.action === 'continue' &&
+          taskClosureEvaluation.trimmedContent !== undefined
 
       // Create assistant message — filter secrets from text blocks
       const filteredContent = this.filterContent(displayContent)
@@ -349,7 +384,7 @@ export class Agent {
       })
 
       // If no tool use, check if continuation is needed after queued message response
-      if (response.stopReason !== 'tool_use') {
+        if (response.stopReason !== 'tool_use') {
         if (
           hadQueuedMessages &&
           !isTaskComplete(response.content) &&
@@ -389,18 +424,19 @@ export class Agent {
           continue
         }
 
-        break
-      }
+          break
+        }
 
-      // Process tool calls
-      const toolUseBlocks = response.content.filter((b) => b.type === 'tool_use')
-      const toolResultBlocks: ContentBlock[] = []
-      const toolContext: ToolContext = {
-        ...this.toolContext,
-        currentRequestId: response.id,
-      }
+        // Process tool calls
+        const toolUseBlocks = response.content.filter((b) => b.type === 'tool_use')
+        const toolResultBlocks: ContentBlock[] = []
+        const toolContext: ToolContext = {
+          ...this.toolContext,
+          currentRequestId: response.id,
+          tracer: this.toolContext.tracer,
+        }
 
-      for (const block of toolUseBlocks) {
+        for (const block of toolUseBlocks) {
         if (block.type !== 'tool_use') continue
         const tool = this.toolRegistry.get(block.name)
 
@@ -416,8 +452,18 @@ export class Agent {
         const toolSpan = this.obs.tracer?.startSpan(
           this.toolContext.sessionId,
           `tool:${block.name}`,
-          rootSpan?.id,
+          llmSpan?.id,
+          {
+            kind: 'tool_call',
+            agentName: this.config.name,
+            data: {
+              tool: block.name,
+              inputSummary: this.stringifyTraceData(this.filterToolInput(block.input)),
+              requestId: response.id,
+            },
+          },
         )
+        toolContext.currentTraceSpanId = toolSpan?.id
 
         // Detect malformed tool input (truncated by max_tokens)
         if (
@@ -472,6 +518,16 @@ export class Agent {
         }
 
         if (toolSpan) {
+          this.obs.tracer?.updateSpan(toolSpan.id, {
+            data: {
+              outputSummary: result.outputSummary,
+            },
+            metadata: {
+              toolUseId: block.id,
+              toolName: block.name,
+              outputSummary: result.outputSummary,
+            },
+          })
           this.obs.tracer?.endSpan(toolSpan.id, result.success ? 'success' : 'error', {
             toolUseId: block.id,
             toolName: block.name,
@@ -495,10 +551,10 @@ export class Agent {
           isError: !result.success,
           outputSummary: result.outputSummary,
         })
-      }
+        }
 
-      // Add tool results as user message
-      if (toolResultBlocks.length > 0) {
+        // Add tool results as user message
+        if (toolResultBlocks.length > 0) {
         const toolResultMsg: Message = {
           id: generateId(),
           sessionId: this.toolContext.sessionId,
@@ -510,11 +566,11 @@ export class Agent {
         messages.push(toolResultMsg)
         newMessages.push(toolResultMsg)
         onNewMessage?.(toolResultMsg)
-      }
-      currentRequestToolResults = this.toRequestToolResults(toolResultBlocks)
+        }
+        currentRequestToolResults = this.toRequestToolResults(toolResultBlocks)
 
-      // Budget check + compression
-      if (context.maxContext && context.maxOutput) {
+        // Budget check + compression
+        if (context.maxContext && context.maxOutput) {
         const budget = allocateBudget(context.maxContext, context.maxOutput)
         if (shouldCompress(estimateConversationTokens(messages), budget.conversation)) {
           const { compressConversation } = await import('./compress')
@@ -531,29 +587,56 @@ export class Agent {
             stats: result.stats,
           })
         }
-      }
+        }
 
-      // Inject queued messages into the last user message (tool result)
-      const queued = getQueuedMessages?.() ?? []
-      hadQueuedMessages = false
-      if (queued.length > 0 && messages.length > 0) {
+        // Inject queued messages into the last user message (tool result)
+        const queued = getQueuedMessages?.() ?? []
+        hadQueuedMessages = false
+        if (queued.length > 0 && messages.length > 0) {
         const lastIdx = messages.length - 1
         if (messages[lastIdx].role === 'user') {
           messages[lastIdx] = injectQueuedMessages(messages[lastIdx], queued)
           hadQueuedMessages = true
         }
-      }
+        }
 
-      // Yield to pending message if one arrived during tool execution
-      if (shouldInterrupt?.() && !hadQueuedMessages) {
+        // Yield to pending message if one arrived during tool execution
+        if (shouldInterrupt?.() && !hadQueuedMessages) {
         const finalRequest: CompletionRequest = {
           messages,
           system,
           stream: true,
           maxTokens: context.maxOutput ?? 16384,
         }
+        const finalLlmSpan = this.obs.tracer?.startSpan(
+          this.toolContext.sessionId,
+          'llm_request',
+          rootSpan?.id,
+          {
+            kind: 'llm_request',
+            agentName: this.config.name,
+            data: {
+              turnIndex,
+              parentId: pendingParentRequestId,
+              spawnedByRequestId: this.toolContext.spawnedByRequestId,
+            },
+          },
+        )
         const finalStart = Date.now()
-        const finalResponse = await this.completeWithStreamFallback(finalRequest, onTextDelta)
+        let finalResponse: CompletionResponse
+        try {
+          finalResponse = await this.completeWithStreamFallback(finalRequest, onTextDelta)
+        } catch (error) {
+          if (finalLlmSpan) {
+            this.obs.tracer?.updateSpan(finalLlmSpan.id, {
+              metadata: {
+                error: error instanceof Error ? error.message : String(error),
+              },
+            })
+            this.obs.tracer?.endSpan(finalLlmSpan.id, 'error')
+          }
+          throw error
+        }
         const finalDurationMs = Date.now() - finalStart
         this.logLLMRequest(
           finalRequest,
@@ -565,6 +648,7 @@ export class Agent {
             parentId: pendingParentRequestId,
           },
           currentRequestToolResults,
+          finalLlmSpan?.id,
         )
         currentRequestToolResults = []
         pendingParentRequestId =
@@ -583,8 +667,17 @@ export class Agent {
         messages.push(finalMsg)
         newMessages.push(finalMsg)
         onNewMessage?.(finalMsg)
-        break
+          break
+        }
       }
+    } catch (error) {
+      if (rootSpan) {
+        this.obs.tracer?.endSpan(rootSpan.id, 'error', {
+          error: error instanceof Error ? error.message : String(error),
+          messageCount: newMessages.length,
+        })
+      }
+      throw error
     }
 
     // End root trace span
@@ -789,6 +882,10 @@ export class Agent {
       this.toolContext.sessionId,
       'task_closure_decision',
       parentSpanId,
+      {
+        kind: 'closure_decision',
+        agentName: this.config.name,
+      },
     )
 
     const endSkipped = (skipReason: string): TaskClosureEvaluation => {
@@ -884,7 +981,10 @@ export class Agent {
       }
 
       if (taskClosureSpan) {
-        taskClosureSpan.name = 'task_closure_failed'
+        this.obs.tracer?.updateSpan(taskClosureSpan.id, {
+          kind: 'closure_failed',
+          name: 'task_closure_failed',
+        })
         this.obs.tracer?.endSpan(taskClosureSpan.id, 'error', {
           called: true,
           classifierModel: result.model,
@@ -915,7 +1015,10 @@ export class Agent {
       })
       const errorMessage = error instanceof Error ? error.message : String(error)
       if (taskClosureSpan) {
-        taskClosureSpan.name = 'task_closure_failed'
+        this.obs.tracer?.updateSpan(taskClosureSpan.id, {
+          kind: 'closure_failed',
+          name: 'task_closure_failed',
+        })
         this.obs.tracer?.endSpan(taskClosureSpan.id, 'error', {
           called: true,
           reason: 'classifier_failed',
@@ -1144,10 +1247,12 @@ export class Agent {
       parentId?: string
     },
     requestToolResults: RequestToolResultEntry[],
+    traceSpanId?: string,
   ): void {
     const cost = computeCost(response.usage, this.obs.pricing)
     const filter = this.obs.secretFilter
     const requestMetadata = this.buildRequestMetadata(request)
+    const snapshotId = this.obs.getCurrentSnapshotId?.()
     const responseText = response.content
       .filter((b) => b.type === 'text')
       .map((b) => (b as { text: string }).text)
@@ -1169,7 +1274,7 @@ export class Agent {
       sessionId: this.toolContext.sessionId,
       agentName: this.config.name,
       spawnedByRequestId: this.toolContext.spawnedByRequestId,
-      snapshotId: this.obs.getCurrentSnapshotId?.(),
+      snapshotId,
       model: this.obs.modelLabel ?? response.model,
       provider: this.obs.providerName ?? 'unknown',
       userPrompt: safeUserPrompt,
@@ -1194,6 +1299,38 @@ export class Agent {
       cost,
       durationMs,
     })
+
+    if (traceSpanId) {
+      this.obs.tracer?.updateSpan(traceSpanId, {
+        data: {
+          requestId: response.id,
+          parentId: meta.parentId,
+          snapshotId,
+          model: this.obs.modelLabel ?? response.model,
+          provider: this.obs.providerName ?? 'unknown',
+          stopReason: response.stopReason,
+          toolUseCount,
+          messageCount: request.messages.length,
+          tokens: {
+            input: response.usage.input,
+            output: response.usage.output,
+            cacheWrite: response.usage.cacheWrite,
+            cacheRead: response.usage.cacheRead,
+            reasoning: response.usage.reasoning,
+          },
+          cost,
+          durationMs,
+          spawnedByRequestId: this.toolContext.spawnedByRequestId,
+        },
+        metadata: {
+          toolNames: requestMetadata.toolNames,
+          toolDefinitionsHash: requestMetadata.toolDefinitionsHash,
+          systemHash: requestMetadata.systemHash,
+          staticPrefixHash: requestMetadata.staticPrefixHash,
+        },
+      })
+      this.obs.tracer?.endSpan(traceSpanId, 'success')
+    }
 
     this.obs.metrics?.recordRequest({
       id: response.id,
@@ -1273,6 +1410,16 @@ export class Agent {
     return filtered && typeof filtered === 'object' && !Array.isArray(filtered)
       ? (filtered as Record<string, unknown>)
       : {}
+  }
+
+  private stringifyTraceData(value: unknown, maxLength = 500): string {
+    try {
+      const serialized = JSON.stringify(value)
+      if (!serialized) return ''
+      return serialized.length > maxLength ? `${serialized.slice(0, maxLength)}...` : serialized
+    } catch {
+      return ''
+    }
   }
 
   private filterToolInputValue(value: unknown): unknown {

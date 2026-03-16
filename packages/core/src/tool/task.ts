@@ -169,21 +169,38 @@ export class TaskTool extends BaseTool {
       if (!existsSync(subWorkDir)) {
         mkdirSync(subWorkDir, { recursive: true })
       }
+      const subAgentSpan = ctx.tracer?.startSpan(
+        ctx.sessionId,
+        `sub_agent:${subAgentName}`,
+        ctx.currentTraceSpanId,
+        {
+          kind: 'sub_agent',
+          agentName: subAgentName,
+          data: {
+            subAgentName,
+            taskId: node.id,
+            spawnedByRequestId: ctx.currentRequestId,
+          },
+        },
+      )
       const toolContext: ToolContext = {
         sessionId: ctx.sessionId,
         currentModel: resolvedModel
           ? this.modelRouter.getModelLabel(resolvedModel)
           : ctx.currentModel,
+        currentTraceSpanId: subAgentSpan?.id,
         spawnedByRequestId: ctx.currentRequestId,
         workDir: subWorkDir,
         projectRoot: ctx.projectRoot,
         logger: ctx.logger,
         requestLogger: ctx.requestLogger,
+        tracer: ctx.tracer,
         secretFilter: ctx.secretFilter,
       }
 
       const agentObs: AgentObservability = {
         logger: ctx.requestLogger,
+        tracer: ctx.tracer,
         secretFilter: ctx.secretFilter,
         providerName: resolvedModel?.providerName,
         modelLabel: resolvedModel
@@ -209,21 +226,47 @@ export class TaskTool extends BaseTool {
         tools: scopedRegistry.getDefinitions(),
       }
 
-      const messages = await agent.run(agentContext, fullInstruction)
+      try {
+        const messages = await agent.run(agentContext, fullInstruction)
 
-      // Extract assistant text from the last message
-      const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
-      const output =
-        lastAssistant?.content
-          .filter((b) => b.type === 'text')
-          .map((b) => (b as { type: 'text'; text: string }).text)
-          .join('\n') ?? ''
+        // Extract assistant text from the last message
+        const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
+        const output =
+          lastAssistant?.content
+            .filter((b) => b.type === 'text')
+            .map((b) => (b as { type: 'text'; text: string }).text)
+            .join('\n') ?? ''
 
-      return {
-        nodeId: node.id,
-        success: true,
-        output,
-        durationMs: Date.now() - startTime,
+        if (subAgentSpan) {
+          ctx.tracer?.updateSpan(subAgentSpan.id, {
+            data: {
+              success: true,
+              outputSummary: output.slice(0, 200),
+            },
+          })
+          ctx.tracer?.endSpan(subAgentSpan.id, 'success')
+        }
+
+        return {
+          nodeId: node.id,
+          success: true,
+          output,
+          durationMs: Date.now() - startTime,
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        if (subAgentSpan) {
+          ctx.tracer?.updateSpan(subAgentSpan.id, {
+            data: {
+              success: false,
+              error: errorMessage,
+            },
+          })
+          ctx.tracer?.endSpan(subAgentSpan.id, 'error', {
+            error: errorMessage,
+          })
+        }
+        throw error
       }
     }
 

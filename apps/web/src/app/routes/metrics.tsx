@@ -19,7 +19,7 @@ import { formatCost, formatNumber } from '../lib/format'
 // Types
 // ---------------------------------------------------------------------------
 
-type Tab = 'cost' | 'operations' | 'health'
+type Tab = 'cost' | 'events' | 'health'
 type TimeRange = '7d' | '30d' | '90d' | 'custom'
 
 interface CostByDayModel {
@@ -123,7 +123,7 @@ const TOOLTIP_STYLE = {
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'cost', label: 'Cost' },
-  { key: 'operations', label: 'Operations' },
+  { key: 'events', label: 'Events' },
   { key: 'health', label: 'Health' },
 ]
 
@@ -592,10 +592,10 @@ function CostTab({ range }: { range: TimeRange }) {
 }
 
 // ---------------------------------------------------------------------------
-// OperationsTab
+// EventsTab
 // ---------------------------------------------------------------------------
 
-function OperationsTab({ range }: { range: TimeRange }) {
+function EventsTab({ range }: { range: TimeRange }) {
   const [loading, setLoading] = useState(true)
   const [taskSuccess, setTaskSuccess] = useState<TaskSuccess[]>([])
   const [toolStats, setToolStats] = useState<ToolStat[]>([])
@@ -770,7 +770,7 @@ function HealthTab({ range }: { range: TimeRange }) {
     setLoading(true)
     Promise.all([
       apiFetch<HealthData>(`/api/metrics/health?range=${r}`),
-      apiFetch<{ entries: LogEntry[] }>('/api/logs?type=operations&limit=50'),
+      apiFetch<{ entries: LogEntry[] }>('/api/logs?type=events&limit=50'),
     ])
       .then(([healthRes, logsRes]) => {
         setHealth(healthRes)
@@ -1009,7 +1009,7 @@ export function MetricsPage() {
 
       {/* Tab content */}
       {activeTab === 'cost' && <CostTab range={effectiveRange} />}
-      {activeTab === 'operations' && <OperationsTab range={effectiveRange} />}
+      {activeTab === 'events' && <EventsTab range={effectiveRange} />}
       {activeTab === 'health' && <HealthTab range={effectiveRange} />}
     </div>
   )

@@ -173,7 +173,7 @@ export class Session {
     const observabilityHandle =
       this.deps.logger && this.deps.metrics
         ? {
-            logOperation: this.deps.logger.logOperation.bind(this.deps.logger),
+            logEvent: this.deps.logger.logEvent.bind(this.deps.logger),
             recordOperation: this.deps.metrics.recordOperation.bind(this.deps.metrics),
           }
         : undefined
@@ -192,6 +192,7 @@ export class Session {
           console.error(`[${this.data.id}] ${event}`, data ?? ''),
       },
       requestLogger: this.deps.logger,
+      tracer: this.deps.tracer,
       secretFilter: this.deps.secretFilter,
       observability: observabilityHandle,
       secretResolver: this.deps.secretResolver,
@@ -397,6 +398,31 @@ export class Session {
     })
 
     this.deps.logger.logSnapshot(snapshot)
+    const snapshotSpan = this.deps.tracer?.startSpan(
+      this.data.id,
+      `snapshot:${trigger}`,
+      undefined,
+      {
+        kind: 'snapshot',
+        agentName: this.getAgentName(),
+        data: {
+          snapshotId: snapshot.id,
+          trigger,
+          model: snapshot.model,
+        },
+      },
+    )
+    if (snapshotSpan) {
+      this.deps.tracer?.updateSpan(snapshotSpan.id, {
+        data: {
+          parentSnapshot: snapshot.parentSnapshot,
+          tools: snapshot.tools,
+          messagesBefore: snapshot.messagesBefore,
+          messagesAfter: snapshot.messagesAfter,
+        },
+      })
+      this.deps.tracer?.endSpan(snapshotSpan.id, 'success')
+    }
     this.currentSnapshotId = snapshot.id
     this.lastSnapshotContext = {
       model: context.model,

@@ -94,10 +94,9 @@ describe('migrateSessionLayout', () => {
       join(logsDir, 'snapshots.jsonl'),
       [{ id: 'snap_1', sessionId: oldId, trigger: 'session_start', ts: createdAt }],
     )
-    writeLegacyJsonl(
-      join(logsDir, 'operations.jsonl'),
-      [{ sessionId: oldId, event: 'task_closure_decision', ts: createdAt }],
-    )
+    writeLegacyJsonl(join(logsDir, 'events.jsonl'), [
+      { sessionId: oldId, event: 'task_closure_decision', ts: createdAt },
+    ])
 
     const result = migrateSessionLayout(logsDir)
     expect(result.migratedSessions).toBe(1)
@@ -126,7 +125,7 @@ describe('migrateSessionLayout', () => {
     expect(existsSync(migratedDir)).toBe(true)
     expect(readFileSync(join(migratedDir, 'requests.jsonl'), 'utf-8')).toContain(expectedId)
     expect(readFileSync(join(logsDir, 'requests.jsonl'), 'utf-8')).toContain(expectedId)
-    expect(readFileSync(join(logsDir, 'operations.jsonl'), 'utf-8')).toContain(expectedId)
+    expect(readFileSync(join(logsDir, 'events.jsonl'), 'utf-8')).toContain(expectedId)
     expect(readlinkSync(join(logsDir, 'sessions', '_active', expectedId))).toBe(
       `../2026-03-13/${expectedId}`,
     )

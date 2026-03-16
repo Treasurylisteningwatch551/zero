@@ -2,6 +2,7 @@ export { JsonlLogger } from './logger'
 export type {
   LogLevel,
   LogEntry,
+  EventLogEntry,
   RequestLogEntry,
   RequestToolCallEntry,
   RequestToolResultEntry,
@@ -9,7 +10,6 @@ export type {
   ClosureLogEntry,
   ClosureLogEntryInput,
   TaskClosureClassifierResponse,
-  OperationLogEntry,
 } from './logger'
 export { MetricsDB } from './metrics'
 export type {
@@ -28,5 +28,5 @@ export type {
 export { SessionDB } from './session-db'
 export type { SessionRow } from './session-db'
 export { Tracer } from './trace'
-export type { TraceSpan } from './trace'
+export type { TraceEntry, TraceKind, TraceSpan, TraceStatus } from './trace'
 export { createFilteredWriter, filterLogEntry } from './secret-filter'

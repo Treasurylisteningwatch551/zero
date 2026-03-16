@@ -10,11 +10,11 @@ describe('JsonlLogger', () => {
     rmSync(join(import.meta.dir, '__fixtures__'), { recursive: true, force: true })
   })
 
-  test('log writes to operations.jsonl', () => {
+  test('log writes to events.jsonl', () => {
     const logger = new JsonlLogger(testDir)
     logger.log('info', 'test_event', { key: 'value' })
 
-    const entries = logger.readEntries('operations.jsonl')
+    const entries = logger.readEntries('events.jsonl')
     expect(entries.length).toBeGreaterThanOrEqual(1)
 
     const last = entries[entries.length - 1] as Record<string, unknown>
@@ -24,9 +24,9 @@ describe('JsonlLogger', () => {
     expect(last.ts).toBeDefined()
   })
 
-  test('logOperation writes structured tool call entry', () => {
+  test('logEvent writes structured event entry', () => {
     const logger = new JsonlLogger(testDir)
-    logger.logOperation({
+    logger.logEvent({
       level: 'info',
       sessionId: 'sess_test',
       event: 'tool_call',
@@ -37,10 +37,29 @@ describe('JsonlLogger', () => {
       model: 'gpt-5.3-codex-medium',
     })
 
-    const entries = logger.readEntries('operations.jsonl')
+    const entries = logger.readEntries('events.jsonl')
     const last = entries[entries.length - 1] as Record<string, unknown>
     expect(last.tool).toBe('bash')
     expect(last.durationMs).toBe(45)
+  })
+
+  test('constructor migrates legacy operations.jsonl into events.jsonl', () => {
+    mkdirSync(testDir, { recursive: true })
+    appendFileSync(
+      join(testDir, 'operations.jsonl'),
+      `${JSON.stringify({
+        ts: '2026-03-16T00:00:00.000Z',
+        level: 'info',
+        event: 'legacy_event',
+      })}\n`,
+      'utf-8',
+    )
+
+    const logger = new JsonlLogger(testDir)
+    const entries = logger.readEntries<Record<string, unknown>>('events.jsonl')
+
+    expect(entries.some((entry) => entry.event === 'legacy_event')).toBe(true)
+    expect(existsSync(join(testDir, 'operations.jsonl'))).toBe(false)
   })
 
   test('logRequest writes to requests.jsonl', () => {
@@ -356,7 +375,7 @@ describe('JsonlLogger', () => {
     expect(entries[0].event).toBe('task_closure_failed')
   })
 
-  test('readSessionClosures does not fall back to operations log', () => {
+  test('readSessionClosures does not fall back to events log', () => {
     const logger = new JsonlLogger(testDir)
     logger.log('info', 'task_closure_failed', {
       sessionId: 'sess_closure_legacy',

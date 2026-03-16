@@ -192,7 +192,7 @@ function migrateMetricsDb(metricsDbPath: string, idMap: Map<string, string>): vo
 
 function rewriteGlobalJsonlFiles(logsDir: string, idMap: Map<string, string>): number {
   let rewritten = 0
-  for (const file of ['requests.jsonl', 'operations.jsonl', 'snapshots.jsonl']) {
+  for (const file of ['requests.jsonl', 'events.jsonl', 'snapshots.jsonl']) {
     const filePath = join(logsDir, file)
     if (!existsSync(filePath)) continue
     rewriteJsonlFile(filePath, idMap)
@@ -237,7 +237,7 @@ function rewriteAndMoveSessionDirectories(
 }
 
 function rewriteSessionDirectory(dir: string, idMap: Map<string, string>): void {
-  for (const file of ['requests.jsonl', 'snapshots.jsonl', 'closure.jsonl']) {
+  for (const file of ['requests.jsonl', 'snapshots.jsonl', 'closure.jsonl', 'trace.jsonl']) {
     const filePath = join(dir, file)
     if (existsSync(filePath)) {
       rewriteJsonlFile(filePath, idMap)

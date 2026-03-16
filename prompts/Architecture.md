@@ -78,8 +78,8 @@ ZeRo OS 的所有数据统一存放在 `.zero/` 目录下：
   ├─ tools/              # AI 构建的自定义工具
   ├─ skills/             # AI 的技能定义，封装复杂业务流程
   │   └─ browser/        #   浏览器自动化 Skill（SKILL.md + evals/）
-  ├─ logs/               # 日志与请求记录
-  │   ├─ operations.jsonl    #   全局工具调用记录（追加写入）
+  ├─ logs/               # 事件日志与 Session 记录
+  │   ├─ events.jsonl        #   全局系统事件流（追加写入）
   │   ├─ requests.jsonl      #   全局 LLM 请求记录（legacy fallback）
   │   ├─ notifications.jsonl #   通知记录（追加写入）
   │   ├─ metrics.db          #   SQLite，聚合查询用
@@ -88,9 +88,10 @@ ZeRo OS 的所有数据统一存放在 `.zero/` 目录下：
   │   ├─ supervisor.error.log#   Supervisor 错误输出
   │   └─ sessions/           #   按 Session 分区的日志
   │       └─ {sessionId}/
-  │           ├─ requests.jsonl  # 该 Session 的 LLM 请求
-  │           ├─ snapshots.jsonl # 该 Session 的上下文快照
-  │           └─ closure.jsonl   # 该 Session 的任务关闭事件
+  │           ├─ trace.jsonl     # 该 Session 的执行 Trace（span 记录）
+  │           ├─ requests.jsonl  # 该 Session 的 LLM 请求台账
+  │           ├─ snapshots.jsonl # 该 Session 的上下文快照台账
+  │           └─ closure.jsonl   # 该 Session 的任务关闭台账
   ├─ memory/             # 记忆库
   │   ├─ memo.md         #   备忘录（AI 与人类共同编辑）
   │   ├─ memory.md       #   全局索引页
@@ -1142,13 +1143,19 @@ recency_weight = 1 / (1 + days_since_last_access / 30)
 
 ## 观测性
 
-系统的所有操作统一通过结构化日志、Metrics 和 Trace 进行记录，既用于安全策略中的事后排查，也用于 AI 自身的诊断和自我修复。
+系统的所有操作统一通过结构化事件、Metrics 和 Trace 进行记录，既用于安全策略中的事后排查，也用于 AI 自身的诊断和自我修复。
+
+第一阶段中，观测层采用“全局事件流 + Session Trace + specialized ledgers”并存的形态：
+
+1. 全局 `events.jsonl` 负责轻量事件流。
+2. 每个 Session 新增独立的 `trace.jsonl`，持久化 span 级执行追踪。
+3. `requests.jsonl`、`snapshots.jsonl`、`closure.jsonl` 继续保留为 specialized ledgers，本阶段不做文件合并。
 
 日志存储在 `.zero/logs/` 目录下，使用 JSONL 追加写入，SQLite 做聚合查询：
 
 ```
 .zero/logs/
-  ├─ operations.jsonl      # 全局工具调用记录（追加写入）
+  ├─ events.jsonl          # 全局系统事件流（追加写入）
   ├─ requests.jsonl        # 全局 LLM 请求记录（legacy fallback）
   ├─ notifications.jsonl   # 通知记录（追加写入）
   ├─ metrics.db            # SQLite 聚合查询
@@ -1157,26 +1164,25 @@ recency_weight = 1 / (1 + days_since_last_access / 30)
   ├─ supervisor.error.log  # Supervisor 错误输出
   └─ sessions/             # 按 Session 分区的日志
       └─ {sessionId}/
-          ├─ requests.jsonl  # 该 Session 的 LLM 请求
-          ├─ snapshots.jsonl # 该 Session 的上下文快照
-          └─ closure.jsonl   # 该 Session 的任务关闭事件
+          ├─ trace.jsonl     # 该 Session 的执行 Trace（span 记录）
+          ├─ requests.jsonl  # 该 Session 的 LLM 请求台账
+          ├─ snapshots.jsonl # 该 Session 的上下文快照台账
+          └─ closure.jsonl   # 该 Session 的任务关闭台账
 ```
 
 ### 结构化日志
 
-工具调用记录写入 `operations.jsonl`，每条包含：
+全局事件流写入 `events.jsonl`，每条包含：
 
 ```json
 {
   "ts": "2026-02-27T10:05:00Z",
   "level": "info",
-  "session_id": "sess_001",
+  "sessionId": "sess_001",
   "event": "tool_call",
   "tool": "bash",
-  "input": "ls -la",
-  "output_summary": "listed 12 files",
-  "duration_ms": 45,
-  "model": "claude-sonnet"
+  "outputSummary": "listed 12 files",
+  "durationMs": 45
 }
 ```
 
@@ -1193,7 +1199,17 @@ recency_weight = 1 / (1 + days_since_last_access / 30)
 
 ### Trace
 
-复杂任务记录完整调用链：Session → 调用的 Tool → 每步耗时 → 最终结果。用于事后分析和 Runbook 生成。
+复杂任务记录完整调用链：Session / Turn → LLM Request → Tool Call → SubAgent → Snapshot / Closure。用于事后分析、性能定位和 Runbook 生成。
+
+Trace 以 Session 为粒度写入 `sessions/{sessionId}/trace.jsonl`，每条都是一个已结束的 span，至少包含 `spanId`、`parentSpanId`、`kind`、`startTime`、`endTime` 和 `durationMs`。
+
+```jsonl
+{ "spanId": "span_01", "parentSpanId": null, "sessionId": "sess_001", "kind": "turn", "name": "turn:web", "startTime": "2026-02-27T10:00:00Z", "endTime": "2026-02-27T10:00:03Z", "durationMs": 3000, "status": "success" }
+{ "spanId": "span_02", "parentSpanId": "span_01", "sessionId": "sess_001", "kind": "llm_request", "name": "llm_request", "startTime": "2026-02-27T10:00:00Z", "endTime": "2026-02-27T10:00:02Z", "durationMs": 1820, "status": "success", "data": { "model": "claude-sonnet" } }
+{ "spanId": "span_03", "parentSpanId": "span_02", "sessionId": "sess_001", "kind": "tool_call", "name": "tool:bash", "startTime": "2026-02-27T10:00:02Z", "endTime": "2026-02-27T10:00:03Z", "durationMs": 45, "status": "success", "data": { "tool": "bash" } }
+```
+
+`requests.jsonl`、`snapshots.jsonl`、`closure.jsonl` 在第一阶段继续作为专用台账保留，不并入 `trace.jsonl`。Trace 负责骨架和因果链，specialized ledgers 保留各自的高密度细节。
 
 ---
 

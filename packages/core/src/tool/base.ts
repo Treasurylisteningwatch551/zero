@@ -45,7 +45,7 @@ export abstract class BaseTool {
       durationMs,
     })
 
-    // Tool executions still contribute to metrics, but not to operations.jsonl.
+    // Tool executions still contribute to metrics, but not to events.jsonl.
     if (ctx.observability) {
       ctx.observability.recordOperation({
         sessionId: ctx.sessionId,

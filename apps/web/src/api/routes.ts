@@ -709,7 +709,7 @@ export function createRoutes(zero: ZeroOS) {
     .get('/api/logs', (c) => {
       const limit = Number(c.req.query('limit') ?? '100')
       const level = c.req.query('level')
-      const type = c.req.query('type') ?? 'operations'
+      const type = c.req.query('type') ?? 'events'
       const since = c.req.query('since')
 
       // Trace type uses Tracer, not JSONL files
@@ -735,7 +735,7 @@ export function createRoutes(zero: ZeroOS) {
           ? zero.logger.readAllRequests().map((entry) => ({ ...entry }))
           : type === 'snapshots'
             ? zero.logger.readAllSnapshots().map((entry) => ({ ...entry }))
-            : zero.logger.readEntries<Record<string, unknown>>('operations.jsonl')
+            : zero.logger.readEntries<Record<string, unknown>>('events.jsonl')
 
       if (level && level !== 'all') {
         entries = entries.filter((e) => e.level === level)
@@ -763,7 +763,7 @@ export function createRoutes(zero: ZeroOS) {
       }
 
       // Fallback: derive from log entries
-      const entries = zero.logger.readEntries<Record<string, unknown>>('operations.jsonl')
+      const entries = zero.logger.readEntries<Record<string, unknown>>('events.jsonl')
       const notifications = entries
         .filter((e) => e.level === 'warn' || e.level === 'error')
         .slice(-50)

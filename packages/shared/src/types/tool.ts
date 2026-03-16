@@ -5,7 +5,7 @@ import type { Memory, MemorySearchOptions, MemoryType, ScoredMemoryMatch } from 
  * Minimal interface for structured logging from tools.
  */
 export interface ObservabilityHandle {
-  logOperation(entry: {
+  logEvent(entry: {
     level: string
     sessionId: string
     event: string
@@ -24,10 +24,34 @@ export interface ObservabilityHandle {
   }): void
 }
 
+export interface ToolTraceSpan {
+  id: string
+  parentId?: string
+  sessionId: string
+  kind:
+    | 'turn'
+    | 'llm_request'
+    | 'tool_call'
+    | 'sub_agent'
+    | 'snapshot'
+    | 'closure_decision'
+    | 'closure_failed'
+  name: string
+  agentName?: string
+  startTime: string
+  endTime?: string
+  durationMs?: number
+  status: 'running' | 'success' | 'error'
+  data?: Record<string, unknown>
+  metadata?: Record<string, unknown>
+  children: ToolTraceSpan[]
+}
+
 export interface ToolContext {
   sessionId: string
   currentModel?: string
   currentRequestId?: string
+  currentTraceSpanId?: string
   spawnedByRequestId?: string
   workDir: string
   projectRoot?: string
@@ -35,6 +59,49 @@ export interface ToolContext {
   requestLogger?: {
     logSessionRequest(entry: Record<string, unknown>): void
     logSessionClosure(entry: Record<string, unknown>): void
+  }
+  tracer?: {
+    startSpan(
+      sessionId: string,
+      name: string,
+      parentId?: string,
+      options?: {
+        kind?:
+          | 'turn'
+          | 'llm_request'
+          | 'tool_call'
+          | 'sub_agent'
+          | 'snapshot'
+          | 'closure_decision'
+          | 'closure_failed'
+        agentName?: string
+        data?: Record<string, unknown>
+        metadata?: Record<string, unknown>
+      },
+    ): ToolTraceSpan
+    updateSpan(
+      spanId: string,
+      update: {
+        kind?:
+          | 'turn'
+          | 'llm_request'
+          | 'tool_call'
+          | 'sub_agent'
+          | 'snapshot'
+          | 'closure_decision'
+          | 'closure_failed'
+        name?: string
+        agentName?: string
+        data?: Record<string, unknown>
+        metadata?: Record<string, unknown>
+      },
+    ): void
+    endSpan(
+      spanId: string,
+      status?: 'success' | 'error',
+      metadata?: Record<string, unknown>,
+    ): void
+    getSpan(spanId: string): ToolTraceSpan | undefined
   }
   secretFilter?: SecretFilter
   observability?: ObservabilityHandle

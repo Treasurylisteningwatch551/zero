@@ -38,7 +38,7 @@ export function ActivityFeed() {
 
   // Initial HTTP fetch
   useEffect(() => {
-    apiFetch<{ entries: LogEntry[] }>('/api/logs?limit=20&type=operations')
+    apiFetch<{ entries: LogEntry[] }>('/api/logs?limit=20&type=events')
       .then((res) => setItems(res.entries.filter(shouldDisplayActivityEntry).slice(0, MAX_ITEMS)))
       .catch(() => {})
   }, [])

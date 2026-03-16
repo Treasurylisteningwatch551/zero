@@ -73,9 +73,9 @@ zero-os/
 │   │
 │   ├── observe/                  # 观测性
 │   │   ├── src/
-│   │   │   ├── logger.ts         #   JSONL 追加写入
+│   │   │   ├── logger.ts         #   JSONL 事件流 / specialized ledger 追加写入
 │   │   │   ├── metrics.ts        #   SQLite 聚合
-│   │   │   ├── trace.ts          #   调用链追踪
+│   │   │   ├── trace.ts          #   Session Trace 持久化与导出
 │   │   │   └── secret-filter.ts  #   输出过滤（密钥脱敏）
 │   │   └── package.json
 │   │
@@ -1591,7 +1591,8 @@ Supervisor 启动主进程（apps/server）
   │
   ├──→ Model Router 选择模型
   │      └──→ Provider Adapter 调用 LLM API（流式）
-  │             └──→ 写入 requests.jsonl
+  │             ├──→ 写入 requests.jsonl
+  │             └──→ 结束对应 trace span，追加到 trace.jsonl
   │
   ├──→ Agent 处理响应
   │      ├── 文本响应 → 流式推送给 Channel + WebSocket
@@ -1599,7 +1600,8 @@ Supervisor 启动主进程（apps/server）
   │             ├──→ 熔断检查
   │             ├──→ 文件锁（如需要）
   │             ├──→ 执行
-  │             ├──→ 写入 operations.jsonl
+  │             ├──→ 写入 events.jsonl
+  │             ├──→ 结束对应 trace span，追加到 trace.jsonl
   │             ├──→ bus.emit('tool:call', ...)
   │             ├──→ 检查排队消息队列（有则注入后继续循环）
   │             ├──→ MemoryWrite 工具 → MemoryWriter.write()（Agent 指定 path + target）

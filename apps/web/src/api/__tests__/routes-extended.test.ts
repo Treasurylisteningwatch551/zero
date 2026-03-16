@@ -123,8 +123,8 @@ describe('API Routes Extended', () => {
     expect(Array.isArray(data.notifications)).toBe(true)
   })
 
-  test('tool bus events are not written to operations.jsonl', () => {
-    const before = zero.logger.readEntries<Record<string, unknown>>('operations.jsonl').length
+  test('tool bus events are not written to events.jsonl', () => {
+    const before = zero.logger.readEntries<Record<string, unknown>>('events.jsonl').length
 
     zero.bus.emit('tool:call', {
       sessionId: 'sess_tool_noise',
@@ -143,7 +143,7 @@ describe('API Routes Extended', () => {
     })
 
     const newEntries = zero.logger
-      .readEntries<Record<string, unknown>>('operations.jsonl')
+      .readEntries<Record<string, unknown>>('events.jsonl')
       .slice(before)
 
     expect(newEntries.some((entry) => entry.event === 'tool:call')).toBe(false)
@@ -227,7 +227,7 @@ describe('API Routes Extended', () => {
     expect(data.events[0].assistantMessageId).toBe('msg_closure_001')
   })
 
-  test('GET /api/sessions/:id/task-closure-events ignores operations log task closure events', async () => {
+  test('GET /api/sessions/:id/task-closure-events ignores events log task closure events', async () => {
     const session = zero.sessionManager.create('web')
     zero.logger.log('info', 'task_closure_failed', {
       sessionId: session.data.id,
