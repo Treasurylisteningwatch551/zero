@@ -17,16 +17,20 @@ export class AnthropicAdapter implements ProviderAdapter {
   private static readonly DEFAULT_THINKING_TOKENS = 512
   private static readonly MIN_THINKING_TOKENS = 1024
   private static readonly REQUEST_CACHE_CONTROL = { type: 'ephemeral' } as const
+  private static readonly CLAUDE_CODE_SYSTEM_PROMPT =
+    "You are Claude Code, Anthropic's official CLI for Claude."
   private client: Anthropic
   private modelId: string
   private thinkingTokens?: number
+  private isOAuthClient: boolean
 
   constructor(config: AdapterConfig) {
+    this.isOAuthClient = Boolean(config.oauthToken)
     this.client = new Anthropic({
-      apiKey: config.oauthToken ? null : (config.apiKey ?? 'dummy'),
+      apiKey: this.isOAuthClient ? null : (config.apiKey ?? 'dummy'),
       authToken: config.oauthToken ?? null,
       baseURL: config.baseUrl,
-      ...(config.oauthToken && {
+      ...(this.isOAuthClient && {
         defaultHeaders: {
           'anthropic-beta': 'claude-code-20250219,oauth-2025-04-20',
           'user-agent': 'claude-cli/0.0.0 (external, cli)',
@@ -132,6 +136,7 @@ export class AnthropicAdapter implements ProviderAdapter {
     try {
       const response = await this.client.messages.create({
         model: this.modelId,
+        system: this.buildSystem(),
         messages: [{ role: 'user', content: 'ping' }],
         max_tokens: 5,
       })
@@ -156,14 +161,23 @@ export class AnthropicAdapter implements ProviderAdapter {
   }
 
   private buildSystem(system?: string): Anthropic.TextBlockParam[] | undefined {
-    if (!system) return undefined
+    const blocks: Anthropic.TextBlockParam[] = []
 
-    return [
-      {
+    if (this.isOAuthClient) {
+      blocks.push({
+        type: 'text',
+        text: AnthropicAdapter.CLAUDE_CODE_SYSTEM_PROMPT,
+      })
+    }
+
+    if (system) {
+      blocks.push({
         type: 'text',
         text: system,
-      },
-    ]
+      })
+    }
+
+    return blocks.length > 0 ? blocks : undefined
   }
 
   private convertMessages(req: CompletionRequest): Anthropic.MessageParam[] {

@@ -581,6 +581,56 @@ describe('Anthropic Adapter (Pure Logic)', () => {
     expect(calls[0].system).toBeUndefined()
     expect(calls[0].tools).toBeUndefined()
   })
+
+  test('oauth requests prepend Claude Code identity to the system prompt', async () => {
+    const oauthAdapter = new AnthropicAdapter({
+      baseUrl: 'https://api.anthropic.com',
+      auth: { type: 'oauth2', oauthTokenRef: 'CLAUDE_CODE_OAUTH_TOKEN' },
+      modelConfig: {
+        modelId: 'claude-sonnet-4-6',
+        maxContext: 200000,
+        maxOutput: 8192,
+        capabilities: ['tools', 'vision'],
+        tags: ['balanced'],
+      },
+      oauthToken: 'sk-ant-oat-test',
+    })
+
+    const calls: Array<Record<string, unknown>> = []
+    getAnthropicHarness(oauthAdapter).client = {
+      messages: {
+        create: async (params: Record<string, unknown>) => {
+          calls.push(params)
+          return {
+            id: 'msg_oauth_001',
+            content: [{ type: 'text', text: 'hello' }],
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 11, output_tokens: 7 },
+            model: 'claude-sonnet-4-6',
+          }
+        },
+      },
+    }
+
+    await oauthAdapter.complete({
+      messages: [makeMessage('user', 'test')],
+      system: 'You are a cached assistant.',
+      stream: false,
+      maxTokens: 512,
+    })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].system).toEqual([
+      {
+        type: 'text',
+        text: "You are Claude Code, Anthropic's official CLI for Claude.",
+      },
+      {
+        type: 'text',
+        text: 'You are a cached assistant.',
+      },
+    ])
+  })
 })
 
 // Real API tests — only run when ANTHROPIC_API_KEY env var is set
