@@ -16,7 +16,7 @@ export interface SnapshotParams {
 }
 
 /**
- * Build a snapshot payload for trace persistence and legacy fallback ledgers.
+ * Build a snapshot payload for trace persistence and legacy fallback files.
  * When serialized as JSONL, the `ts` field is added by the caller if needed.
  */
 export function buildSnapshot(params: SnapshotParams): Omit<SnapshotEntry, 'ts'> {

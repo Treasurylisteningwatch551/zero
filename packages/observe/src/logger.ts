@@ -258,7 +258,7 @@ export class JsonlLogger {
   }
 
   /**
-   * Log an LLM request to the session-scoped ledger.
+   * Log an LLM request to the legacy session request file.
    */
   logSessionRequest(entry: RequestLogEntryInput): void {
     this.appendLine(join(getSessionLogRelativeDir(entry.sessionId), 'requests.jsonl'), {
@@ -278,7 +278,7 @@ export class JsonlLogger {
   }
 
   /**
-   * Log a session-scoped task closure event.
+   * Log a task closure event to the legacy session closure file.
    */
   logSessionClosure(entry: ClosureLogEntryInput): void {
     const relativePath = join(getSessionLogRelativeDir(entry.sessionId), 'closure.jsonl')
@@ -316,7 +316,7 @@ export class JsonlLogger {
   }
 
   /**
-   * Read requests for a session, preferring trace.jsonl and falling back to legacy ledgers.
+   * Read requests for a session, preferring trace.jsonl and falling back to legacy files.
    */
   readSessionRequests(sessionId: string): RequestLogEntry[] {
     const tracedEntries = projectSessionRequestsFromTraceEntries(
@@ -350,7 +350,7 @@ export class JsonlLogger {
   }
 
   /**
-   * Read snapshots for a session, preferring trace.jsonl and falling back to legacy ledgers.
+   * Read snapshots for a session, preferring trace.jsonl and falling back to legacy files.
    */
   readSessionSnapshots(sessionId: string): SnapshotEntry[] {
     const tracedEntries = projectSessionSnapshotsFromTraceEntries(
@@ -367,7 +367,7 @@ export class JsonlLogger {
   }
 
   /**
-   * Read all request entries across legacy global and session-scoped ledgers.
+   * Read all request entries across trace spans and legacy request files.
    */
   readAllRequests(): RequestLogEntry[] {
     const deduped = new Map<string, RequestLogEntry>()
@@ -392,7 +392,7 @@ export class JsonlLogger {
   }
 
   /**
-   * Read all snapshots across legacy global and session-scoped ledgers.
+   * Read all snapshots across trace spans and legacy snapshot files.
    */
   readAllSnapshots(): SnapshotEntry[] {
     const deduped = new Map<string, SnapshotEntry>()

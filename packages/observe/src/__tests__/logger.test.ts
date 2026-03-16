@@ -121,7 +121,7 @@ describe('JsonlLogger', () => {
     expect((last.tokens as Record<string, unknown>).reasoning).toBe(25)
   })
 
-  test('logSessionRequest writes to session-scoped requests ledger', () => {
+  test('logSessionRequest writes to the legacy session request file', () => {
     const logger = new JsonlLogger(testDir)
     logger.logSessionRequest({
       id: 'req_session_001',
@@ -304,16 +304,16 @@ describe('JsonlLogger', () => {
     expect(entries[0].model).toBe('trace-model')
   })
 
-  test('readSessionRequests falls back to ledgers when trace entries are not projectable', () => {
+  test('readSessionRequests falls back to legacy files when trace entries are not projectable', () => {
     const logger = new JsonlLogger(testDir)
     const sessionId = 'sess_20260316_0110_web_trace'
 
     logger.logSessionRequest({
-      id: 'req_ledger_fallback',
+      id: 'req_legacy_fallback',
       turnIndex: 1,
       sessionId,
-      model: 'ledger-model',
-      provider: 'ledger-provider',
+      model: 'legacy-model',
+      provider: 'legacy-provider',
       userPrompt: 'legacy prompt',
       response: 'legacy response',
       stopReason: 'end_turn',
@@ -340,10 +340,10 @@ describe('JsonlLogger', () => {
 
     const entries = logger.readSessionRequests(sessionId)
     expect(entries).toHaveLength(1)
-    expect(entries[0].id).toBe('req_ledger_fallback')
+    expect(entries[0].id).toBe('req_legacy_fallback')
   })
 
-  test('readAllRequests merges legacy and session-scoped ledgers', () => {
+  test('readAllRequests merges trace and legacy request sources', () => {
     const logger = new JsonlLogger(testDir)
     logger.logRequest({
       id: 'req_global_001',
