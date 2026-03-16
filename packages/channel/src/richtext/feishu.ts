@@ -1,8 +1,15 @@
 import { normalizeMarkdownForChannels } from './normalize'
 
-export function renderMarkdownForFeishu(markdown: string): string {
+interface RenderMarkdownForFeishuOptions {
+  preserveExternalImages?: boolean
+}
+
+export function renderMarkdownForFeishu(
+  markdown: string,
+  options?: RenderMarkdownForFeishuOptions,
+): string {
   let text = normalizeMarkdownForChannels(markdown)
-  text = optimizeMarkdownForFeishu(text)
+  text = optimizeMarkdownForFeishu(text, options)
   return text
 }
 
@@ -15,7 +22,10 @@ export function renderMarkdownForFeishu(markdown: string): string {
  * 5. Normalize @mentions: fix common AI mistakes in mention syntax
  * 6. Compress excessive blank lines
  */
-function optimizeMarkdownForFeishu(text: string): string {
+function optimizeMarkdownForFeishu(
+  text: string,
+  options?: RenderMarkdownForFeishuOptions,
+): string {
   const codeBlocks: string[] = []
   let result = text.replace(/```[\s\S]*?```/g, (match) => {
     return `__CODE_BLOCK_${codeBlocks.push(match) - 1}__`
@@ -32,6 +42,7 @@ function optimizeMarkdownForFeishu(text: string): string {
 
   result = result.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (match, _alt, src) => {
     if (src.startsWith('img_')) return match
+    if (options?.preserveExternalImages) return match
     return ''
   })
 

@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream'
 import * as lark from '@larksuiteoapi/node-sdk'
 import type { Channel, ImageAttachment, IncomingMessage, MessageHandler } from '../base'
 import { renderMarkdownForFeishu } from '../richtext/feishu'
+import { FeishuImageResolver } from './image-resolver'
 
 export interface FeishuChannelConfig {
   name?: string
@@ -478,6 +479,17 @@ export class FeishuChannel implements Channel {
   }
 
   /**
+   * Upload an image buffer to Feishu and return the image_key.
+   * Does not send a message.
+   */
+  async uploadImage(image: Buffer): Promise<string | null> {
+    if (!this.client) return null
+
+    const resolver = new FeishuImageResolver({ client: this.client })
+    return resolver.uploadBuffer(image)
+  }
+
+  /**
    * Upload a file to Feishu and send it as a file message.
    * @param chatId - Target chat ID
    * @param file - File buffer or local file path
@@ -811,12 +823,23 @@ export class FeishuChannel implements Channel {
     let sequence = 0
     let closed = false
     let pendingText: string | null = null
+    let latestRenderedText: string | null = null
     let lastDeliveredText: string | null = null
     let lastFlushAt = 0
     let flushTimer: ReturnType<typeof setTimeout> | null = null
     let scheduledFlush: Promise<void> | null = null
     let resolveScheduledFlush: (() => void) | null = null
     let flushChain: Promise<void> = Promise.resolve()
+    const renderStreamingMarkdown = (text: string) =>
+      renderMarkdownForFeishu(text, { preserveExternalImages: true })
+    const imageResolver = new FeishuImageResolver({
+      client,
+      onImageResolved: () => {
+        if (closed || latestRenderedText == null) return
+        pendingText = latestRenderedText
+        scheduleFlush()
+      },
+    })
 
     const clearFlushTimer = () => {
       if (!flushTimer) return
@@ -848,7 +871,14 @@ export class FeishuChannel implements Channel {
     const flushPending = async () => {
       clearFlushTimer()
       const text = pendingText
-      if (text == null || text === lastDeliveredText) {
+      const resolvedText = text == null ? null : imageResolver.resolveSync(text)
+      if (resolvedText == null) {
+        markScheduledFlushDone()
+        return
+      }
+
+      if (resolvedText === lastDeliveredText) {
+        pendingText = null
         markScheduledFlushDone()
         return
       }
@@ -857,7 +887,7 @@ export class FeishuChannel implements Channel {
       try {
         await client.cardkit.v1.cardElement.content({
           data: {
-            content: text,
+            content: resolvedText,
             sequence: nextSequence(),
           },
           path: {
@@ -865,7 +895,7 @@ export class FeishuChannel implements Channel {
             element_id: FeishuChannel.STREAMING_ELEMENT_ID,
           },
         })
-        lastDeliveredText = text
+        lastDeliveredText = resolvedText
         lastFlushAt = Date.now()
       } catch (error) {
         pendingText = text
@@ -922,18 +952,25 @@ export class FeishuChannel implements Channel {
       },
       update: async (fullText: string) => {
         if (closed) return
-        pendingText = renderMarkdownForFeishu(fullText)
+        latestRenderedText = renderStreamingMarkdown(fullText)
+        pendingText = latestRenderedText
         scheduleFlush()
         await waitForIdle()
       },
       complete: async (finalText: string) => {
-        const rendered = renderMarkdownForFeishu(finalText)
-        await finalizeCard(rendered, 'streaming completion failed')
+        const rendered = renderStreamingMarkdown(finalText)
+        latestRenderedText = rendered
+        const finalRendered =
+          imageResolver.hasImages(rendered) || imageResolver.pendingCount > 0
+            ? await imageResolver.resolveAll(rendered, 30_000)
+            : imageResolver.resolveSync(rendered)
+        await finalizeCard(finalRendered, 'streaming completion failed')
       },
       abort: async (errorMessage?: string) => {
-        const rendered = renderMarkdownForFeishu(
+        let rendered = renderMarkdownForFeishu(
           errorMessage?.trim() || 'An error occurred while generating the response.',
         )
+        rendered = imageResolver.resolveSync(rendered)
         await finalizeCard(rendered, 'streaming abort failed')
       },
     }

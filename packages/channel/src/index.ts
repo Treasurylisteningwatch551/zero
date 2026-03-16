@@ -5,6 +5,7 @@ export { WebChannel } from './web/channel'
 export { FeishuChannel } from './feishu/index'
 export type { FeishuChannelConfig } from './feishu/index'
 export type { FeishuStreamingSession } from './feishu/index'
+export { FeishuImageResolver } from './feishu/image-resolver'
 export { TelegramChannel } from './telegram/index'
 export type {
   TelegramChannelConfig,

@@ -817,19 +817,73 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
               },
             })
 
-            // Wait for any pending turn rotations, then complete the last card
+            // Wait for any pending turn rotations
             await turnRotateChain
+            const imageBlocks = replies
+              .filter((m) => m.role === 'assistant')
+              .flatMap((m) => m.content)
+              .filter((b): b is import('@zero-os/shared').ImageBlock => b.type === 'image')
+
+            let imageMarkdownSuffix = ''
+            const shouldEmbedImageBlocks = Boolean(streaming) || !lastSentMsgId
+            let failedImageBlocks: import('@zero-os/shared').ImageBlock[] = []
+            if (imageBlocks.length > 0 && shouldEmbedImageBlocks) {
+              const uploadResults = await Promise.all(
+                imageBlocks.map(async (img, i) => {
+                  try {
+                    const imageBuffer = Buffer.from(img.data, 'base64')
+                    const imageKey = await feishuChannel.uploadImage(imageBuffer)
+                    return { imageKey, block: img }
+                  } catch (imgErr) {
+                    console.warn(
+                      `[ZeRo OS] ${channelName} failed to upload image block ${i}:`,
+                      describeError(imgErr),
+                    )
+                    return { imageKey: null, block: img }
+                  }
+                }),
+              )
+
+              const uploadedKeys = uploadResults
+                .map((result) => result.imageKey)
+                .filter((key): key is string => key !== null)
+              failedImageBlocks = uploadResults
+                .filter((result) => result.imageKey === null)
+                .map((result) => result.block)
+
+              if (uploadedKeys.length > 0) {
+                imageMarkdownSuffix =
+                  '\n\n' +
+                  uploadedKeys.map((key, i) => `![image-${i + 1}](${key})`).join('\n\n')
+              }
+            }
+
             if (streaming) {
-              const finalText = streamText || collectAssistantReply(replies)
+              const finalText = (streamText || collectAssistantReply(replies)) + imageMarkdownSuffix
               if (finalText) {
                 await streaming.complete(finalText)
               }
             } else if (!lastSentMsgId) {
-              const replyText = collectAssistantReply(replies)
+              const replyText = collectAssistantReply(replies) + imageMarkdownSuffix
               if (replyText && messageId) {
                 await feishuChannel.reply(messageId, replyText)
               } else if (replyText) {
                 await feishuChannel.send(chatId, replyText)
+              }
+            }
+
+            const fallbackImageBlocks = shouldEmbedImageBlocks ? failedImageBlocks : imageBlocks
+            if (fallbackImageBlocks.length > 0) {
+              for (const img of fallbackImageBlocks) {
+                try {
+                  const imageBuffer = Buffer.from(img.data, 'base64')
+                  await feishuChannel.sendImage(chatId, imageBuffer)
+                } catch (imgErr) {
+                  console.warn(
+                    `[ZeRo OS] ${channelName} failed to send image block:`,
+                    describeError(imgErr),
+                  )
+                }
               }
             }
 
