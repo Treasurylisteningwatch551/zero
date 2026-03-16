@@ -13,11 +13,32 @@ function showErrorToast(message: string) {
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init)
   if (!res.ok) {
-    const message = `请求失败: ${res.status} ${res.statusText}`
+    const detail = await readErrorDetail(res)
+    const message = detail
+      ? `请求失败: ${res.status} ${detail}`
+      : `请求失败: ${res.status} ${res.statusText}`
     showErrorToast(message)
     throw new Error(message)
   }
   return res.json() as Promise<T>
+}
+
+async function readErrorDetail(res: Response): Promise<string> {
+  const contentType = res.headers.get('content-type') ?? ''
+
+  if (contentType.includes('application/json')) {
+    const payload = (await res.json().catch(() => null)) as { error?: unknown; message?: unknown } | null
+    if (typeof payload?.error === 'string' && payload.error.trim().length > 0) {
+      return payload.error.trim()
+    }
+    if (typeof payload?.message === 'string' && payload.message.trim().length > 0) {
+      return payload.message.trim()
+    }
+    return ''
+  }
+
+  const text = await res.text().catch(() => '')
+  return text.trim()
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {

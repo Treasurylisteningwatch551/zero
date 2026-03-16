@@ -50,6 +50,7 @@ describe('TraceSummaryCard', () => {
   test('keeps context panel height constrained', () => {
     const html = renderToStaticMarkup(
       <ContextPanel
+        sessionId="sess_1"
         modelHistory={[]}
         toolCalls={[]}
         filesTouched={[]}
@@ -89,6 +90,7 @@ describe('TraceSummaryCard', () => {
   test('renders cache summary and savings fields', () => {
     const html = renderToStaticMarkup(
       <ContextPanel
+        sessionId="sess_1"
         modelHistory={[]}
         toolCalls={[]}
         filesTouched={[]}
@@ -114,6 +116,7 @@ describe('TraceSummaryCard', () => {
   test('renders trace eval summary in the default summary tab', () => {
     const html = renderToStaticMarkup(
       <ContextPanel
+        sessionId="sess_1"
         modelHistory={[]}
         toolCalls={[]}
         filesTouched={[]}
@@ -152,5 +155,6 @@ describe('TraceSummaryCard', () => {
     expect(html).toContain('TRACE EVAL')
     expect(html).toContain('Resolved')
     expect(html).toContain('/100')
+    expect(html).toContain('Run Judge')
   })
 })

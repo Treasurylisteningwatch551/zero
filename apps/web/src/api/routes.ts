@@ -10,6 +10,7 @@ import {
   getConfigPath,
 } from '../../../server/src/chatgpt-provider'
 import type { ZeroOS } from '../../../server/src/main'
+import { runSessionJudge } from './session-judge'
 
 export function createRoutes(zero: ZeroOS) {
   const chatgptOAuth = new ChatGptOAuthBroker(zero.vault)
@@ -461,6 +462,29 @@ export function createRoutes(zero: ZeroOS) {
       const entries = zero.observability.readSessionClosures(id)
 
       return c.json({ events: entries })
+    })
+
+    .post('/api/sessions/:id/llm-judge', async (c) => {
+      const id = c.req.param('id')
+      const session = getSessionRow(id)
+      if (!session) {
+        return c.json({ error: 'Session not found' }, 404)
+      }
+
+      const body: {
+        model?: string
+      } = await c.req
+        .json<{
+          model?: string
+        }>()
+        .catch(() => ({}))
+
+      try {
+        const result = await runSessionJudge(zero, id, { model: body.model })
+        return c.json(result)
+      } catch (error) {
+        return c.json({ error: error instanceof Error ? error.message : String(error) }, 500)
+      }
     })
 
     .post('/api/sessions/:id/archive', (c) => {

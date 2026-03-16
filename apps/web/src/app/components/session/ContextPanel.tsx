@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
-import { apiFetch } from '../../lib/api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { SessionJudgeResponse } from '../../../eval/types'
+import { apiFetch, apiPost } from '../../lib/api'
 import { toolColors } from '../../lib/colors'
 import { formatCost, formatModelHistory, formatNumber, formatTimeAgo } from '../../lib/format'
 import {
@@ -62,6 +63,7 @@ interface LlmRequestEntry {
 }
 
 interface Props {
+  sessionId?: string
   summary?: string
   systemPrompt?: string
   modelHistory: ModelHistoryEntry[]
@@ -87,6 +89,7 @@ interface Props {
 }
 
 export function ContextPanel({
+  sessionId,
   summary,
   systemPrompt,
   modelHistory,
@@ -113,6 +116,8 @@ export function ContextPanel({
   const [tab, setTab] = useState<'summary' | 'trace'>('summary')
   const [promptExpanded, setPromptExpanded] = useState(false)
   const [relatedMemory, setRelatedMemory] = useState<MemoryResult[]>([])
+  const [judgeResult, setJudgeResult] = useState<SessionJudgeResponse | null>(null)
+  const [judgeLoading, setJudgeLoading] = useState(false)
 
   useEffect(() => {
     if (!summary) return
@@ -122,6 +127,17 @@ export function ContextPanel({
       .then((res) => setRelatedMemory(res.results ?? []))
       .catch(() => {})
   }, [summary])
+
+  useEffect(() => {
+    if (sessionId === undefined) {
+      setJudgeResult(null)
+      setJudgeLoading(false)
+      return
+    }
+
+    setJudgeResult(null)
+    setJudgeLoading(false)
+  }, [sessionId])
 
   const selectedTool = selectedToolId ? toolCalls.find((t) => t.id === selectedToolId) : null
 
@@ -149,6 +165,16 @@ export function ContextPanel({
     netSavings === undefined
       ? undefined
       : `${netSavings >= 0 ? '+' : '-'}$${formatCost(Math.abs(netSavings))}`
+
+  const runJudge = useCallback(async () => {
+    if (!sessionId || judgeLoading) return
+    setJudgeLoading(true)
+    try {
+      const result = await apiPost<SessionJudgeResponse>(`/api/sessions/${sessionId}/llm-judge`, {})
+      setJudgeResult(result)
+    } catch {}
+    setJudgeLoading(false)
+  }, [judgeLoading, sessionId])
 
   if (selectedTool) {
     return (
@@ -222,7 +248,13 @@ export function ContextPanel({
       {tab === 'summary' && (
         <div className="space-y-4">
           <Section title="Trace Eval">
-            <TraceEvalCard report={traceEval} loading={traceLoading} />
+            <TraceEvalCard
+              report={traceEval}
+              loading={traceLoading}
+              judgeResult={judgeResult}
+              judgeLoading={judgeLoading}
+              onRunJudge={sessionId ? runJudge : undefined}
+            />
           </Section>
 
           {summary && (
@@ -604,9 +636,15 @@ function PersistedTaskClosureCard({
 function TraceEvalCard({
   report,
   loading,
+  judgeResult,
+  judgeLoading,
+  onRunJudge,
 }: {
   report: ReturnType<typeof evaluateTraceSession>
   loading: boolean
+  judgeResult: SessionJudgeResponse | null
+  judgeLoading: boolean
+  onRunJudge?: () => void
 }) {
   if (
     loading &&
@@ -688,6 +726,116 @@ function TraceEvalCard({
           </div>
         ))}
       </div>
+
+      <div className="rounded border border-white/8 bg-black/10 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[11px] font-semibold text-[var(--color-text-primary)]">
+              LLM Judge
+            </div>
+            <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
+              Evaluates context use, memory usage, duplicate tools, cost discipline, grounding, and
+              recovery honesty.
+            </p>
+          </div>
+
+          {onRunJudge && (
+            <button
+              type="button"
+              onClick={onRunJudge}
+              disabled={judgeLoading}
+              className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[10px] text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-accent)] disabled:cursor-wait disabled:opacity-60"
+            >
+              {judgeLoading ? 'Running…' : judgeResult ? 'Run Again' : 'Run Judge'}
+            </button>
+          )}
+        </div>
+
+        {judgeResult ? (
+          <JudgeResultCard response={judgeResult} />
+        ) : (
+          <p className="mt-3 text-[11px] text-[var(--color-text-disabled)]">
+            Run on demand to avoid unnecessary model cost.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function JudgeResultCard({ response }: { response: SessionJudgeResponse }) {
+  const { result } = response
+
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-end gap-1.5">
+            <span className="text-[24px] font-semibold leading-none text-[var(--color-text-primary)]">
+              {result.overallScore}
+            </span>
+            <span className="pb-0.5 text-[10px] text-[var(--color-text-disabled)]">/100</span>
+          </div>
+          <p className="mt-1 text-[11px] text-[var(--color-text-secondary)]">{result.summary}</p>
+        </div>
+
+        <div className="flex flex-col items-end gap-1">
+          <span className={`rounded px-2 py-1 text-[10px] ${getJudgeVerdictClass(result.verdict)}`}>
+            {formatJudgeVerdict(result.verdict)}
+          </span>
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] ${getEvalConfidenceClass(result.confidence)}`}
+          >
+            {result.confidence}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2 text-[10px] text-[var(--color-text-muted)]">
+        <span className="rounded bg-black/15 px-2 py-1">model {response.model}</span>
+        <span className="rounded bg-black/15 px-2 py-1">
+          dup tools {result.signals.duplicateToolCallCount}
+        </span>
+        <span className="rounded bg-black/15 px-2 py-1">
+          memory {result.signals.memorySearchCount}/{result.signals.memoryGetCount}/
+          {result.signals.memoryWriteCount}
+        </span>
+        <span className="rounded bg-black/15 px-2 py-1">
+          ${result.signals.totalCost.toFixed(3)} total
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2">
+        {result.dimensions.map((dimension) => (
+          <div key={dimension.key} className="rounded bg-black/15 p-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] text-[var(--color-text-disabled)]">
+                {dimension.label}
+              </span>
+              <span className="text-[10px] font-mono text-[var(--color-text-secondary)]">
+                {dimension.score}/{dimension.maxScore}
+              </span>
+            </div>
+            <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-text-muted)]">
+              {dimension.rationale}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {result.findings.length > 0 && (
+        <div className="space-y-1.5">
+          {result.findings.map((finding, index) => (
+            <div
+              key={`${finding.title}-${index}`}
+              className={`rounded border px-2.5 py-2 text-[11px] leading-relaxed ${getJudgeFindingClass(finding.severity)}`}
+            >
+              <div className="font-medium">{finding.title}</div>
+              <div className="mt-0.5 text-[10px] opacity-90">{finding.evidence}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -869,6 +1017,26 @@ function getEvalHighlightClass(
   if (tone === 'good') return 'border-emerald-400/20 bg-emerald-400/5 text-emerald-100'
   if (tone === 'warn') return 'border-amber-400/20 bg-amber-400/5 text-amber-100'
   return 'border-rose-400/20 bg-rose-400/5 text-rose-100'
+}
+
+function formatJudgeVerdict(verdict: SessionJudgeResponse['result']['verdict']): string {
+  if (verdict === 'strong') return 'Strong'
+  if (verdict === 'weak') return 'Weak'
+  return 'Mixed'
+}
+
+function getJudgeVerdictClass(verdict: SessionJudgeResponse['result']['verdict']): string {
+  if (verdict === 'strong') return 'bg-emerald-400/10 text-emerald-300'
+  if (verdict === 'weak') return 'bg-rose-400/10 text-rose-300'
+  return 'bg-amber-400/10 text-amber-300'
+}
+
+function getJudgeFindingClass(
+  severity: SessionJudgeResponse['result']['findings'][number]['severity'],
+): string {
+  if (severity === 'info') return 'border-cyan-400/20 bg-cyan-400/5 text-cyan-100'
+  if (severity === 'bad') return 'border-rose-400/20 bg-rose-400/5 text-rose-100'
+  return 'border-amber-400/20 bg-amber-400/5 text-amber-100'
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

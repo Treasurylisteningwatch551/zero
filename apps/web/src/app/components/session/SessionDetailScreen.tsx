@@ -410,6 +410,7 @@ export function SessionDetailScreen({
         </div>
 
         <ContextPanel
+          sessionId={session.id}
           summary={session.summary}
           systemPrompt={session.systemPrompt}
           modelHistory={session.modelHistory}

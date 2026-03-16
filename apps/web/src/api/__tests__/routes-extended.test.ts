@@ -323,6 +323,327 @@ describe('API Routes Extended', () => {
     ])
   })
 
+  test('POST /api/sessions/:id/llm-judge returns parsed judge result and prompt signals', async () => {
+    const session = zero.sessionManager.create('web')
+
+    const requestOne = zero.tracer.startSpan(session.data.id, 'llm_request', undefined, {
+      kind: 'llm_request',
+      data: {
+        request: {
+          id: 'req_judge_001',
+          turnIndex: 1,
+          sessionId: session.data.id,
+          model: session.data.currentModel,
+          provider: 'openai-codex',
+          userPrompt: 'Remember my deployment preference and fix the service issue.',
+          response: 'I will search memory and inspect the service.',
+          stopReason: 'tool_use',
+          toolUseCount: 2,
+          toolCalls: [
+            {
+              id: 'call_mem_1',
+              name: 'memory_search',
+              input: { query: 'deployment preference service issue' },
+            },
+            {
+              id: 'call_bash_1',
+              name: 'bash',
+              input: { command: 'systemctl status api-service' },
+            },
+          ],
+          toolResults: [
+            {
+              type: 'tool_result',
+              toolUseId: 'call_mem_1',
+              content: 'Found preference memory',
+              outputSummary: 'Found preference memory',
+            },
+            {
+              type: 'tool_result',
+              toolUseId: 'call_bash_1',
+              content: 'service failed',
+              isError: true,
+              outputSummary: 'service failed',
+            },
+          ],
+          tokens: { input: 120, output: 80 },
+          cost: 0.12,
+          durationMs: 1100,
+        },
+      },
+    })
+    zero.tracer.endSpan(requestOne.id, 'success')
+
+    const requestTwo = zero.tracer.startSpan(session.data.id, 'llm_request', undefined, {
+      kind: 'llm_request',
+      data: {
+        request: {
+          id: 'req_judge_002',
+          turnIndex: 2,
+          sessionId: session.data.id,
+          model: session.data.currentModel,
+          provider: 'openai-codex',
+          userPrompt: 'Continue and validate the same service status.',
+          response: 'Re-checking service and summarizing findings.',
+          stopReason: 'end_turn',
+          toolUseCount: 1,
+          toolCalls: [
+            {
+              id: 'call_bash_2',
+              name: 'bash',
+              input: { command: 'systemctl status api-service' },
+            },
+          ],
+          toolResults: [
+            {
+              type: 'tool_result',
+              toolUseId: 'call_bash_2',
+              content: 'service still failed',
+              isError: true,
+              outputSummary: 'service still failed',
+            },
+          ],
+          tokens: { input: 100, output: 70 },
+          cost: 0.15,
+          durationMs: 900,
+        },
+      },
+    })
+    zero.tracer.endSpan(requestTwo.id, 'success')
+
+    const closure = zero.tracer.startSpan(session.data.id, 'task_closure_decision', undefined, {
+      kind: 'closure_decision',
+      data: {
+        closure: {
+          event: 'task_closure_decision',
+          action: 'block',
+          reason: 'missing production access',
+          classifierRequest: {
+            system: 'strict classifier',
+            prompt: '<instruction>prompt</instruction>',
+            maxTokens: 200,
+          },
+        },
+      },
+    })
+    zero.tracer.endSpan(closure.id, 'success')
+
+    const resolved = zero.modelRouter.resolveModel(session.data.currentModel)
+    expect(resolved).toBeDefined()
+    if (!resolved) {
+      throw new Error('Expected resolved model for llm judge test')
+    }
+
+    let capturedPrompt = ''
+    const originalComplete = resolved.adapter.complete
+    ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete = async (
+      request,
+    ) => {
+      expect(request.model).toBeUndefined()
+      const firstBlock = request.messages[0]?.content[0]
+      capturedPrompt = firstBlock && firstBlock.type === 'text' ? firstBlock.text : ''
+      return {
+        id: 'judge_resp_001',
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              overallScore: 82,
+              verdict: 'mixed',
+              confidence: 'high',
+              summary: 'Memory usage was appropriate, but duplicate bash checks added cost.',
+              dimensions: [
+                {
+                  key: 'task_completion',
+                  label: 'Task Completion',
+                  score: 4,
+                  maxScore: 5,
+                  rationale: 'The session ended in a justified block.',
+                },
+                {
+                  key: 'context_management',
+                  label: 'Context Management',
+                  score: 4,
+                  maxScore: 5,
+                  rationale: 'The agent kept the issue and blocker consistent.',
+                },
+                {
+                  key: 'memory_usage',
+                  label: 'Memory Usage',
+                  score: 5,
+                  maxScore: 5,
+                  rationale: 'The agent searched memory before continuing.',
+                },
+                {
+                  key: 'evidence_grounding',
+                  label: 'Evidence Grounding',
+                  score: 4,
+                  maxScore: 5,
+                  rationale: 'The conclusion followed the tool results.',
+                },
+                {
+                  key: 'tool_efficiency',
+                  label: 'Tool Efficiency',
+                  score: 2,
+                  maxScore: 5,
+                  rationale: 'The same bash command was repeated without new input.',
+                },
+                {
+                  key: 'cost_efficiency',
+                  label: 'Cost Efficiency',
+                  score: 3,
+                  maxScore: 5,
+                  rationale: 'The duplicate check increased cost slightly.',
+                },
+                {
+                  key: 'recovery_honesty',
+                  label: 'Recovery & Honesty',
+                  score: 5,
+                  maxScore: 5,
+                  rationale: 'The agent honestly reported the blocker.',
+                },
+              ],
+              findings: [
+                {
+                  severity: 'warn',
+                  title: 'Duplicate bash call',
+                  evidence: 'systemctl status api-service was executed twice with the same input.',
+                },
+              ],
+            }),
+          },
+        ],
+        stopReason: 'end_turn',
+        usage: { input: 10, output: 20 },
+        model: session.data.currentModel,
+      }
+    }
+
+    try {
+      const res = await app.request(`/api/sessions/${session.data.id}/llm-judge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.result.overallScore).toBe(82)
+      expect(data.result.verdict).toBe('mixed')
+      expect(data.result.signals.memorySearchCount).toBe(1)
+      expect(data.result.signals.duplicateToolCallCount).toBe(1)
+      expect(capturedPrompt).toContain('memory_search')
+      expect(capturedPrompt).toContain('duplicateCalls')
+      expect(capturedPrompt).toContain('totalCost')
+    } finally {
+      ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete =
+        originalComplete
+    }
+  })
+
+  test('POST /api/sessions/:id/llm-judge repairs truncated JSON output', async () => {
+    const session = zero.sessionManager.create('web')
+
+    const request = zero.tracer.startSpan(session.data.id, 'llm_request', undefined, {
+      kind: 'llm_request',
+      data: {
+        request: {
+          id: 'req_judge_truncated_001',
+          turnIndex: 1,
+          sessionId: session.data.id,
+          model: session.data.currentModel,
+          provider: 'openai-codex',
+          userPrompt: 'Check whether the deploy finished.',
+          response: 'I checked the logs and found a blocker.',
+          stopReason: 'end_turn',
+          toolUseCount: 1,
+          toolCalls: [
+            {
+              id: 'call_bash_truncated_1',
+              name: 'bash',
+              input: { command: 'tail -n 50 deploy.log' },
+            },
+          ],
+          toolResults: [
+            {
+              type: 'tool_result',
+              toolUseId: 'call_bash_truncated_1',
+              content: 'deploy failed',
+              isError: true,
+              outputSummary: 'deploy failed',
+            },
+          ],
+          tokens: { input: 50, output: 30 },
+          cost: 0.05,
+          durationMs: 600,
+        },
+      },
+    })
+    zero.tracer.endSpan(request.id, 'success')
+
+    const resolved = zero.modelRouter.resolveModel(session.data.currentModel)
+    expect(resolved).toBeDefined()
+    if (!resolved) {
+      throw new Error('Expected resolved model for llm judge truncation test')
+    }
+
+    const originalComplete = resolved.adapter.complete
+    ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete = async () => ({
+      id: 'judge_resp_truncated_001',
+      content: [
+        {
+          type: 'text',
+          text: `{
+  "overallScore": 74,
+  "verdict": "mixed",
+  "confidence": "medium",
+  "summary": "The agent found the blocker but repeated a check.",
+  "dimensions": [
+    {
+      "key": "task_completion",
+      "label": "Task Completion",
+      "score": 4,
+      "maxScore": 5,
+      "rationale": "The agent identified a real blocker."
+    }
+  ],
+  "findings": [
+    {
+      "severity": "warn",
+      "title": "Repeated bash usage",
+      "evidence": "The same log check was repeated without new evidence."
+    }
+  `,
+        },
+      ],
+      stopReason: 'end_turn',
+      usage: { input: 10, output: 20 },
+      model: session.data.currentModel,
+    })
+
+    try {
+      const res = await app.request(`/api/sessions/${session.data.id}/llm-judge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.result.overallScore).toBe(74)
+      expect(data.result.findings).toEqual([
+        {
+          severity: 'warn',
+          title: 'Repeated bash usage',
+          evidence: 'The same log check was repeated without new evidence.',
+        },
+      ])
+    } finally {
+      ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete =
+        originalComplete
+    }
+  })
+
   test('GET /api/logs?type=requests reads merged request sources', async () => {
     const session = zero.sessionManager.create('web')
     const span = zero.tracer.startSpan(session.data.id, 'llm_request', undefined, {
@@ -442,7 +763,7 @@ describe('API Routes Extended', () => {
           entry.sessionId === sessionId &&
           entry.name === 'tool:bash' &&
           entry.kind === 'tool_call',
-        ),
+      ),
     ).toBe(true)
   })
 
