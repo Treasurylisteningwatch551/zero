@@ -123,9 +123,13 @@ describe('API Routes Extended', () => {
     expect(Array.isArray(data.notifications)).toBe(true)
   })
 
-  test('tool bus events are not written to events.jsonl', () => {
+  test('events.jsonl keeps only key bus events', () => {
     const before = zero.observability.readEntries<Record<string, unknown>>('events.jsonl').length
 
+    zero.bus.emit('session:create', {
+      sessionId: 'sess_signal_create',
+      source: 'web',
+    })
     zero.bus.emit('tool:call', {
       sessionId: 'sess_tool_noise',
       tool: 'bash',
@@ -146,9 +150,10 @@ describe('API Routes Extended', () => {
       .readEntries<Record<string, unknown>>('events.jsonl')
       .slice(before)
 
+    expect(newEntries.some((entry) => entry.event === 'session:create')).toBe(true)
     expect(newEntries.some((entry) => entry.event === 'tool:call')).toBe(false)
     expect(newEntries.some((entry) => entry.event === 'tool:result')).toBe(false)
-    expect(newEntries.some((entry) => entry.event === 'message_handled')).toBe(true)
+    expect(newEntries.some((entry) => entry.event === 'message_handled')).toBe(false)
   })
 
   test('session:update preserves spanId in events.jsonl', () => {

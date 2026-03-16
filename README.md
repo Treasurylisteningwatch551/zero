@@ -293,6 +293,8 @@ e2e/            Playwright end-to-end coverage
 - schedule state and session state are persisted through the observability layer, with global
   events in `.zero/logs/events.jsonl` and append-only session execution trace snapshots in
   `.zero/logs/sessions/<date>/<session>/trace.jsonl`
+- `events.jsonl` is a curated stream of key operational/session events rather than a full mirror
+  of every internal bus event
 - key session-scoped events may include `sessionId` and `spanId` so they can be correlated back
   to the persisted trace
 - the supervisor is optional for local development, but it is the intended path for

@@ -518,14 +518,27 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   heartbeat.write()
 
   let shuttingDown = false
-  const wildcardLogListener = (payload: { topic: string; data: Record<string, unknown> }) => {
-    if (
-      payload.topic === 'tool:call' ||
-      payload.topic === 'tool:result' ||
-      payload.topic === 'heartbeat'
-    ) {
-      return
+  const shouldPersistBusEvent = (payload: { topic: string; data: Record<string, unknown> }) => {
+    switch (payload.topic) {
+      case 'session:create':
+      case 'session:end':
+      case 'model:switch':
+      case 'notification':
+      case 'repair:start':
+      case 'repair:end':
+      case 'fuse:trigger':
+        return true
+      case 'session:update':
+        return (
+          payload.data.event === 'task_closure_decision' ||
+          payload.data.event === 'task_closure_failed'
+        )
+      default:
+        return false
     }
+  }
+  const wildcardLogListener = (payload: { topic: string; data: Record<string, unknown> }) => {
+    if (!shouldPersistBusEvent(payload)) return
     observability.log('info', payload.topic, payload.data)
   }
   const repairMetricsListener = (payload: { data: Record<string, unknown> }) => {
