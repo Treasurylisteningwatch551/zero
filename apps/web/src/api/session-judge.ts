@@ -247,7 +247,7 @@ function parseJudgeResponse(raw: string): Omit<SessionJudgeResult, 'signals'> {
   const findings = normalizeFindings(parsed.findings)
 
   return {
-    overallScore: clampInteger(parsed.overallScore, 0, 100),
+    overallScore: normalizeOverallScore(parsed.overallScore, dimensions),
     verdict: normalizeVerdict(parsed.verdict),
     confidence: normalizeConfidence(parsed.confidence),
     summary:
@@ -257,6 +257,25 @@ function parseJudgeResponse(raw: string): Omit<SessionJudgeResult, 'signals'> {
     dimensions,
     findings,
   }
+}
+
+function normalizeOverallScore(
+  value: unknown,
+  dimensions: SessionJudgeDimension[],
+): SessionJudgeResult['overallScore'] {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const rounded = Math.round(value)
+    if (rounded >= 0 && rounded <= 5) {
+      return Math.round((rounded / 5) * 100)
+    }
+    return clampInteger(rounded, 0, 100)
+  }
+
+  if (dimensions.length === 0) return 0
+  const totalScore = dimensions.reduce((sum, dimension) => sum + dimension.score, 0)
+  const totalMax = dimensions.reduce((sum, dimension) => sum + dimension.maxScore, 0)
+  if (totalMax <= 0) return 0
+  return Math.round((totalScore / totalMax) * 100)
 }
 
 function normalizeDimensions(value: unknown): SessionJudgeDimension[] {
@@ -274,7 +293,10 @@ function normalizeDimensions(value: unknown): SessionJudgeDimension[] {
             ? candidate.label.trim()
             : DIMENSION_LABELS[key],
         score: clampInteger(candidate.score, 0, 5),
-        maxScore: clampInteger(candidate.maxScore, 1, 5) || 5,
+        maxScore:
+          typeof candidate.maxScore === 'number' && Number.isFinite(candidate.maxScore)
+            ? clampInteger(candidate.maxScore, 1, 5)
+            : 5,
         rationale:
           typeof candidate.rationale === 'string' && candidate.rationale.trim().length > 0
             ? candidate.rationale.trim()
@@ -441,11 +463,16 @@ function extractResponseText(response: {
 
 function parseJudgeJson(value: string): unknown {
   const candidate = extractJsonCandidate(value)
+  const cleaned = removeUnmatchedClosers(candidate)
   const attempts = unique([
     candidate,
+    cleaned,
     stripTrailingCommas(candidate),
+    stripTrailingCommas(cleaned),
     balanceJson(candidate),
+    balanceJson(cleaned),
     stripTrailingCommas(balanceJson(candidate)),
+    stripTrailingCommas(balanceJson(cleaned)),
   ])
 
   let lastError: Error | null = null
@@ -524,6 +551,58 @@ function findBalancedJsonEnd(value: string, start: number): number {
   }
 
   return -1
+}
+
+function removeUnmatchedClosers(value: string): string {
+  let inString = false
+  let escaped = false
+  const stack: string[] = []
+  let result = ''
+
+  for (const char of value) {
+    if (inString) {
+      result += char
+      if (escaped) {
+        escaped = false
+        continue
+      }
+      if (char === '\\') {
+        escaped = true
+        continue
+      }
+      if (char === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+      result += char
+      continue
+    }
+    if (char === '{') {
+      stack.push('}')
+      result += char
+      continue
+    }
+    if (char === '[') {
+      stack.push(']')
+      result += char
+      continue
+    }
+    if (char === '}' || char === ']') {
+      if (stack.at(-1) === char) {
+        stack.pop()
+        result += char
+      }
+      continue
+    }
+
+    result += char
+  }
+
+  return result
 }
 
 function balanceJson(value: string): string {

@@ -644,6 +644,100 @@ describe('API Routes Extended', () => {
     }
   })
 
+  test('POST /api/sessions/:id/llm-judge normalizes 0-5 overall scores and missing maxScore', async () => {
+    const session = zero.sessionManager.create('web')
+
+    const resolved = zero.modelRouter.resolveModel(session.data.currentModel)
+    expect(resolved).toBeDefined()
+    if (!resolved) {
+      throw new Error('Expected resolved model for llm judge normalization test')
+    }
+
+    const originalComplete = resolved.adapter.complete
+    ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete = async () => ({
+      id: 'judge_resp_normalized_001',
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            overallScore: 3,
+            verdict: 'mixed',
+            confidence: 'medium',
+            summary: 'Needs a normalized overall score.',
+            dimensions: [
+              {
+                key: 'task_completion',
+                label: 'Task Completion',
+                score: 3,
+                rationale: 'Done with some gaps.',
+              },
+            ],
+            findings: [],
+          }),
+        },
+      ],
+      stopReason: 'end_turn',
+      usage: { input: 8, output: 12 },
+      model: session.data.currentModel,
+    })
+
+    try {
+      const res = await app.request(`/api/sessions/${session.data.id}/llm-judge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.result.overallScore).toBe(60)
+      expect(data.result.dimensions[0].maxScore).toBe(5)
+    } finally {
+      ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete =
+        originalComplete
+    }
+  })
+
+  test('POST /api/sessions/:id/llm-judge repairs extra closing braces in JSON output', async () => {
+    const session = zero.sessionManager.create('web')
+
+    const resolved = zero.modelRouter.resolveModel(session.data.currentModel)
+    expect(resolved).toBeDefined()
+    if (!resolved) {
+      throw new Error('Expected resolved model for llm judge extra brace test')
+    }
+
+    const originalComplete = resolved.adapter.complete
+    ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete = async () => ({
+      id: 'judge_resp_extra_brace_001',
+      content: [
+        {
+          type: 'text',
+          text: '{"overallScore":3,"verdict":"mixed","confidence":"medium","summary":"ok","dimensions":[{"key":"task_completion","label":"Task Completion","score":3,"maxScore":5,"rationale":"ok"}],"findings":[]}}',
+        },
+      ],
+      stopReason: 'end_turn',
+      usage: { input: 8, output: 12 },
+      model: session.data.currentModel,
+    })
+
+    try {
+      const res = await app.request(`/api/sessions/${session.data.id}/llm-judge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.result.overallScore).toBe(60)
+      expect(data.result.summary).toBe('ok')
+    } finally {
+      ;(resolved.adapter as { complete: typeof resolved.adapter.complete }).complete =
+        originalComplete
+    }
+  })
+
   test('GET /api/logs?type=requests reads merged request sources', async () => {
     const session = zero.sessionManager.create('web')
     const span = zero.tracer.startSpan(session.data.id, 'llm_request', undefined, {
