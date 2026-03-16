@@ -1,4 +1,5 @@
 import { loadConfig } from '@zero-os/core'
+import type { TraceSpan } from '@zero-os/observe'
 import type { MemoryStatus, MemoryType, ModelPricing, SessionStatus } from '@zero-os/shared'
 import { GitOps } from '@zero-os/supervisor'
 import { Hono } from 'hono'
@@ -13,6 +14,42 @@ import type { ZeroOS } from '../../../server/src/main'
 
 export function createRoutes(zero: ZeroOS) {
   const chatgptOAuth = new ChatGptOAuthBroker(zero.vault)
+
+  interface TraceLogEntry {
+    spanId: string
+    ts: string
+    sessionId: string
+    kind: string
+    name: string
+    status: string
+    durationMs?: number
+    childCount: number
+  }
+
+  function flattenTraceSpans(spans: TraceSpan[]): Array<{
+    spanId: string
+    sessionId: string
+    kind: string
+    name: string
+    status: string
+    startTime: string
+    durationMs?: number
+    childCount: number
+  }> {
+    return spans.flatMap((span) => [
+      {
+        spanId: span.id,
+        sessionId: span.sessionId,
+        kind: span.kind,
+        name: span.name,
+        status: span.status,
+        startTime: span.startTime,
+        durationMs: span.durationMs,
+        childCount: span.children.length,
+      },
+      ...flattenTraceSpans(span.children),
+    ])
+  }
 
   function readCurrentConfig() {
     return loadConfig(getConfigPath())
@@ -712,20 +749,34 @@ export function createRoutes(zero: ZeroOS) {
       const type = c.req.query('type') ?? 'events'
       const since = c.req.query('since')
 
-      // Trace type uses Tracer, not JSONL files
       if (type === 'trace') {
-        const allSessions = zero.sessionManager.listAll()
-        const traceEntries = allSessions.flatMap((s) => {
-          const traces = zero.tracer.exportSession(s.data.id)
-          return traces.map((t) => ({
-            ts: t.startTime,
-            sessionId: s.data.id,
-            name: t.name,
-            status: t.status,
-            durationMs: t.durationMs,
-            childCount: t.children.length,
-          }))
-        })
+        const traceEntries: TraceLogEntry[] = zero.logger.readAllTraceEntries().map((entry) => ({
+          spanId: entry.spanId,
+          ts: entry.startTime,
+          sessionId: entry.sessionId,
+          kind: entry.kind,
+          name: entry.name,
+          status: entry.status,
+          durationMs: entry.durationMs,
+          childCount: 0,
+        }))
+
+        const runningSpans: TraceLogEntry[] = zero.sessionManager.listActive().flatMap((session) =>
+          flattenTraceSpans(zero.tracer.exportSession(session.data.id))
+            .filter((span) => span.status === 'running')
+            .map((span) => ({
+              spanId: span.spanId,
+              ts: span.startTime,
+              sessionId: span.sessionId,
+              kind: span.kind,
+              name: span.name,
+              status: span.status,
+              durationMs: span.durationMs,
+              childCount: span.childCount,
+            })),
+        )
+
+        traceEntries.push(...runningSpans)
         traceEntries.sort((a, b) => b.ts.localeCompare(a.ts))
         return c.json({ entries: traceEntries.slice(0, limit), limit })
       }

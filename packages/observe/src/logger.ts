@@ -291,15 +291,26 @@ export class JsonlLogger {
   readAllRequests(): RequestLogEntry[] {
     const deduped = new Map<string, RequestLogEntry>()
 
-    for (const sessionDir of this.listSessionDirectories()) {
-      for (const entry of projectSessionRequestsFromTraceEntries(
-        this.readJsonlFile<TraceEntry>(join(sessionDir, 'trace.jsonl')),
-      )) {
-        deduped.set(entry.id, this.normalizeStoredRequestEntry(entry))
+    for (const entry of this.readAllTraceEntries()) {
+      for (const projected of projectSessionRequestsFromTraceEntries([entry])) {
+        deduped.set(projected.id, this.normalizeStoredRequestEntry(projected))
       }
     }
 
     return Array.from(deduped.values()).sort((left, right) => left.ts.localeCompare(right.ts))
+  }
+
+  /**
+   * Read all persisted trace entries across sessions.
+   */
+  readAllTraceEntries(): TraceEntry[] {
+    const entries: TraceEntry[] = []
+
+    for (const sessionDir of this.listSessionDirectories()) {
+      entries.push(...this.readJsonlFile<TraceEntry>(join(sessionDir, 'trace.jsonl')))
+    }
+
+    return entries.sort((left, right) => left.startTime.localeCompare(right.startTime))
   }
 
   /**
@@ -308,11 +319,9 @@ export class JsonlLogger {
   readAllSnapshots(): SnapshotEntry[] {
     const deduped = new Map<string, SnapshotEntry>()
 
-    for (const sessionDir of this.listSessionDirectories()) {
-      for (const entry of projectSessionSnapshotsFromTraceEntries(
-        this.readJsonlFile<TraceEntry>(join(sessionDir, 'trace.jsonl')),
-      )) {
-        deduped.set(entry.id, entry)
+    for (const entry of this.readAllTraceEntries()) {
+      for (const projected of projectSessionSnapshotsFromTraceEntries([entry])) {
+        deduped.set(projected.id, projected)
       }
     }
 

@@ -385,6 +385,41 @@ describe('API Routes Extended', () => {
     )
   })
 
+  test('GET /api/logs?type=trace scans persisted trace files and flattens child spans', async () => {
+    const sessionId = 'sess_20260316_2325_trace_api_abcd'
+    const root = zero.tracer.startSpan(sessionId, 'turn:trace-api', undefined, {
+      kind: 'turn',
+    })
+    const child = zero.tracer.startSpan(sessionId, 'tool:bash', root.id, {
+      kind: 'tool_call',
+    })
+    zero.tracer.endSpan(child.id, 'success')
+    zero.tracer.endSpan(root.id, 'success')
+
+    const res = await app.request('/api/logs?type=trace&limit=20')
+    expect(res.status).toBe(200)
+    const data = await res.json()
+
+    expect(
+      data.entries.some(
+        (entry: { spanId: string; sessionId: string; name: string; kind: string }) =>
+          entry.spanId === root.id &&
+          entry.sessionId === sessionId &&
+          entry.name === 'turn:trace-api' &&
+          entry.kind === 'turn',
+      ),
+    ).toBe(true)
+    expect(
+      data.entries.some(
+        (entry: { spanId: string; sessionId: string; name: string; kind: string }) =>
+          entry.spanId === child.id &&
+          entry.sessionId === sessionId &&
+          entry.name === 'tool:bash' &&
+          entry.kind === 'tool_call',
+      ),
+    ).toBe(true)
+  })
+
   test('GET /api/sessions/channel/:channel/active returns active candidates only', async () => {
     const feishu = zero.sessionManager.getOrCreateForChannel(
       'feishu',

@@ -305,6 +305,43 @@ describe('JsonlLogger', () => {
     expect(ids).toEqual(new Set(['snap_trace_all_001']))
   })
 
+  test('readAllTraceEntries scans every persisted session trace file', () => {
+    const logger = new JsonlLogger(testDir)
+    const firstSessionId = 'sess_20260316_0200_web_trace'
+    const secondSessionId = 'sess_20260316_0201_fei_trace'
+
+    writeSessionTraceEntries(testDir, firstSessionId, [
+      {
+        spanId: 'span_trace_all_001',
+        sessionId: firstSessionId,
+        kind: 'turn',
+        name: 'turn:web',
+        startTime: '2026-03-16T02:00:00.000Z',
+        endTime: '2026-03-16T02:00:01.000Z',
+        durationMs: 1000,
+        status: 'success',
+      },
+    ])
+    writeSessionTraceEntries(testDir, secondSessionId, [
+      {
+        spanId: 'span_trace_all_002',
+        parentSpanId: 'span_trace_all_001',
+        sessionId: secondSessionId,
+        kind: 'tool_call',
+        name: 'tool:bash',
+        startTime: '2026-03-16T02:01:00.000Z',
+        endTime: '2026-03-16T02:01:01.000Z',
+        durationMs: 1000,
+        status: 'success',
+      },
+    ])
+
+    expect(logger.readAllTraceEntries().map((entry) => entry.spanId)).toEqual([
+      'span_trace_all_001',
+      'span_trace_all_002',
+    ])
+  })
+
   test('readEntries returns empty array for missing file', () => {
     const logger = new JsonlLogger(testDir)
     expect(logger.readEntries('nonexistent.jsonl')).toEqual([])
