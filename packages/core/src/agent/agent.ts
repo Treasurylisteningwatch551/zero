@@ -114,6 +114,7 @@ interface TaskClosureEvaluation {
   decision: TaskClosureDecision | null
   eventPayload: PersistedTaskClosureEvent | null
   traceSpanId?: string
+  traceSpanStatus?: 'success' | 'error'
   trimmedContent?: ContentBlock[]
 }
 
@@ -355,13 +356,23 @@ export class Agent {
       onNewMessage?.(assistantMsg)
 
       if (taskClosureEvaluation.traceSpanId) {
-        const taskClosureSpan = this.obs.tracer?.getSpan(taskClosureEvaluation.traceSpanId)
-        if (taskClosureSpan) {
-          taskClosureSpan.metadata = {
-            ...taskClosureSpan.metadata,
+        this.obs.tracer?.updateSpan(taskClosureEvaluation.traceSpanId, {
+          data: {
+            closure: {
+              assistantMessageId: assistantMsg.id,
+              assistantMessageCreatedAt: assistantMsg.createdAt,
+            },
+          },
+          metadata: {
             assistantMessageId: assistantMsg.id,
             assistantMessageCreatedAt: assistantMsg.createdAt,
-          }
+          },
+        })
+        if (taskClosureEvaluation.traceSpanStatus) {
+          this.obs.tracer?.endSpan(
+            taskClosureEvaluation.traceSpanId,
+            taskClosureEvaluation.traceSpanStatus,
+          )
         }
       }
 
@@ -900,6 +911,7 @@ export class Agent {
         decision: null,
         eventPayload: null,
         traceSpanId: taskClosureSpan?.id,
+        traceSpanStatus: undefined,
       }
     }
 
@@ -954,13 +966,29 @@ export class Agent {
 
       if (validDecision) {
         if (taskClosureSpan) {
-          this.obs.tracer?.endSpan(taskClosureSpan.id, 'success', {
-            called: true,
-            classifierModel: result.model,
-            action: validDecision.action,
-            reason: validDecision.reason,
-            classifierRequest,
-            ...(validDecision.action === 'continue' ? { trimFrom: validDecision.trimFrom } : {}),
+          this.obs.tracer?.updateSpan(taskClosureSpan.id, {
+            data: {
+              closure: {
+                event: 'task_closure_decision',
+                action: validDecision.action,
+                reason: validDecision.reason,
+                classifierRequest,
+                classifierResponse: result,
+                ...(validDecision.action === 'continue'
+                  ? { trimFrom: validDecision.trimFrom }
+                  : {}),
+              },
+            },
+            metadata: {
+              called: true,
+              classifierModel: result.model,
+              action: validDecision.action,
+              reason: validDecision.reason,
+              classifierRequest,
+              ...(validDecision.action === 'continue'
+                ? { trimFrom: validDecision.trimFrom }
+                : {}),
+            },
           })
         }
 
@@ -976,6 +1004,7 @@ export class Agent {
             ...(validDecision.action === 'continue' ? { trimFrom: validDecision.trimFrom } : {}),
           },
           traceSpanId: taskClosureSpan?.id,
+          traceSpanStatus: 'success',
           trimmedContent,
         }
       }
@@ -984,14 +1013,24 @@ export class Agent {
         this.obs.tracer?.updateSpan(taskClosureSpan.id, {
           kind: 'closure_failed',
           name: 'task_closure_failed',
-        })
-        this.obs.tracer?.endSpan(taskClosureSpan.id, 'error', {
-          called: true,
-          classifierModel: result.model,
-          reason: 'invalid_classifier_output',
-          failureStage: 'parse_classifier_response',
-          classifierRequest,
-          classifierResponseRaw: text,
+          data: {
+            closure: {
+              event: 'task_closure_failed',
+              reason: 'invalid_classifier_output',
+              failureStage: 'parse_classifier_response',
+              classifierRequest,
+              classifierResponse: result,
+              classifierResponseRaw: text,
+            },
+          },
+          metadata: {
+            called: true,
+            classifierModel: result.model,
+            reason: 'invalid_classifier_output',
+            failureStage: 'parse_classifier_response',
+            classifierRequest,
+            classifierResponseRaw: text,
+          },
         })
       }
 
@@ -1007,6 +1046,7 @@ export class Agent {
           classifierResponseRaw: text,
         },
         traceSpanId: taskClosureSpan?.id,
+        traceSpanStatus: 'error',
       }
     } catch (error) {
       this.toolContext.logger.warn('task_closure_classifier_failed', {
@@ -1018,13 +1058,22 @@ export class Agent {
         this.obs.tracer?.updateSpan(taskClosureSpan.id, {
           kind: 'closure_failed',
           name: 'task_closure_failed',
-        })
-        this.obs.tracer?.endSpan(taskClosureSpan.id, 'error', {
-          called: true,
-          reason: 'classifier_failed',
-          failureStage: 'request_classifier',
-          classifierRequest,
-          error: errorMessage,
+          data: {
+            closure: {
+              event: 'task_closure_failed',
+              reason: 'classifier_failed',
+              failureStage: 'request_classifier',
+              classifierRequest,
+              error: errorMessage,
+            },
+          },
+          metadata: {
+            called: true,
+            reason: 'classifier_failed',
+            failureStage: 'request_classifier',
+            classifierRequest,
+            error: errorMessage,
+          },
         })
       }
       return {
@@ -1038,6 +1087,7 @@ export class Agent {
           error: errorMessage,
         },
         traceSpanId: taskClosureSpan?.id,
+        traceSpanStatus: 'error',
       }
     }
   }
@@ -1303,26 +1353,41 @@ export class Agent {
     if (traceSpanId) {
       this.obs.tracer?.updateSpan(traceSpanId, {
         data: {
-          requestId: response.id,
-          parentId: meta.parentId,
-          snapshotId,
-          model: this.obs.modelLabel ?? response.model,
-          provider: this.obs.providerName ?? 'unknown',
-          stopReason: response.stopReason,
-          toolUseCount,
-          messageCount: request.messages.length,
-          tokens: {
-            input: response.usage.input,
-            output: response.usage.output,
-            cacheWrite: response.usage.cacheWrite,
-            cacheRead: response.usage.cacheRead,
-            reasoning: response.usage.reasoning,
+          request: {
+            id: response.id,
+            turnIndex: meta.turnIndex,
+            parentId: meta.parentId,
+            sessionId: this.toolContext.sessionId,
+            agentName: this.config.name,
+            spawnedByRequestId: this.toolContext.spawnedByRequestId,
+            snapshotId,
+            model: this.obs.modelLabel ?? response.model,
+            provider: this.obs.providerName ?? 'unknown',
+            userPrompt: safeUserPrompt,
+            response: safeResponseText,
+            reasoningContent: safeReasoningContent,
+            stopReason: response.stopReason,
+            toolUseCount,
+            toolCalls,
+            toolResults: requestToolResults,
+            toolNames: requestMetadata.toolNames,
+            toolDefinitionsHash: requestMetadata.toolDefinitionsHash,
+            systemHash: requestMetadata.systemHash,
+            staticPrefixHash: requestMetadata.staticPrefixHash,
+            messageCount: request.messages.length,
+            tokens: {
+              input: response.usage.input,
+              output: response.usage.output,
+              cacheWrite: response.usage.cacheWrite,
+              cacheRead: response.usage.cacheRead,
+              reasoning: response.usage.reasoning,
+            },
+            cost,
+            durationMs,
           },
-          cost,
-          durationMs,
-          spawnedByRequestId: this.toolContext.spawnedByRequestId,
         },
         metadata: {
+          requestId: response.id,
           toolNames: requestMetadata.toolNames,
           toolDefinitionsHash: requestMetadata.toolDefinitionsHash,
           systemHash: requestMetadata.systemHash,

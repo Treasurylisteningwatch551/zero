@@ -120,6 +120,35 @@ describe('Tracer', () => {
     expect(exported[1].children[0].status).toBe('running')
   })
 
+  test('updateSpan deep-merges nested data objects', () => {
+    const tracer = new Tracer()
+    const span = tracer.startSpan('sess_001', 'task_closure_decision', undefined, {
+      kind: 'closure_decision',
+      data: {
+        closure: {
+          event: 'task_closure_decision',
+          action: 'continue',
+        },
+      },
+    })
+
+    tracer.updateSpan(span.id, {
+      data: {
+        closure: {
+          assistantMessageId: 'msg_001',
+        },
+      },
+    })
+
+    expect(tracer.getSpan(span.id)?.data).toEqual({
+      closure: {
+        event: 'task_closure_decision',
+        action: 'continue',
+        assistantMessageId: 'msg_001',
+      },
+    })
+  })
+
   test('clear removes all spans', () => {
     const tracer = new Tracer()
     tracer.startSpan('sess_001', 'to_clear')

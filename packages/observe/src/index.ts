@@ -29,4 +29,9 @@ export { SessionDB } from './session-db'
 export type { SessionRow } from './session-db'
 export { Tracer } from './trace'
 export type { TraceEntry, TraceKind, TraceSpan, TraceStatus } from './trace'
+export {
+  projectSessionClosuresFromTraceEntries,
+  projectSessionRequestsFromTraceEntries,
+  projectSessionSnapshotsFromTraceEntries,
+} from './trace-projections'
 export { createFilteredWriter, filterLogEntry } from './secret-filter'

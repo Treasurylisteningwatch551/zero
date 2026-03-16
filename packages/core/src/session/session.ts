@@ -406,23 +406,24 @@ export class Session {
         kind: 'snapshot',
         agentName: this.getAgentName(),
         data: {
-          snapshotId: snapshot.id,
-          trigger,
-          model: snapshot.model,
+          snapshot: {
+            id: snapshot.id,
+            sessionId: snapshot.sessionId,
+            trigger: snapshot.trigger,
+            model: snapshot.model,
+            parentSnapshot: snapshot.parentSnapshot,
+            systemPrompt: snapshot.systemPrompt,
+            tools: snapshot.tools,
+            identityMemory: snapshot.identityMemory,
+            compressedSummary: snapshot.compressedSummary,
+            messagesBefore: snapshot.messagesBefore,
+            messagesAfter: snapshot.messagesAfter,
+            compressedRange: snapshot.compressedRange,
+          },
         },
       },
     )
-    if (snapshotSpan) {
-      this.deps.tracer?.updateSpan(snapshotSpan.id, {
-        data: {
-          parentSnapshot: snapshot.parentSnapshot,
-          tools: snapshot.tools,
-          messagesBefore: snapshot.messagesBefore,
-          messagesAfter: snapshot.messagesAfter,
-        },
-      })
-      this.deps.tracer?.endSpan(snapshotSpan.id, 'success')
-    }
+    if (snapshotSpan) this.deps.tracer?.endSpan(snapshotSpan.id, 'success')
     this.currentSnapshotId = snapshot.id
     this.lastSnapshotContext = {
       model: context.model,

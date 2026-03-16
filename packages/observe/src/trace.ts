@@ -64,6 +64,35 @@ interface UpdateSpanInput {
   metadata?: Record<string, unknown>
 }
 
+function mergeRecords(
+  current: Record<string, unknown> | undefined,
+  update: Record<string, unknown>,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...(current ?? {}) }
+
+  for (const [key, value] of Object.entries(update)) {
+    const existing = next[key]
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      existing &&
+      typeof existing === 'object' &&
+      !Array.isArray(existing)
+    ) {
+      next[key] = mergeRecords(
+        existing as Record<string, unknown>,
+        value as Record<string, unknown>,
+      )
+      continue
+    }
+
+    next[key] = value
+  }
+
+  return next
+}
+
 /**
  * Trace recorder for tracking call chains across sessions and tools.
  * When initialized with a logs directory, ended spans are also written to
@@ -126,10 +155,10 @@ export class Tracer {
     if (update.name) span.name = update.name
     if (update.agentName) span.agentName = update.agentName
     if (update.data) {
-      span.data = { ...span.data, ...update.data }
+      span.data = mergeRecords(span.data, update.data)
     }
     if (update.metadata) {
-      span.metadata = { ...span.metadata, ...update.metadata }
+      span.metadata = mergeRecords(span.metadata, update.metadata)
     }
   }
 

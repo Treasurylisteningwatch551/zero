@@ -272,7 +272,7 @@ describe('Agent task closure gate', () => {
 
     const taskClosureSpan = tracer
       .exportSession('test-session')
-      .flatMap((span) => [span, ...span.children])
+      .flatMap(flattenTraceSpans)
       .find((span) => span.name === 'task_closure_decision')
 
     expect(taskClosureSpan).toBeDefined()
@@ -423,3 +423,7 @@ describe('Agent task closure gate', () => {
     })
   })
 })
+
+function flattenTraceSpans<T extends { children?: T[] }>(span: T): T[] {
+  return [span, ...(span.children ?? []).flatMap(flattenTraceSpans)]
+}

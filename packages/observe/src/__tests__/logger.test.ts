@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { appendFileSync, existsSync, mkdirSync, readlinkSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { JsonlLogger } from '../logger'
+import type { TraceEntry } from '../trace'
 
 const testDir = join(import.meta.dir, '__fixtures__/logs')
 
@@ -247,6 +248,101 @@ describe('JsonlLogger', () => {
     expect(entries[0].toolResults).toEqual([])
   })
 
+  test('readSessionRequests prefers trace.jsonl over request ledgers', () => {
+    const logger = new JsonlLogger(testDir)
+    const sessionId = 'sess_20260316_0100_web_trace'
+
+    logger.logSessionRequest({
+      id: 'req_ledger_001',
+      turnIndex: 1,
+      sessionId,
+      model: 'ledger-model',
+      provider: 'ledger-provider',
+      userPrompt: 'legacy prompt',
+      response: 'legacy response',
+      stopReason: 'end_turn',
+      toolUseCount: 0,
+      tokens: { input: 1, output: 2 },
+      cost: 0.01,
+    })
+
+    writeSessionTraceEntries(testDir, sessionId, [
+      {
+        spanId: 'span_req_001',
+        sessionId,
+        kind: 'llm_request',
+        name: 'llm_request',
+        startTime: '2026-03-16T01:00:00.000Z',
+        endTime: '2026-03-16T01:00:01.000Z',
+        durationMs: 1000,
+        status: 'success',
+        data: {
+          request: {
+            id: 'req_trace_001',
+            turnIndex: 2,
+            sessionId,
+            agentName: 'trace-agent',
+            model: 'trace-model',
+            provider: 'trace-provider',
+            userPrompt: 'trace prompt',
+            response: 'trace response',
+            stopReason: 'end_turn',
+            toolUseCount: 0,
+            toolCalls: [],
+            toolResults: [],
+            tokens: { input: 3, output: 4 },
+            cost: 0.02,
+            durationMs: 1000,
+          },
+        },
+      },
+    ])
+
+    const entries = logger.readSessionRequests(sessionId)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].id).toBe('req_trace_001')
+    expect(entries[0].model).toBe('trace-model')
+  })
+
+  test('readSessionRequests falls back to ledgers when trace entries are not projectable', () => {
+    const logger = new JsonlLogger(testDir)
+    const sessionId = 'sess_20260316_0110_web_trace'
+
+    logger.logSessionRequest({
+      id: 'req_ledger_fallback',
+      turnIndex: 1,
+      sessionId,
+      model: 'ledger-model',
+      provider: 'ledger-provider',
+      userPrompt: 'legacy prompt',
+      response: 'legacy response',
+      stopReason: 'end_turn',
+      toolUseCount: 0,
+      tokens: { input: 1, output: 2 },
+      cost: 0.01,
+    })
+
+    writeSessionTraceEntries(testDir, sessionId, [
+      {
+        spanId: 'span_req_incomplete',
+        sessionId,
+        kind: 'llm_request',
+        name: 'llm_request',
+        startTime: '2026-03-16T01:10:00.000Z',
+        endTime: '2026-03-16T01:10:01.000Z',
+        durationMs: 1000,
+        status: 'success',
+        data: {
+          requestId: 'old-shape-only',
+        },
+      },
+    ])
+
+    const entries = logger.readSessionRequests(sessionId)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].id).toBe('req_ledger_fallback')
+  })
+
   test('readAllRequests merges legacy and session-scoped ledgers', () => {
     const logger = new JsonlLogger(testDir)
     logger.logRequest({
@@ -386,6 +482,54 @@ describe('JsonlLogger', () => {
     expect(entries).toHaveLength(0)
   })
 
+  test('readSessionClosures prefers trace.jsonl over closure ledgers', () => {
+    const logger = new JsonlLogger(testDir)
+    const sessionId = 'sess_20260316_0120_web_trace'
+
+    logger.logSessionClosure({
+      sessionId,
+      event: 'task_closure_failed',
+      reason: 'classifier_failed',
+      failureStage: 'request_classifier',
+      classifierRequest: {
+        system: 'legacy system',
+        prompt: 'legacy prompt',
+        maxTokens: 200,
+      },
+    })
+
+    writeSessionTraceEntries(testDir, sessionId, [
+      {
+        spanId: 'span_closure_001',
+        sessionId,
+        kind: 'closure_decision',
+        name: 'task_closure_decision',
+        startTime: '2026-03-16T01:20:00.000Z',
+        endTime: '2026-03-16T01:20:01.000Z',
+        durationMs: 1000,
+        status: 'success',
+        data: {
+          closure: {
+            event: 'task_closure_decision',
+            action: 'finish',
+            reason: 'trace_complete',
+            classifierRequest: {
+              system: 'trace system',
+              prompt: 'trace prompt',
+              maxTokens: 200,
+            },
+            assistantMessageId: 'msg_trace_001',
+          },
+        },
+      },
+    ])
+
+    const entries = logger.readSessionClosures(sessionId)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].event).toBe('task_closure_decision')
+    expect(entries[0].assistantMessageId).toBe('msg_trace_001')
+  })
+
   test('logSnapshot writes to snapshots.jsonl', () => {
     const logger = new JsonlLogger(testDir)
     logger.logSnapshot({
@@ -406,9 +550,59 @@ describe('JsonlLogger', () => {
     expect(last.compressedRange).toBe('0..3')
   })
 
+  test('readSessionSnapshots prefers trace.jsonl over snapshot ledgers', () => {
+    const logger = new JsonlLogger(testDir)
+    const sessionId = 'sess_20260316_0130_web_trace'
+
+    logger.logSnapshot({
+      id: 'snap_ledger_001',
+      sessionId,
+      trigger: 'session_start',
+      model: 'ledger-model',
+      systemPrompt: 'legacy system prompt',
+    })
+
+    writeSessionTraceEntries(testDir, sessionId, [
+      {
+        spanId: 'span_snapshot_001',
+        sessionId,
+        kind: 'snapshot',
+        name: 'snapshot:context_updated',
+        startTime: '2026-03-16T01:30:00.000Z',
+        endTime: '2026-03-16T01:30:01.000Z',
+        durationMs: 1000,
+        status: 'success',
+        data: {
+          snapshot: {
+            id: 'snap_trace_001',
+            trigger: 'context_updated',
+            model: 'trace-model',
+            systemPrompt: 'trace system prompt',
+            tools: ['read', 'bash'],
+          },
+        },
+      },
+    ])
+
+    const entries = logger.readSessionSnapshots(sessionId)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].id).toBe('snap_trace_001')
+    expect(entries[0].systemPrompt).toBe('trace system prompt')
+  })
+
   test('readEntries returns empty array for missing file', () => {
     const logger = new JsonlLogger(testDir)
     const entries = logger.readEntries('nonexistent.jsonl')
     expect(entries).toEqual([])
   })
 })
+
+function writeSessionTraceEntries(baseDir: string, sessionId: string, entries: TraceEntry[]): void {
+  const sessionDir = join(baseDir, 'sessions', sessionId)
+  mkdirSync(sessionDir, { recursive: true })
+  appendFileSync(
+    join(sessionDir, 'trace.jsonl'),
+    `${entries.map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+    'utf-8',
+  )
+}

@@ -18,6 +18,12 @@ import {
   now,
 } from '@zero-os/shared'
 import type { CompletionResponse, StopReason, ToolResultBlock } from '@zero-os/shared'
+import type { TraceEntry } from './trace'
+import {
+  projectSessionClosuresFromTraceEntries,
+  projectSessionRequestsFromTraceEntries,
+  projectSessionSnapshotsFromTraceEntries,
+} from './trace-projections'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -313,6 +319,11 @@ export class JsonlLogger {
    * Read requests for a session, falling back to legacy global requests.jsonl.
    */
   readSessionRequests(sessionId: string): RequestLogEntry[] {
+    const tracedEntries = projectSessionRequestsFromTraceEntries(
+      this.readSessionEntries<TraceEntry>(sessionId, 'trace.jsonl'),
+    ).map((entry) => this.normalizeStoredRequestEntry(entry))
+    if (tracedEntries.length > 0) return tracedEntries
+
     const entries = this.readSessionEntries<RequestLogEntry>(sessionId, 'requests.jsonl').map(
       (entry) => this.normalizeStoredRequestEntry(entry),
     )
@@ -328,6 +339,11 @@ export class JsonlLogger {
    * Read task closure events for a session.
    */
   readSessionClosures(sessionId: string): ClosureLogEntry[] {
+    const tracedEntries = projectSessionClosuresFromTraceEntries(
+      this.readSessionEntries<TraceEntry>(sessionId, 'trace.jsonl'),
+    )
+    if (tracedEntries.length > 0) return tracedEntries
+
     return this.readSessionEntries<ClosureLogEntry>(sessionId, 'closure.jsonl').sort(
       (left, right) => left.ts.localeCompare(right.ts),
     )
@@ -337,6 +353,11 @@ export class JsonlLogger {
    * Read snapshots for a session, falling back to legacy global snapshots.jsonl.
    */
   readSessionSnapshots(sessionId: string): SnapshotEntry[] {
+    const tracedEntries = projectSessionSnapshotsFromTraceEntries(
+      this.readSessionEntries<TraceEntry>(sessionId, 'trace.jsonl'),
+    )
+    if (tracedEntries.length > 0) return tracedEntries
+
     const entries = this.readSessionEntries<SnapshotEntry>(sessionId, 'snapshots.jsonl')
     if (entries.length > 0) return entries
 

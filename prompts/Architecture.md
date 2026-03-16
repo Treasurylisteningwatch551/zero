@@ -1150,6 +1150,7 @@ recency_weight = 1 / (1 + days_since_last_access / 30)
 1. 全局 `events.jsonl` 负责轻量事件流。
 2. 每个 Session 新增独立的 `trace.jsonl`，持久化 span 级执行追踪。
 3. `requests.jsonl`、`snapshots.jsonl`、`closure.jsonl` 继续保留为 specialized ledgers，本阶段不做文件合并。
+4. 当前实现中，Session 级读取优先使用 `trace.jsonl` 投影；specialized ledgers 仍保留为兼容 fallback。
 
 日志存储在 `.zero/logs/` 目录下，使用 JSONL 追加写入，SQLite 做聚合查询：
 
@@ -1209,7 +1210,7 @@ Trace 以 Session 为粒度写入 `sessions/{sessionId}/trace.jsonl`，每条都
 { "spanId": "span_03", "parentSpanId": "span_02", "sessionId": "sess_001", "kind": "tool_call", "name": "tool:bash", "startTime": "2026-02-27T10:00:02Z", "endTime": "2026-02-27T10:00:03Z", "durationMs": 45, "status": "success", "data": { "tool": "bash" } }
 ```
 
-`requests.jsonl`、`snapshots.jsonl`、`closure.jsonl` 在第一阶段继续作为专用台账保留，不并入 `trace.jsonl`。Trace 负责骨架和因果链，specialized ledgers 保留各自的高密度细节。
+`requests.jsonl`、`snapshots.jsonl`、`closure.jsonl` 在当前阶段继续作为专用台账保留，不并入 `trace.jsonl`。Trace 负责骨架和因果链，并已成为 Session 级读取的优先数据源；specialized ledgers 仍保留各自的高密度细节与兼容 fallback 作用。
 
 ---
 
