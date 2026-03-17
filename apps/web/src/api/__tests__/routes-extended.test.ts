@@ -296,6 +296,18 @@ describe('API Routes Extended', () => {
               outputSummary: 'demo file contents',
             },
           ],
+          queuedInjection: {
+            count: 1,
+            formattedText: '<queued_message>queued follow-up</queued_message>',
+            messages: [
+              {
+                timestamp: '2026-03-16T01:00:00.500Z',
+                content: 'queued follow-up',
+                imageCount: 1,
+                mediaTypes: ['image/png'],
+              },
+            ],
+          },
           tokens: { input: 10, output: 20 },
           cost: 0.42,
           durationMs: 900,
@@ -322,6 +334,18 @@ describe('API Routes Extended', () => {
         outputSummary: 'demo file contents',
       },
     ])
+    expect(data.requests[0].queuedInjection).toEqual({
+      count: 1,
+      formattedText: '<queued_message>queued follow-up</queued_message>',
+      messages: [
+        {
+          timestamp: '2026-03-16T01:00:00.500Z',
+          content: 'queued follow-up',
+          imageCount: 1,
+          mediaTypes: ['image/png'],
+        },
+      ],
+    })
   })
 
   test('POST /api/sessions/:id/llm-judge returns parsed judge result and prompt signals', async () => {

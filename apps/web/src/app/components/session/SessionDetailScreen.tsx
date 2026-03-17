@@ -43,6 +43,19 @@ interface ToolResultEntry {
   outputSummary?: string
 }
 
+interface QueuedInjectionMessageEntry {
+  timestamp: string
+  content: string
+  imageCount: number
+  mediaTypes: string[]
+}
+
+interface QueuedInjectionEntry {
+  count: number
+  formattedText: string
+  messages: QueuedInjectionMessageEntry[]
+}
+
 interface SessionRequestEntry {
   id: string
   turnIndex?: number
@@ -54,6 +67,7 @@ interface SessionRequestEntry {
   stopReason: string
   toolUseCount: number
   toolResults?: ToolResultEntry[]
+  queuedInjection?: QueuedInjectionEntry
   tokens: {
     input: number
     output: number

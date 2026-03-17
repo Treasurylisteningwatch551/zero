@@ -2,10 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import type { ContentBlock, Message } from '@zero-os/shared'
 import { generateId, now } from '@zero-os/shared'
 import {
+  buildQueuedInjectionTrace,
   CONTINUATION_PROMPT,
   type QueuedMessage,
   formatQueuedMessages,
   injectQueuedMessages,
+  injectQueuedMessagesWithTrace,
   isTaskComplete,
 } from '../queue'
 
@@ -95,6 +97,84 @@ describe('injectQueuedMessages', () => {
     const original = makeUserMessage([{ type: 'text', text: 'hi' }])
     const result = injectQueuedMessages(original, [])
     expect(result).toBe(original)
+  })
+})
+
+describe('buildQueuedInjectionTrace', () => {
+  test('captures count and formatted text for injected messages', () => {
+    const trace = buildQueuedInjectionTrace([
+      { content: 'queued msg', timestamp: '2026-03-03T10:30:00Z' },
+      { content: 'follow-up', timestamp: '2026-03-03T10:31:00Z' },
+    ])
+
+    expect(trace).toBeDefined()
+    expect(trace?.count).toBe(2)
+    expect(trace?.formattedText).toContain('<queued_messages count="2">')
+    expect(trace?.messages).toEqual([
+      {
+        timestamp: '2026-03-03T10:30:00Z',
+        content: 'queued msg',
+        imageCount: 0,
+        mediaTypes: [],
+      },
+      {
+        timestamp: '2026-03-03T10:31:00Z',
+        content: 'follow-up',
+        imageCount: 0,
+        mediaTypes: [],
+      },
+    ])
+  })
+
+  test('records image metadata without persisting raw image data', () => {
+    const trace = buildQueuedInjectionTrace([
+      {
+        content: 'see image',
+        timestamp: '2026-03-03T10:30:00Z',
+        images: [
+          { mediaType: 'image/png', data: 'raw-base64-1' },
+          { mediaType: 'image/jpeg', data: 'raw-base64-2' },
+        ],
+      },
+    ])
+
+    expect(trace?.messages[0]).toEqual({
+      timestamp: '2026-03-03T10:30:00Z',
+      content: 'see image',
+      imageCount: 2,
+      mediaTypes: ['image/png', 'image/jpeg'],
+    })
+    expect(JSON.stringify(trace)).not.toContain('raw-base64')
+  })
+})
+
+describe('injectQueuedMessagesWithTrace', () => {
+  test('returns both updated message and trace payload', () => {
+    const original = makeUserMessage([{ type: 'text', text: 'original' }])
+    const queued: QueuedMessage[] = [{ content: 'queued msg', timestamp: '2026-03-03T10:30:00Z' }]
+    const result = injectQueuedMessagesWithTrace(original, queued)
+
+    expect(result.message.content).toHaveLength(2)
+    expect(result.trace).toEqual({
+      count: 1,
+      formattedText: formatQueuedMessages(queued),
+      messages: [
+        {
+          timestamp: '2026-03-03T10:30:00Z',
+          content: 'queued msg',
+          imageCount: 0,
+          mediaTypes: [],
+        },
+      ],
+    })
+  })
+
+  test('returns original message and no trace when queue is empty', () => {
+    const original = makeUserMessage([{ type: 'text', text: 'hi' }])
+    const result = injectQueuedMessagesWithTrace(original, [])
+
+    expect(result.message).toBe(original)
+    expect(result.trace).toBeUndefined()
   })
 })
 

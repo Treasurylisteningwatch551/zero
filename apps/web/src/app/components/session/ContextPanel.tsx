@@ -44,6 +44,19 @@ interface ToolResultEntry {
   outputSummary?: string
 }
 
+interface QueuedInjectionMessageEntry {
+  timestamp: string
+  content: string
+  imageCount: number
+  mediaTypes: string[]
+}
+
+interface QueuedInjectionEntry {
+  count: number
+  formattedText: string
+  messages: QueuedInjectionMessageEntry[]
+}
+
 interface LlmRequestEntry {
   id: string
   turnIndex?: number
@@ -55,6 +68,7 @@ interface LlmRequestEntry {
   stopReason: string
   toolUseCount: number
   toolResults?: ToolResultEntry[]
+  queuedInjection?: QueuedInjectionEntry
   tokens: {
     input: number
     output: number
@@ -504,6 +518,9 @@ export function ContextPanel({
                       </summary>
                       <div className="mt-2 space-y-2">
                         <TracePreview label="prompt" value={request.userPrompt} />
+                        {request.queuedInjection && (
+                          <QueuedInjectionPreview queuedInjection={request.queuedInjection} />
+                        )}
                         <TracePreview label="response" value={request.response} />
                       </div>
                     </details>
@@ -1125,6 +1142,48 @@ function TracePreview({ label, value }: { label: string; value: string }) {
       </pre>
     </div>
   )
+}
+
+function QueuedInjectionPreview({
+  queuedInjection,
+}: {
+  queuedInjection: QueuedInjectionEntry
+}) {
+  return (
+    <div>
+      <div className="mb-1 text-[10px] uppercase tracking-wide text-[var(--color-text-disabled)]">
+        queued_injection
+      </div>
+      <div className="space-y-2 rounded bg-black/20 p-2">
+        <div className="text-[10px] text-[var(--color-text-secondary)]">
+          Queued injection: {queuedInjection.count} message(s)
+        </div>
+        {queuedInjection.messages.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 text-[10px] text-[var(--color-text-muted)]">
+            {queuedInjection.messages.map((message, index) => (
+              <span
+                key={`${message.timestamp}-${index}`}
+                className="rounded bg-white/5 px-1.5 py-0.5"
+                title={
+                  message.mediaTypes.length > 0 ? `media: ${message.mediaTypes.join(', ')}` : undefined
+                }
+              >
+                {formatQueuedTimestamp(message.timestamp)}
+                {message.imageCount > 0 ? ` | ${message.imageCount} image${message.imageCount === 1 ? '' : 's'}` : ''}
+              </span>
+            ))}
+          </div>
+        )}
+        <pre className="max-h-[240px] overflow-y-auto whitespace-pre-wrap break-words rounded bg-black/20 p-2 text-[10px] text-[var(--color-text-muted)]">
+          {queuedInjection.formattedText}
+        </pre>
+      </div>
+    </div>
+  )
+}
+
+function formatQueuedTimestamp(timestamp: string): string {
+  return timestamp.length >= 16 ? timestamp.slice(11, 16) : timestamp
 }
 
 function formatDuration(durationMs: number): string {

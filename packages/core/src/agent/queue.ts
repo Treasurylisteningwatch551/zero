@@ -7,6 +7,24 @@ export interface QueuedMessage {
   timestamp: string
 }
 
+export interface QueuedInjectionTraceMessage {
+  timestamp: string
+  content: string
+  imageCount: number
+  mediaTypes: string[]
+}
+
+export interface QueuedInjectionTrace {
+  count: number
+  formattedText: string
+  messages: QueuedInjectionTraceMessage[]
+}
+
+export interface QueuedMessageInjectionResult {
+  message: Message
+  trace?: QueuedInjectionTrace
+}
+
 /**
  * Format queued messages into XML-wrapped text for injection.
  * Single message: <queued_message> tag
@@ -57,17 +75,36 @@ ${omittedNote}${formatted}
 </queued_messages>`
 }
 
+export function buildQueuedInjectionTrace(
+  messages: QueuedMessage[],
+): QueuedInjectionTrace | undefined {
+  if (messages.length === 0) return undefined
+
+  return {
+    count: messages.length,
+    formattedText: formatQueuedMessages(messages),
+    messages: messages.map((message) => ({
+      timestamp: message.timestamp,
+      content: message.content,
+      imageCount: message.images?.length ?? 0,
+      mediaTypes: Array.from(new Set((message.images ?? []).map((image) => image.mediaType))),
+    })),
+  }
+}
+
 /**
  * Inject formatted queued messages into the last user message as a text block.
  * Returns a new Message (does not mutate the original).
  */
-export function injectQueuedMessages(lastUserMsg: Message, queued: QueuedMessage[]): Message {
-  if (queued.length === 0) return lastUserMsg
+export function injectQueuedMessagesWithTrace(
+  lastUserMsg: Message,
+  queued: QueuedMessage[],
+): QueuedMessageInjectionResult {
+  const trace = buildQueuedInjectionTrace(queued)
+  if (!trace) return { message: lastUserMsg }
 
-  const formattedText = formatQueuedMessages(queued)
-  const newContent: ContentBlock[] = [...lastUserMsg.content, { type: 'text', text: formattedText }]
+  const newContent: ContentBlock[] = [...lastUserMsg.content, { type: 'text', text: trace.formattedText }]
 
-  // Merge images from queued messages
   for (const q of queued) {
     if (q.images?.length) {
       for (const img of q.images) {
@@ -76,7 +113,14 @@ export function injectQueuedMessages(lastUserMsg: Message, queued: QueuedMessage
     }
   }
 
-  return { ...lastUserMsg, content: newContent }
+  return {
+    message: { ...lastUserMsg, content: newContent },
+    trace,
+  }
+}
+
+export function injectQueuedMessages(lastUserMsg: Message, queued: QueuedMessage[]): Message {
+  return injectQueuedMessagesWithTrace(lastUserMsg, queued).message
 }
 
 /**

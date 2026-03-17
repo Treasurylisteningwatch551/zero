@@ -77,6 +77,18 @@ describe('ObservabilityStore', () => {
                 outputSummary: 'demo file contents',
               },
             ],
+            queuedInjection: {
+              count: 1,
+              formattedText: '<queued_message>queued follow-up</queued_message>',
+              messages: [
+                {
+                  timestamp: '2026-03-16T01:00:00.500Z',
+                  content: 'queued follow-up',
+                  imageCount: 1,
+                  mediaTypes: ['image/png'],
+                },
+              ],
+            },
             tokens: { input: 3, output: 4, reasoning: 1 },
             cost: 0.02,
             durationMs: 1000,
@@ -100,7 +112,63 @@ describe('ObservabilityStore', () => {
         outputSummary: 'demo file contents',
       },
     ])
+    expect(entries[0].queuedInjection).toEqual({
+      count: 1,
+      formattedText: '<queued_message>queued follow-up</queued_message>',
+      messages: [
+        {
+          timestamp: '2026-03-16T01:00:00.500Z',
+          content: 'queued follow-up',
+          imageCount: 1,
+          mediaTypes: ['image/png'],
+        },
+      ],
+    })
     expect(entries[0].tokens.reasoning).toBe(1)
+  })
+
+  test('readSessionRequests ignores malformed queuedInjection payloads', () => {
+    const store = new ObservabilityStore(testDir)
+    const sessionId = 'sess_20260316_0105_web_trace'
+
+    writeSessionTraceEntries(testDir, sessionId, [
+      {
+        spanId: 'span_req_queued_invalid',
+        sessionId,
+        kind: 'llm_request',
+        name: 'llm_request',
+        startTime: '2026-03-16T01:05:00.000Z',
+        endTime: '2026-03-16T01:05:01.000Z',
+        durationMs: 1000,
+        status: 'success',
+        data: {
+          request: {
+            id: 'req_trace_invalid_queue',
+            turnIndex: 1,
+            sessionId,
+            model: 'trace-model',
+            provider: 'trace-provider',
+            userPrompt: 'trace prompt',
+            response: 'trace response',
+            stopReason: 'end_turn',
+            toolUseCount: 0,
+            toolCalls: [],
+            toolResults: [],
+            queuedInjection: {
+              count: 'bad',
+              formattedText: 123,
+              messages: {},
+            },
+            tokens: { input: 3, output: 4 },
+            cost: 0.02,
+          },
+        },
+      },
+    ])
+
+    const entries = store.readSessionRequests(sessionId)
+    expect(entries).toHaveLength(1)
+    expect(entries[0].queuedInjection).toBeUndefined()
   })
 
   test('readSessionRequests ignores non-projectable trace entries', () => {

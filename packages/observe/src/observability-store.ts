@@ -38,6 +38,19 @@ export interface RequestToolCallEntry {
 
 export interface RequestToolResultEntry extends ToolResultBlock {}
 
+export interface RequestQueuedInjectionMessageEntry {
+  timestamp: string
+  content: string
+  imageCount: number
+  mediaTypes: string[]
+}
+
+export interface RequestQueuedInjectionEntry {
+  count: number
+  formattedText: string
+  messages: RequestQueuedInjectionMessageEntry[]
+}
+
 export interface RequestLogEntry {
   id: string
   turnIndex: number
@@ -55,6 +68,7 @@ export interface RequestLogEntry {
   toolUseCount: number
   toolCalls: RequestToolCallEntry[]
   toolResults: RequestToolResultEntry[]
+  queuedInjection?: RequestQueuedInjectionEntry
   toolNames?: string[]
   toolDefinitionsHash?: string
   systemHash?: string
@@ -386,6 +400,7 @@ export class ObservabilityStore {
       ...entry,
       toolCalls: this.normalizeToolCalls(entry.toolCalls),
       toolResults: this.normalizeToolResults(entry.toolResults),
+      queuedInjection: this.normalizeQueuedInjection(entry.queuedInjection),
     }
   }
 
@@ -421,5 +436,44 @@ export class ObservabilityStore {
             typeof (toolResult as RequestToolResultEntry).outputSummary === 'string'),
       ),
     )
+  }
+
+  private normalizeQueuedInjection(queuedInjection: unknown): RequestQueuedInjectionEntry | undefined {
+    if (!queuedInjection || typeof queuedInjection !== 'object' || Array.isArray(queuedInjection)) {
+      return undefined
+    }
+
+    const count = (queuedInjection as RequestQueuedInjectionEntry).count
+    const formattedText = (queuedInjection as RequestQueuedInjectionEntry).formattedText
+    const messages = (queuedInjection as RequestQueuedInjectionEntry).messages
+
+    if (
+      typeof count !== 'number' ||
+      !Number.isFinite(count) ||
+      typeof formattedText !== 'string' ||
+      !Array.isArray(messages)
+    ) {
+      return undefined
+    }
+
+    return {
+      count,
+      formattedText,
+      messages: messages.filter(
+        (message): message is RequestQueuedInjectionMessageEntry =>
+          Boolean(
+            message &&
+              typeof message === 'object' &&
+              typeof (message as RequestQueuedInjectionMessageEntry).timestamp === 'string' &&
+              typeof (message as RequestQueuedInjectionMessageEntry).content === 'string' &&
+              typeof (message as RequestQueuedInjectionMessageEntry).imageCount === 'number' &&
+              Number.isFinite((message as RequestQueuedInjectionMessageEntry).imageCount) &&
+              Array.isArray((message as RequestQueuedInjectionMessageEntry).mediaTypes) &&
+              (message as RequestQueuedInjectionMessageEntry).mediaTypes.every(
+                (mediaType) => typeof mediaType === 'string',
+              ),
+          ),
+      ),
+    }
   }
 }

@@ -1,6 +1,8 @@
 import type {
   ClosureLogEntry,
   RequestLogEntry,
+  RequestQueuedInjectionEntry,
+  RequestQueuedInjectionMessageEntry,
   RequestToolCallEntry,
   RequestToolResultEntry,
   SnapshotEntry,
@@ -59,6 +61,39 @@ function asToolResults(value: unknown): RequestToolResultEntry[] {
   )
 }
 
+function asQueuedInjectionMessages(value: unknown): RequestQueuedInjectionMessageEntry[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is RequestQueuedInjectionMessageEntry =>
+    Boolean(
+      item &&
+        typeof item === 'object' &&
+        typeof (item as RequestQueuedInjectionMessageEntry).timestamp === 'string' &&
+        typeof (item as RequestQueuedInjectionMessageEntry).content === 'string' &&
+        typeof (item as RequestQueuedInjectionMessageEntry).imageCount === 'number' &&
+        Number.isFinite((item as RequestQueuedInjectionMessageEntry).imageCount) &&
+        Array.isArray((item as RequestQueuedInjectionMessageEntry).mediaTypes) &&
+        (item as RequestQueuedInjectionMessageEntry).mediaTypes.every(
+          (mediaType) => typeof mediaType === 'string',
+        ),
+    ),
+  )
+}
+
+function asQueuedInjection(value: unknown): RequestQueuedInjectionEntry | undefined {
+  const record = asRecord(value)
+  if (!record) return undefined
+
+  const count = asNumber(record.count)
+  const formattedText = asString(record.formattedText)
+  if (count === undefined || formattedText === undefined) return undefined
+
+  return {
+    count,
+    formattedText,
+    messages: asQueuedInjectionMessages(record.messages),
+  }
+}
+
 function sortByTs<T extends { ts: string }>(entries: T[]): T[] {
   return entries.sort((left, right) => left.ts.localeCompare(right.ts))
 }
@@ -115,6 +150,7 @@ export function projectSessionRequestsFromTraceEntries(entries: TraceEntry[]): R
           toolUseCount: asNumber(request.toolUseCount) ?? 0,
           toolCalls: asToolCalls(request.toolCalls),
           toolResults: asToolResults(request.toolResults),
+          queuedInjection: asQueuedInjection(request.queuedInjection),
           toolNames: asStringArray(request.toolNames),
           toolDefinitionsHash: asString(request.toolDefinitionsHash),
           systemHash: asString(request.systemHash),

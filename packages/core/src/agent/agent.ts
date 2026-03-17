@@ -28,8 +28,9 @@ import { estimateConversationTokens, prepareConversationHistory } from './contex
 import { CONTEXT_PARAMS } from './params'
 import {
   CONTINUATION_PROMPT,
+  type QueuedInjectionTrace,
   type QueuedMessage,
-  injectQueuedMessages,
+  injectQueuedMessagesWithTrace,
   isTaskComplete,
 } from './queue'
 import {
@@ -229,6 +230,7 @@ export class Agent {
     let hadQueuedMessages = false
     let pendingParentRequestId: string | undefined
     let currentRequestToolResults: RequestToolResultEntry[] = []
+    let pendingQueuedInjection: QueuedInjectionTrace | undefined
 
     try {
       while (true) {
@@ -282,9 +284,11 @@ export class Agent {
             parentId: pendingParentRequestId,
           },
           currentRequestToolResults,
+          pendingQueuedInjection,
           llmSpan?.id,
         )
         currentRequestToolResults = []
+        pendingQueuedInjection = undefined
         pendingParentRequestId = response.stopReason === 'tool_use' ? response.id : undefined
 
         if (response.content.length === 0) {
@@ -603,11 +607,14 @@ export class Agent {
         // Inject queued messages into the last user message (tool result)
         const queued = getQueuedMessages?.() ?? []
         hadQueuedMessages = false
+        pendingQueuedInjection = undefined
         if (queued.length > 0 && messages.length > 0) {
         const lastIdx = messages.length - 1
         if (messages[lastIdx].role === 'user') {
-          messages[lastIdx] = injectQueuedMessages(messages[lastIdx], queued)
-          hadQueuedMessages = true
+          const injected = injectQueuedMessagesWithTrace(messages[lastIdx], queued)
+          messages[lastIdx] = injected.message
+          pendingQueuedInjection = injected.trace
+          hadQueuedMessages = injected.trace !== undefined
         }
         }
 
@@ -659,9 +666,11 @@ export class Agent {
             parentId: pendingParentRequestId,
           },
           currentRequestToolResults,
+          pendingQueuedInjection,
           finalLlmSpan?.id,
         )
         currentRequestToolResults = []
+        pendingQueuedInjection = undefined
         pendingParentRequestId =
           finalResponse.stopReason === 'tool_use' ? finalResponse.id : undefined
 
@@ -1297,6 +1306,7 @@ export class Agent {
       parentId?: string
     },
     requestToolResults: RequestToolResultEntry[],
+    queuedInjection?: QueuedInjectionTrace,
     traceSpanId?: string,
   ): void {
     const cost = computeCost(response.usage, this.obs.pricing)
@@ -1316,6 +1326,7 @@ export class Agent {
         ? filter.filter(response.reasoningContent)
         : response.reasoningContent
       : undefined
+    const safeQueuedInjection = this.filterQueuedInjection(queuedInjection)
 
     if (traceSpanId) {
       this.obs.tracer?.updateSpan(traceSpanId, {
@@ -1337,6 +1348,7 @@ export class Agent {
             toolUseCount,
             toolCalls,
             toolResults: requestToolResults,
+            ...(safeQueuedInjection ? { queuedInjection: safeQueuedInjection } : {}),
             toolNames: requestMetadata.toolNames,
             toolDefinitionsHash: requestMetadata.toolDefinitionsHash,
             systemHash: requestMetadata.systemHash,
@@ -1377,6 +1389,24 @@ export class Agent {
       durationMs,
       createdAt: now(),
     })
+  }
+
+  private filterQueuedInjection(
+    queuedInjection?: QueuedInjectionTrace,
+  ): QueuedInjectionTrace | undefined {
+    if (!queuedInjection) return undefined
+
+    const filter = this.obs.secretFilter
+    if (!filter) return queuedInjection
+
+    return {
+      ...queuedInjection,
+      formattedText: filter.filter(queuedInjection.formattedText),
+      messages: queuedInjection.messages.map((message) => ({
+        ...message,
+        content: filter.filter(message.content),
+      })),
+    }
   }
 
   private buildRequestMetadata(request: CompletionRequest): {

@@ -157,4 +157,84 @@ describe('TraceSummaryCard', () => {
     expect(html).toContain('/100')
     expect(html).toContain('Run Judge')
   })
+
+  test('renders queued injection details for llm requests', () => {
+    const html = renderToStaticMarkup(
+      <ContextPanel
+        sessionId="sess_1"
+        modelHistory={[]}
+        toolCalls={[]}
+        filesTouched={[]}
+        totalTokens={0}
+        llmRequests={[
+          {
+            id: 'req_1',
+            model: 'gpt-test',
+            provider: 'openai',
+            userPrompt: 'check status',
+            response: 'all good',
+            stopReason: 'end_turn',
+            toolUseCount: 0,
+            tokens: { input: 10, output: 20 },
+            cost: 0.001,
+            ts: '2026-03-08T00:00:01.000Z',
+            queuedInjection: {
+              count: 2,
+              formattedText: '<queued_messages count="2">queued</queued_messages>',
+              messages: [
+                {
+                  timestamp: '2026-03-08T10:30:00.000Z',
+                  content: 'queued one',
+                  imageCount: 0,
+                  mediaTypes: [],
+                },
+                {
+                  timestamp: '2026-03-08T10:31:00.000Z',
+                  content: 'queued two',
+                  imageCount: 2,
+                  mediaTypes: ['image/png'],
+                },
+              ],
+            },
+          },
+        ]}
+        selectedToolId={null}
+      />,
+    )
+
+    expect(html).toContain('queued_injection')
+    expect(html).toContain('Queued injection: 2 message(s)')
+    expect(html).toContain('&lt;queued_messages count=&quot;2&quot;&gt;queued&lt;/queued_messages&gt;')
+    expect(html).toContain('10:31 | 2 images')
+  })
+
+  test('does not render queued injection block when absent', () => {
+    const html = renderToStaticMarkup(
+      <ContextPanel
+        sessionId="sess_1"
+        modelHistory={[]}
+        toolCalls={[]}
+        filesTouched={[]}
+        totalTokens={0}
+        llmRequests={[
+          {
+            id: 'req_1',
+            model: 'gpt-test',
+            provider: 'openai',
+            userPrompt: 'check status',
+            response: 'all good',
+            stopReason: 'end_turn',
+            toolUseCount: 0,
+            tokens: { input: 10, output: 20 },
+            cost: 0.001,
+            ts: '2026-03-08T00:00:01.000Z',
+          },
+        ]}
+        selectedToolId={null}
+      />,
+    )
+
+    expect(html).not.toContain('queued_injection')
+    expect(html).not.toContain('Queued injection:')
+  })
 })

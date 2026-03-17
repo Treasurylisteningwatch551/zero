@@ -156,6 +156,41 @@ class ToolLoopAdapter implements ProviderAdapter {
   }
 }
 
+class QueuedInjectionAdapter implements ProviderAdapter {
+  readonly apiType = 'fake-queued-injection'
+  completeCalls = 0
+
+  async complete(_req: CompletionRequest): Promise<CompletionResponse> {
+    this.completeCalls += 1
+
+    if (this.completeCalls === 1) {
+      return {
+        id: 'resp_queue_1',
+        content: [{ type: 'tool_use', id: 'call_queue_1', name: 'noop', input: {} }],
+        stopReason: 'tool_use',
+        usage: { input: 4, output: 2 },
+        model: 'fake-queued-injection',
+      }
+    }
+
+    return {
+      id: 'resp_queue_2',
+      content: [{ type: 'text', text: 'handled queued message，已完成' }],
+      stopReason: 'end_turn',
+      usage: { input: 6, output: 3 },
+      model: 'fake-queued-injection',
+    }
+  }
+
+  async *stream(_req: CompletionRequest): AsyncIterable<StreamEvent> {
+    yield* failStream(new Error('stream failed'))
+  }
+
+  async healthCheck(): Promise<boolean> {
+    return true
+  }
+}
+
 class AnthropicFailingAdapter implements ProviderAdapter {
   readonly apiType = 'anthropic_messages'
   completeCalls = 0
@@ -559,6 +594,79 @@ describe('Agent streaming callback', () => {
         },
       ],
     ])
+  })
+
+  test('queued message injections are logged on the matching llm_request span', async () => {
+    const tracer = new Tracer()
+    const adapter = new QueuedInjectionAdapter()
+    const registry = new ToolRegistry()
+    registry.register(new NoopTool())
+    const secretFilter = {
+      filter(text: string) {
+        return text.replace(/SECRET/gi, '[redacted]')
+      },
+      addSecret() {},
+      removeSecret() {},
+    }
+    const agent = new Agent(
+      {
+        name: 'stream-agent',
+        agentInstruction: 'test',
+      },
+      adapter,
+      registry,
+      {
+        sessionId: 'sess-stream',
+        workDir: process.cwd(),
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+        tracer,
+      },
+      {
+        tracer,
+        secretFilter,
+      },
+    )
+
+    await agent.run(
+      createContext(),
+      'use tools',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => [
+        {
+          content: 'queued SECRET update',
+          timestamp: '2026-03-17T09:43:00.000Z',
+          images: [{ mediaType: 'image/png', data: 'SECRET_IMAGE_DATA' }],
+        },
+      ],
+    )
+
+    const entries = getRequestEntries(tracer, 'sess-stream')
+    expect(entries).toHaveLength(2)
+    expect(entries[0].queuedInjection).toBeUndefined()
+    expect(entries[1].queuedInjection).toEqual({
+      count: 1,
+      formattedText: `<queued_message>
+以下是你执行任务期间用户发来的消息。
+如果这是状态查询，用 1-2 句简短回应后继续当前任务。
+如果这是补充约束，将其纳入后续执行并继续当前任务。
+如果这是停止、暂停、审计或明确禁止继续的请求，在当前工具结束后的下一个安全检查点停止新增工具调用，并汇报当前进度与恢复点。
+不要因为这条消息向用户请求“继续”或额外许可。
+---
+queued [redacted] update
+</queued_message>`,
+      messages: [
+        {
+          timestamp: '2026-03-17T09:43:00.000Z',
+          content: 'queued [redacted] update',
+          imageCount: 1,
+          mediaTypes: ['image/png'],
+        },
+      ],
+    })
+    expect(JSON.stringify(entries[1].queuedInjection)).not.toContain('SECRET_IMAGE_DATA')
   })
 })
 
