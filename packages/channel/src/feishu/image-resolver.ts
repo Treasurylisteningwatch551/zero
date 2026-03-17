@@ -29,7 +29,19 @@ export class FeishuImageResolver {
   resolveSync(text: string): string {
     if (!this.hasImages(text)) return text
 
-    return text.replace(IMAGE_RE, (fullMatch, alt: string, value: string) => {
+    // Protect code blocks — don't process image refs inside ``` ... ```
+    const codeBlocks: string[] = []
+    let processed = text.replace(/```[\s\S]*?```/g, (match) => {
+      return `__IMG_CODE_BLOCK_${codeBlocks.push(match) - 1}__`
+    })
+
+    // Also protect inline code — don't process image refs inside `...`
+    const inlineCode: string[] = []
+    processed = processed.replace(/`[^`]+`/g, (match) => {
+      return `__IMG_INLINE_CODE_${inlineCode.push(match) - 1}__`
+    })
+
+    processed = processed.replace(IMAGE_RE, (fullMatch, alt: string, value: string) => {
       if (value.startsWith('img_')) return fullMatch
       if (value.startsWith('data:')) return ''
 
@@ -45,6 +57,16 @@ export class FeishuImageResolver {
       this.startUpload(cacheKey)
       return ''
     })
+
+    // Restore inline code and code blocks
+    inlineCode.forEach((code, i) => {
+      processed = processed.replace(`__IMG_INLINE_CODE_${i}__`, code)
+    })
+    codeBlocks.forEach((block, i) => {
+      processed = processed.replace(`__IMG_CODE_BLOCK_${i}__`, block)
+    })
+
+    return processed
   }
 
   async resolveAll(text: string, timeoutMs = 30_000): Promise<string> {
