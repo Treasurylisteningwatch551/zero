@@ -997,15 +997,6 @@ export class FeishuChannel implements Channel {
       return current
     }
 
-    const waitForIdle = async () => {
-      const currentScheduled = scheduledFlush
-      await flushChain
-      if (currentScheduled) {
-        await currentScheduled
-        await flushChain
-      }
-    }
-
     const flushPending = async () => {
       clearFlushTimer()
       const text = pendingText
@@ -1093,7 +1084,6 @@ export class FeishuChannel implements Channel {
         latestRenderedText = renderStreamingMarkdown(fullText)
         pendingText = latestRenderedText
         scheduleFlush()
-        await waitForIdle()
       },
       complete: async (finalText: string) => {
         const rendered = renderStreamingMarkdown(finalText)

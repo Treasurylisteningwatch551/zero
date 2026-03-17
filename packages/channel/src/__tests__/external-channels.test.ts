@@ -911,4 +911,77 @@ describe('FeishuChannel contract', () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
     await expect(channel.reply('msg-5', 'no-client')).resolves.toBeUndefined()
   })
+
+  test('streaming update does not wait for card flush completion', async () => {
+    const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
+    const elementUpdates: string[] = []
+    const finalCards: string[] = []
+
+    let releaseFlush: (() => void) | undefined
+    const flushGate = new Promise<void>((resolve) => {
+      releaseFlush = resolve
+    })
+
+    getFeishuHarness(channel).client = {
+      im: {
+        message: {
+          create: async () => ({
+            data: { message_id: 'om_stream' },
+          }),
+        },
+      },
+      cardkit: {
+        v1: {
+          card: {
+            create: async () => ({
+              data: { card_id: 'card_stream' },
+            }),
+            update: async (payload: {
+              data: { card: { data: string } }
+            }) => {
+              finalCards.push(payload.data.card.data)
+            },
+          },
+          cardElement: {
+            content: async (payload: { data: { content: string } }) => {
+              elementUpdates.push(payload.data.content)
+              await flushGate
+            },
+          },
+        },
+      },
+    } as any
+
+    const session = await channel.sendStreaming('chat-1')
+    const updatePromise = session.update('hello')
+
+    const state = await Promise.race([
+      updatePromise.then(() => 'resolved'),
+      new Promise<'pending'>((resolve) => {
+        setTimeout(() => resolve('pending'), 20)
+      }),
+    ])
+
+    expect(state).toBe('resolved')
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(elementUpdates).toEqual(['hello'])
+
+    releaseFlush?.()
+    await session.complete('hello')
+
+    expect(finalCards).toHaveLength(1)
+    expect(JSON.parse(finalCards[0])).toEqual({
+      schema: '2.0',
+      body: {
+        elements: [
+          {
+            tag: 'markdown',
+            content: 'hello',
+            text_align: 'left',
+          },
+        ],
+      },
+    })
+  })
 })
