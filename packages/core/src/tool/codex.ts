@@ -43,8 +43,6 @@ interface CodexInput {
   workingDirectory?: string
   /** Model slug to use (e.g. "gpt-5.3-codex", "gpt-5.1-codex-mini"). Defaults to ~/.codex/config.toml setting. */
   model?: string
-  /** Timeout in milliseconds. Default 300000 (5 minutes). */
-  timeout?: number
   /** Additional directories to allow codex to access beyond the working directory. */
   additionalDirectories?: string[]
 }
@@ -81,10 +79,6 @@ export class CodexTool extends BaseTool {
         description:
           'Model slug to use (e.g. "gpt-5.3-codex", "gpt-5.1-codex-mini"). Defaults to the model configured in ~/.codex/config.toml. Only override when you need a specific model.',
       },
-      timeout: {
-        type: 'number',
-        description: 'Timeout in milliseconds. Default 300000 (5 minutes).',
-      },
       additionalDirectories: {
         type: 'array',
         items: { type: 'string' },
@@ -108,7 +102,6 @@ export class CodexTool extends BaseTool {
       instruction,
       workingDirectory,
       model,
-      timeout = 300_000,
       additionalDirectories,
     } = input as CodexInput
 
@@ -141,7 +134,7 @@ export class CodexTool extends BaseTool {
     })
 
     try {
-      const result = await this.runCodex(args, instruction, cwd, timeout)
+      const result = await this.runCodex(args, instruction, cwd)
       ctx.logger.info('codex_complete', {
         fileChanges: result.fileChanges.length,
         commands: result.commands.length,
@@ -162,7 +155,6 @@ export class CodexTool extends BaseTool {
     args: string[],
     instruction: string,
     cwd: string,
-    timeoutMs: number,
   ): Promise<CodexResult> {
     return new Promise((resolve, reject) => {
       const env: Record<string, string> = {}
@@ -192,14 +184,6 @@ export class CodexTool extends BaseTool {
       const stderrChunks: string[] = []
       let settled = false
 
-      const timer = setTimeout(() => {
-        if (!settled) {
-          settled = true
-          child.kill('SIGTERM')
-          reject(new Error(`Codex timed out after ${timeoutMs / 1000}s`))
-        }
-      }, timeoutMs)
-
       child.stderr?.on('data', (data: Buffer) => {
         stderrChunks.push(data.toString())
       })
@@ -216,7 +200,6 @@ export class CodexTool extends BaseTool {
       })
 
       child.on('error', (err: Error) => {
-        clearTimeout(timer)
         if (!settled) {
           settled = true
           reject(new Error(`Failed to spawn codex: ${err.message}`))
@@ -224,7 +207,6 @@ export class CodexTool extends BaseTool {
       })
 
       child.on('exit', (code: number | null, signal: string | null) => {
-        clearTimeout(timer)
         if (settled) return
         settled = true
 
