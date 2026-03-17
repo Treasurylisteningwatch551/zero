@@ -13,7 +13,7 @@ export const CONTEXT_PARAMS = {
     toolCallStyle: 200,
     identity: 3000,
     skillCatalog: 2000,
-    runtime: 200,
+    runtime: 400,
     bootstrapContext: 8000,
   },
 
