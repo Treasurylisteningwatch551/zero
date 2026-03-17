@@ -306,3 +306,38 @@ test('does not infer tool duration without toolUseId metadata', () => {
     expect(toolCall.durationMs).toBeUndefined()
   }
 })
+
+test('marks queued user messages for timeline rendering and preserves image attachments', () => {
+  const items = buildTimeline([
+    {
+      id: 'msg_live',
+      role: 'user',
+      messageType: 'message',
+      content: [{ type: 'text', text: 'first' }],
+      createdAt: '2026-03-08T00:00:00.000Z',
+    },
+    {
+      id: 'msg_queued',
+      role: 'user',
+      messageType: 'queued',
+      content: [
+        { type: 'text', text: 'late follow-up' },
+        { type: 'image', mediaType: 'image/png', data: 'abc123' },
+      ],
+      createdAt: '2026-03-08T00:00:01.000Z',
+    },
+  ])
+
+  expect(items).toHaveLength(2)
+  expect(items[0]).toMatchObject({
+    type: 'user-message',
+    text: 'first',
+    queued: false,
+  })
+  expect(items[1]).toMatchObject({
+    type: 'user-message',
+    text: 'late follow-up',
+    queued: true,
+    images: [{ mediaType: 'image/png', data: 'abc123' }],
+  })
+})

@@ -63,6 +63,7 @@ export type TimelineItem =
   | {
       type: 'user-message'
       text: string
+      queued: boolean
       images?: Array<{ mediaType: string; data: string }>
       createdAt: string
     }
@@ -136,6 +137,7 @@ export function buildTimeline(
         items.push({
           type: 'user-message',
           text,
+          queued: msg.messageType === 'queued',
           images: imageBlocks.length > 0 ? imageBlocks : undefined,
           createdAt: msg.createdAt,
         })

@@ -26,6 +26,13 @@ function makeAssistantText(text: string): Message {
   return makeMessage('assistant', [{ type: 'text', text }])
 }
 
+function makeQueuedUserText(text: string): Message {
+  return {
+    ...makeMessage('user', [{ type: 'text', text }]),
+    messageType: 'queued',
+  }
+}
+
 function makeAssistantToolUse(name: string, toolUseId: string): Message {
   return makeMessage('assistant', [
     { type: 'text', text: 'Using tool...' },
@@ -222,6 +229,29 @@ describe('prepareConversationHistory', () => {
       const textBlock = expectDefined(textMsg.content.find((b) => b.type === 'text'))
       expect(textBlock.text).toContain(`turn ${i}`)
     }
+  })
+
+  test('does not treat queued user messages as turn boundaries', () => {
+    const messages: Message[] = [
+      makeUserText('turn 1'),
+      makeAssistantToolUse('bash', 'tool-1'),
+      makeToolResult('tool-1', 'A'.repeat(400)),
+      makeAssistantText('reply 1'),
+      makeQueuedUserText('late follow-up'),
+      makeAssistantText('queued ack'),
+      makeUserText('turn 2'),
+      makeAssistantToolUse('bash', 'tool-2'),
+      makeToolResult('tool-2', 'B'.repeat(400)),
+      makeAssistantText('reply 2'),
+    ]
+
+    const result = prepareConversationHistory(messages)
+    const olderToolResult = expectDefined(
+      result[2].content.find((block) => block.type === 'tool_result'),
+    )
+
+    expect(olderToolResult.content).toBe('A'.repeat(400))
+    expect(result[4]).toBe(messages[4])
   })
 })
 

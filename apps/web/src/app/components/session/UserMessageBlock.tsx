@@ -2,11 +2,12 @@ import { User } from '@phosphor-icons/react'
 
 interface Props {
   text: string
+  queued?: boolean
   images?: Array<{ mediaType: string; data: string }>
   createdAt: string
 }
 
-export function UserMessageBlock({ text, images }: Props) {
+export function UserMessageBlock({ text, queued = false, images }: Props) {
   const hasImages = Boolean(images && images.length > 0)
   const displayText = hasImages ? stripImagePlaceholders(text) : text
   const showText = displayText.trim().length > 0
@@ -22,6 +23,13 @@ export function UserMessageBlock({ text, images }: Props) {
       <div className="flex items-start gap-2">
         <User size={16} weight="bold" className="text-cyan-400 mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1 space-y-2">
+          {queued && (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center rounded-full border border-cyan-400/40 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-mono uppercase tracking-[0.16em] text-cyan-300">
+                Queued
+              </span>
+            </div>
+          )}
           {showText && (
             <p className="text-[13px] text-[var(--color-text-primary)] whitespace-pre-wrap">
               {displayText}

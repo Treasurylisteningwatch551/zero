@@ -256,8 +256,17 @@ export class Session {
 
     // If another message is already processing, queue it instead of blocking
     if (this.mutex.isLocked()) {
-      this.messageQueue.push({ content, images: options?.images, timestamp: now() })
+      const timestamp = now()
+      this.messageQueue.push({ content, images: options?.images, timestamp })
+      this.messages.push(this.makeUserMessage(content, timestamp, options?.images, 'queued'))
+      this.data.updatedAt = timestamp
+      this.persistState()
       this.interruptFlag = true
+      this.deps.bus?.emit('session:update', {
+        sessionId: this.data.id,
+        event: 'message_queued',
+        messageCount: this.messages.length,
+      })
       return []
     }
 
@@ -542,6 +551,7 @@ export class Session {
     const getQueuedMessages = () => {
       const msgs = [...this.messageQueue]
       this.messageQueue.length = 0
+      this.interruptFlag = false
       return msgs
     }
     const agent = this.agent
@@ -698,6 +708,29 @@ export class Session {
     }
   }
 
+  private makeUserMessage(
+    text: string,
+    createdAt: string,
+    images?: Array<{ mediaType: string; data: string }>,
+    messageType: Message['messageType'] = 'message',
+  ): Message {
+    const content: Message['content'] = [{ type: 'text', text }]
+    if (images?.length) {
+      for (const image of images) {
+        content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
+      }
+    }
+
+    return {
+      id: generateId(),
+      sessionId: this.data.id,
+      role: 'user',
+      messageType,
+      content,
+      createdAt,
+    }
+  }
+
   private static allocateSessionId(source: SessionSource, sessionDb?: SessionDB): string {
     for (let attempt = 0; attempt < 16; attempt++) {
       const id = generateSessionId(source)
@@ -824,6 +857,7 @@ export class Session {
 
   private static isTopLevelUserTurn(message: Message): boolean {
     if (message.role !== 'user') return false
+    if (message.messageType === 'queued') return false
     if (message.content.some((block) => block.type === 'tool_result')) return false
 
     const hasVisibleContent = message.content.some(

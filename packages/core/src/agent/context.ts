@@ -20,7 +20,7 @@ export function prepareConversationHistory(messages: Message[]): Message[] {
   const turnBoundaries: number[] = []
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
-    if (msg.role === 'user' && msg.content.some((b) => b.type === 'text')) {
+    if (startsTopLevelTurn(msg)) {
       turnBoundaries.push(i)
     }
   }
@@ -66,6 +66,14 @@ export function prepareConversationHistory(messages: Message[]): Message[] {
 
     return { ...msg, content: newContent }
   })
+}
+
+function startsTopLevelTurn(message: Message): boolean {
+  return (
+    message.role === 'user' &&
+    message.messageType !== 'queued' &&
+    message.content.some((block) => block.type === 'text')
+  )
 }
 
 function summarizeToolResult(block: ToolResultBlock): ToolResultBlock {

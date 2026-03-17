@@ -1,6 +1,6 @@
 export type MessageRole = 'user' | 'assistant' | 'system'
 
-export type MessageType = 'message' | 'notification'
+export type MessageType = 'message' | 'notification' | 'queued'
 
 export type ContentBlockType = 'text' | 'tool_use' | 'tool_result' | 'image'
 

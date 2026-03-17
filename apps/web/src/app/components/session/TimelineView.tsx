@@ -42,6 +42,7 @@ export function TimelineView({
               <UserMessageBlock
                 key={getTimelineItemKey(item)}
                 text={item.text}
+                queued={item.queued}
                 images={item.images}
                 createdAt={item.createdAt}
               />
@@ -89,7 +90,7 @@ export function TimelineView({
 function getTimelineItemKey(item: TimelineItem): string {
   switch (item.type) {
     case 'user-message':
-      return `user-${item.createdAt}-${item.text.slice(0, 32)}`
+      return `user-${item.queued ? 'queued' : 'live'}-${item.createdAt}-${item.text.slice(0, 32)}`
     case 'agent-text':
       return `assistant-${item.messageId}`
     case 'tool-call':

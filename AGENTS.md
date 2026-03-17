@@ -68,6 +68,7 @@ ZeRo OS monorepo built with Bun + TypeScript.
 - Validate every code change with at least one relevant command.
 - For TypeScript changes, `bun run check` is the default baseline.
 - Run the narrowest useful validation first, then broaden if risk is higher.
+- Place new test files under a nearby `__tests__` directory instead of alongside product code. Legacy colocated tests may remain unless the task explicitly calls for migration.
 - Preferred validation choices:
   - `bun run check` for TS/type-level changes
   - `bun run test` for logic changes
