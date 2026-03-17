@@ -1,4 +1,5 @@
 import type * as lark from '@larksuiteoapi/node-sdk'
+import { protectMarkdownCodeContent } from '../richtext/code-protection'
 
 const IMAGE_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g
 
@@ -120,31 +121,7 @@ export class FeishuImageResolver {
     processed: string
     restore: (input: string) => string
   } {
-    const codeBlocks: string[] = []
-    let processed = text.replace(/```[\s\S]*?```/g, (match) => {
-      return `__IMG_CODE_BLOCK_${codeBlocks.push(match) - 1}__`
-    })
-
-    const inlineCode: string[] = []
-    processed = processed.replace(/`[^`]+`/g, (match) => {
-      return `__IMG_INLINE_CODE_${inlineCode.push(match) - 1}__`
-    })
-
-    return {
-      processed,
-      restore: (input: string) => {
-        let restored = input
-
-        inlineCode.forEach((code, i) => {
-          restored = restored.replace(`__IMG_INLINE_CODE_${i}__`, code)
-        })
-        codeBlocks.forEach((block, i) => {
-          restored = restored.replace(`__IMG_CODE_BLOCK_${i}__`, block)
-        })
-
-        return restored
-      },
-    }
+    return protectMarkdownCodeContent(text, 'IMG')
   }
 
   private async doUpload(reference: string): Promise<string | null> {
