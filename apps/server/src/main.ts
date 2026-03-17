@@ -52,6 +52,20 @@ export interface StartOptions {
   onCoreReady?: (zero: ZeroOS) => Promise<void> | void
 }
 
+interface FeishuStreamingStarterChannel {
+  replyStreaming(messageId: string): Promise<FeishuStreamingSession>
+  sendStreaming(chatId: string): Promise<FeishuStreamingSession>
+}
+
+export function createFeishuStreamingStarter(
+  channel: FeishuStreamingStarterChannel,
+  chatId: string,
+  replyToMessageId?: string,
+): () => Promise<FeishuStreamingSession> {
+  return () =>
+    replyToMessageId ? channel.replyStreaming(replyToMessageId) : channel.sendStreaming(chatId)
+}
+
 interface ChannelRuntimeDefinition {
   name: string
   type: 'web' | 'feishu' | 'telegram'
@@ -707,11 +721,10 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
             }
 
             typingReactionId = messageId ? await feishuChannel.react(messageId, 'Typing') : null
+            const startStreaming = createFeishuStreamingStarter(feishuChannel, chatId, messageId)
 
             try {
-              streaming = messageId
-                ? await feishuChannel.replyStreaming(messageId)
-                : await feishuChannel.sendStreaming(chatId)
+              streaming = await startStreaming()
             } catch (err) {
               console.warn(
                 `[ZeRo OS] ${channelName} streaming init failed, falling back to static:`,
@@ -743,8 +756,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
                       turnRotateChain = turnRotateChain.then(async () => {
                         try {
                           await streaming!.complete(prevText)
-                          // Create a new streaming card (send to chat, not reply)
-                          streaming = await feishuChannel.sendStreaming(chatId)
+                          streaming = await startStreaming()
                         } catch (err) {
                           console.error(
                             `[ZeRo OS] ${channelName} streaming turn rotate error:`,

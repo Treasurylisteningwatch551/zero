@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream'
 import * as lark from '@larksuiteoapi/node-sdk'
 import type { Channel, ImageAttachment, IncomingMessage, MessageHandler } from '../base'
 import { renderMarkdownForFeishu } from '../richtext/feishu'
+import type { FeishuImageReference } from './image-resolver'
 import { FeishuImageResolver } from './image-resolver'
 
 export interface FeishuChannelConfig {
@@ -54,6 +55,11 @@ interface FeishuPostElement {
   user_id?: string
   file_name?: string
   emoji_type?: string
+}
+
+interface FeishuImageTarget {
+  chatId?: string
+  replyToMessageId?: string
 }
 
 /**
@@ -198,11 +204,14 @@ export class FeishuChannel implements Channel {
     }
 
     let rendered = renderMarkdownForFeishu(content, { preserveExternalImages: true })
+    let unresolvedImages: FeishuImageReference[] = []
 
     // Resolve image references (URL / local path → img_key)
     if (this.client && new FeishuImageResolver({ client: this.client }).hasImages(rendered)) {
       const resolver = new FeishuImageResolver({ client: this.client })
-      rendered = await resolver.resolveAll(rendered, 30_000)
+      const originalRendered = rendered
+      rendered = await resolver.resolveAll(originalRendered, 30_000)
+      unresolvedImages = resolver.collectUnresolved(originalRendered)
     }
 
     const isNotification = content.startsWith('[notification]')
@@ -210,39 +219,49 @@ export class FeishuChannel implements Channel {
     const options = isNotification
       ? { title: 'ZeRo OS Notification', template: 'orange' }
       : undefined
-    const chunks = this.chunkRichContent(cleanContent, options)
+    if (cleanContent.trim()) {
+      const chunks = this.chunkRichContent(cleanContent, options)
 
-    for (let i = 0; i < chunks.length; i++) {
-      const chunkOptions = i === 0 ? options : undefined
-      await this.sendCreateWithFallback(sessionId, chunks[i], chunkOptions)
+      for (let i = 0; i < chunks.length; i++) {
+        const chunkOptions = i === 0 ? options : undefined
+        await this.sendCreateWithFallback(sessionId, chunks[i], chunkOptions)
+      }
     }
+
+    await this.deliverUnresolvedInlineImages(unresolvedImages, { chatId: sessionId }, 'send')
   }
 
   async sendStreaming(sessionId: string): Promise<FeishuStreamingSession> {
-    return this.createStreamingSession(async (cardId) => {
-      const response = await this.client!.im.message.create({
-        data: {
-          receive_id: sessionId,
-          msg_type: 'interactive',
-          content: this.buildCardReferenceContent(cardId),
-        },
-        params: { receive_id_type: 'chat_id' },
-      })
-      return response.data?.message_id ?? null
-    })
+    return this.createStreamingSession(
+      async (cardId) => {
+        const response = await this.client!.im.message.create({
+          data: {
+            receive_id: sessionId,
+            msg_type: 'interactive',
+            content: this.buildCardReferenceContent(cardId),
+          },
+          params: { receive_id_type: 'chat_id' },
+        })
+        return response.data?.message_id ?? null
+      },
+      { chatId: sessionId },
+    )
   }
 
   async replyStreaming(messageId: string): Promise<FeishuStreamingSession> {
-    return this.createStreamingSession(async (cardId) => {
-      const response = await this.client!.im.message.reply({
-        path: { message_id: messageId },
-        data: {
-          msg_type: 'interactive',
-          content: this.buildCardReferenceContent(cardId),
-        },
-      })
-      return response.data?.message_id ?? null
-    })
+    return this.createStreamingSession(
+      async (cardId) => {
+        const response = await this.client!.im.message.reply({
+          path: { message_id: messageId },
+          data: {
+            msg_type: 'interactive',
+            content: this.buildCardReferenceContent(cardId),
+          },
+        })
+        return response.data?.message_id ?? null
+      },
+      { replyToMessageId: messageId },
+    )
   }
 
   isConnected(): boolean {
@@ -451,17 +470,24 @@ export class FeishuChannel implements Channel {
     }
 
     let rendered = renderMarkdownForFeishu(content, { preserveExternalImages: true })
+    let unresolvedImages: FeishuImageReference[] = []
 
     // Resolve image references (URL / local path → img_key)
     if (this.client && new FeishuImageResolver({ client: this.client }).hasImages(rendered)) {
       const resolver = new FeishuImageResolver({ client: this.client })
-      rendered = await resolver.resolveAll(rendered, 30_000)
+      const originalRendered = rendered
+      rendered = await resolver.resolveAll(originalRendered, 30_000)
+      unresolvedImages = resolver.collectUnresolved(originalRendered)
     }
 
-    const chunks = this.chunkRichContent(rendered)
-    for (const chunk of chunks) {
-      await this.sendReplyWithFallback(messageId, chunk)
+    if (rendered.trim()) {
+      const chunks = this.chunkRichContent(rendered)
+      for (const chunk of chunks) {
+        await this.sendReplyWithFallback(messageId, chunk)
+      }
     }
+
+    await this.deliverUnresolvedInlineImages(unresolvedImages, { replyToMessageId: messageId }, 'reply')
   }
 
   /**
@@ -471,44 +497,7 @@ export class FeishuChannel implements Channel {
    * @param replyToMessageId - Optional message ID to reply to
    */
   async sendImage(chatId: string, image: Buffer | string, replyToMessageId?: string): Promise<void> {
-    if (!this.client) return
-
-    try {
-      const imageBuffer =
-        typeof image === 'string' ? (await import('node:fs')).readFileSync(image) : image
-
-      const { Readable } = await import('node:stream')
-      const uploadResp = await this.client.im.image.create({
-        data: {
-          image_type: 'message',
-          image: Readable.from(imageBuffer) as any,
-        },
-      })
-
-      const imageKey = (uploadResp as any)?.data?.image_key ?? (uploadResp as any)?.image_key
-      if (!imageKey) {
-        console.warn('[FeishuChannel] Image upload failed: no image_key in response')
-        return
-      }
-
-      const content = JSON.stringify({ image_key: imageKey })
-
-      if (replyToMessageId) {
-        await this.client.im.message.reply({
-          path: { message_id: replyToMessageId },
-          data: { content, msg_type: 'image' },
-        })
-      } else {
-        await this.client.im.message.create({
-          params: { receive_id_type: 'chat_id' as any },
-          data: { receive_id: chatId, msg_type: 'image', content },
-        })
-      }
-
-      console.log('[FeishuChannel] Image sent successfully')
-    } catch (error) {
-      console.error('[FeishuChannel] Failed to send image:', this.describeError(error))
-    }
+    await this.sendImageMessage(image, { chatId, replyToMessageId })
   }
 
   /**
@@ -836,8 +825,124 @@ export class FeishuChannel implements Channel {
     return typeMap[ext] ?? 'stream'
   }
 
+  private async sendImageMessage(
+    image: Buffer | string,
+    target: FeishuImageTarget,
+  ): Promise<boolean> {
+    if (!this.client) return false
+
+    try {
+      const imageBuffer =
+        typeof image === 'string' ? (await import('node:fs')).readFileSync(image) : image
+
+      const { Readable } = await import('node:stream')
+      const uploadResp = await this.client.im.image.create({
+        data: {
+          image_type: 'message',
+          image: Readable.from(imageBuffer) as any,
+        },
+      })
+
+      const imageKey = (uploadResp as any)?.data?.image_key ?? (uploadResp as any)?.image_key
+      if (!imageKey) {
+        console.warn('[FeishuChannel] Image upload failed: no image_key in response')
+        return false
+      }
+
+      const content = JSON.stringify({ image_key: imageKey })
+
+      if (target.replyToMessageId) {
+        await this.client.im.message.reply({
+          path: { message_id: target.replyToMessageId },
+          data: { content, msg_type: 'image' },
+        })
+      } else if (target.chatId) {
+        await this.client.im.message.create({
+          params: { receive_id_type: 'chat_id' as any },
+          data: { receive_id: target.chatId, msg_type: 'image', content },
+        })
+      } else {
+        return false
+      }
+
+      console.log('[FeishuChannel] Image sent successfully')
+      return true
+    } catch (error) {
+      console.error('[FeishuChannel] Failed to send image:', this.describeError(error))
+      return false
+    }
+  }
+
+  private async sendImageReference(
+    reference: string,
+    target: FeishuImageTarget,
+  ): Promise<boolean> {
+    if (reference.startsWith('http://') || reference.startsWith('https://')) {
+      try {
+        const resp = await fetch(reference, { signal: AbortSignal.timeout(15_000) })
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`)
+        }
+        return await this.sendImageMessage(Buffer.from(await resp.arrayBuffer()), target)
+      } catch (error) {
+        console.warn(
+          `[FeishuChannel] Failed to fetch fallback image ${reference}:`,
+          this.describeError(error),
+        )
+        return false
+      }
+    }
+
+    if (reference.startsWith('data:')) {
+      const match = reference.match(/^data:[^;,]+;base64,([\s\S]+)$/)
+      if (!match) {
+        console.warn('[FeishuChannel] Unsupported inline image data URI')
+        return false
+      }
+      return this.sendImageMessage(Buffer.from(match[1], 'base64'), target)
+    }
+
+    return this.sendImageMessage(reference, target)
+  }
+
+  private async deliverUnresolvedInlineImages(
+    images: FeishuImageReference[],
+    target: FeishuImageTarget,
+    source: 'send' | 'reply' | 'streaming',
+  ): Promise<void> {
+    if (images.length === 0) return
+
+    let failures = 0
+    for (const image of images) {
+      const delivered = await this.sendImageReference(image.reference, target)
+      if (!delivered) {
+        failures += 1
+      }
+    }
+
+    if (failures === 0) return
+
+    const notice = this.buildInlineImageFailureNotice(failures)
+    if (target.replyToMessageId) {
+      await this.sendReplyWithFallback(target.replyToMessageId, notice)
+    } else if (target.chatId) {
+      await this.sendCreateWithFallback(target.chatId, notice)
+    }
+
+    console.warn(
+      `[FeishuChannel] ${source} inline image fallback incomplete: ${failures} image(s) failed`,
+    )
+  }
+
+  private buildInlineImageFailureNotice(failureCount: number): string {
+    return failureCount === 1
+      ? '有 1 张图片未能发送，请检查图片引用或稍后重试。'
+      : `有 ${failureCount} 张图片未能发送，请检查图片引用或稍后重试。`
+  }
+
   private async createStreamingSession(
     attachMessage: (cardId: string) => Promise<string | null>,
+    fallbackTarget: FeishuImageTarget,
   ): Promise<FeishuStreamingSession> {
     if (!this.client) {
       throw new Error('Feishu client not initialized')
@@ -993,11 +1098,14 @@ export class FeishuChannel implements Channel {
       complete: async (finalText: string) => {
         const rendered = renderStreamingMarkdown(finalText)
         latestRenderedText = rendered
+        let unresolvedImages: FeishuImageReference[] = []
         const finalRendered =
           imageResolver.hasImages(rendered) || imageResolver.pendingCount > 0
             ? await imageResolver.resolveAll(rendered, 30_000)
             : imageResolver.resolveSync(rendered)
+        unresolvedImages = imageResolver.collectUnresolved(rendered)
         await finalizeCard(finalRendered, 'streaming completion failed')
+        await this.deliverUnresolvedInlineImages(unresolvedImages, fallbackTarget, 'streaming')
       },
       abort: async (errorMessage?: string) => {
         let rendered = renderMarkdownForFeishu(

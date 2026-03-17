@@ -1,3 +1,4 @@
+import { protectMarkdownCodeContent } from './code-protection'
 import { normalizeMarkdownForChannels } from './normalize'
 
 interface RenderMarkdownForFeishuOptions {
@@ -26,10 +27,8 @@ function optimizeMarkdownForFeishu(
   text: string,
   options?: RenderMarkdownForFeishuOptions,
 ): string {
-  const codeBlocks: string[] = []
-  let result = text.replace(/```[\s\S]*?```/g, (match) => {
-    return `__CODE_BLOCK_${codeBlocks.push(match) - 1}__`
-  })
+  const protectedContent = protectMarkdownCodeContent(text, 'FEISHU_MD')
+  let result = protectedContent.processed
 
   // Convert Obsidian wikilink images ![[path]] to standard markdown ![alt](path)
   // This must happen before the image reference processing below
@@ -58,10 +57,7 @@ function optimizeMarkdownForFeishu(
     '<at user_id="$1">',
   )
 
-  codeBlocks.forEach((block, i) => {
-    result = result.replace(`__CODE_BLOCK_${i}__`, block)
-  })
-
+  result = protectedContent.restore(result)
   result = result.replace(/\n{3,}/g, '\n\n')
 
   return result
