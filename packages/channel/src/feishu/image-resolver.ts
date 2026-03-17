@@ -7,6 +7,11 @@ export interface FeishuImageResolverOptions {
   onImageResolved?: () => void
 }
 
+export interface FeishuImageReference {
+  alt: string
+  reference: string
+}
+
 /**
  * Resolves markdown image references to Feishu image keys.
  */
@@ -29,17 +34,8 @@ export class FeishuImageResolver {
   resolveSync(text: string): string {
     if (!this.hasImages(text)) return text
 
-    // Protect code blocks — don't process image refs inside ``` ... ```
-    const codeBlocks: string[] = []
-    let processed = text.replace(/```[\s\S]*?```/g, (match) => {
-      return `__IMG_CODE_BLOCK_${codeBlocks.push(match) - 1}__`
-    })
-
-    // Also protect inline code — don't process image refs inside `...`
-    const inlineCode: string[] = []
-    processed = processed.replace(/`[^`]+`/g, (match) => {
-      return `__IMG_INLINE_CODE_${inlineCode.push(match) - 1}__`
-    })
+    const protectedContent = this.protectCodeContent(text)
+    let processed = protectedContent.processed
 
     processed = processed.replace(IMAGE_RE, (fullMatch, alt: string, value: string) => {
       if (value.startsWith('img_')) return fullMatch
@@ -58,15 +54,7 @@ export class FeishuImageResolver {
       return ''
     })
 
-    // Restore inline code and code blocks
-    inlineCode.forEach((code, i) => {
-      processed = processed.replace(`__IMG_INLINE_CODE_${i}__`, code)
-    })
-    codeBlocks.forEach((block, i) => {
-      processed = processed.replace(`__IMG_CODE_BLOCK_${i}__`, block)
-    })
-
-    return processed
+    return protectedContent.restore(processed)
   }
 
   async resolveAll(text: string, timeoutMs = 30_000): Promise<string> {
@@ -103,9 +91,60 @@ export class FeishuImageResolver {
     return this.pending.size
   }
 
+  collectUnresolved(text: string): FeishuImageReference[] {
+    if (!this.hasImages(text)) return []
+
+    const unresolved: FeishuImageReference[] = []
+    const seen = new Set<string>()
+    const { processed } = this.protectCodeContent(text)
+
+    processed.replace(IMAGE_RE, (fullMatch, alt: string, value: string) => {
+      if (value.startsWith('img_')) return fullMatch
+      if (this.resolved.has(value)) return fullMatch
+      if (seen.has(value)) return fullMatch
+
+      seen.add(value)
+      unresolved.push({ alt, reference: value })
+      return fullMatch
+    })
+
+    return unresolved
+  }
+
   private startUpload(reference: string): void {
     const promise = this.doUpload(reference)
     this.pending.set(reference, promise)
+  }
+
+  private protectCodeContent(text: string): {
+    processed: string
+    restore: (input: string) => string
+  } {
+    const codeBlocks: string[] = []
+    let processed = text.replace(/```[\s\S]*?```/g, (match) => {
+      return `__IMG_CODE_BLOCK_${codeBlocks.push(match) - 1}__`
+    })
+
+    const inlineCode: string[] = []
+    processed = processed.replace(/`[^`]+`/g, (match) => {
+      return `__IMG_INLINE_CODE_${inlineCode.push(match) - 1}__`
+    })
+
+    return {
+      processed,
+      restore: (input: string) => {
+        let restored = input
+
+        inlineCode.forEach((code, i) => {
+          restored = restored.replace(`__IMG_INLINE_CODE_${i}__`, code)
+        })
+        codeBlocks.forEach((block, i) => {
+          restored = restored.replace(`__IMG_CODE_BLOCK_${i}__`, block)
+        })
+
+        return restored
+      },
+    }
   }
 
   private async doUpload(reference: string): Promise<string | null> {

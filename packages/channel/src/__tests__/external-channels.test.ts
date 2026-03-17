@@ -82,9 +82,21 @@ interface FeishuMessageReplyPayload {
   }
 }
 
+interface FeishuImageCreatePayload {
+  data: {
+    image_type?: string
+    image?: Readable
+  }
+}
+
 interface FeishuTestHarness {
   client: {
     im: {
+      image?: {
+        create?: (
+          payload: FeishuImageCreatePayload,
+        ) => Promise<{ data?: { image_key?: string }; image_key?: string }>
+      }
       messageResource?: {
         get?: (payload: FeishuMessageResourcePayload) => Promise<FeishuBinaryResponseLike>
       }
@@ -697,6 +709,52 @@ describe('FeishuChannel contract', () => {
     expect(calls[2].data.msg_type).toBe('text')
   })
 
+  test('send falls back to standalone image message when inline image cannot be embedded', async () => {
+    const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
+    const calls: FeishuMessageCreatePayload[] = []
+    const imageUploads: FeishuImageCreatePayload[] = []
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = ((async () => new Response('fake-inline-image')) as unknown) as typeof fetch
+    try {
+      getFeishuHarness(channel).client = {
+        im: {
+          image: {
+            create: async (payload: FeishuImageCreatePayload) => {
+              imageUploads.push(payload)
+              if (imageUploads.length === 1) return {}
+              return { data: { image_key: 'img_v3_fallback' } }
+            },
+          },
+          message: {
+            create: async (payload: FeishuMessageCreatePayload) => {
+              calls.push(payload)
+            },
+          },
+        },
+      }
+
+      await channel.send('chat-inline-1', 'Hello\n\n![diagram](https://example.com/demo.png)')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+
+    expect(imageUploads).toHaveLength(2)
+    expect(calls).toHaveLength(2)
+    expect(calls[0].data.msg_type).toBe('interactive')
+    expect(
+      JSON.parse(calls[0].data.content ?? '').body.elements[0].content.trim(),
+    ).toBe('Hello')
+    expect(calls[1]).toEqual({
+      params: { receive_id_type: 'chat_id' },
+      data: {
+        receive_id: 'chat-inline-1',
+        msg_type: 'image',
+        content: JSON.stringify({ image_key: 'img_v3_fallback' }),
+      },
+    })
+  })
+
   test('reply sends interactive markdown first', async () => {
     const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
     const calls: FeishuMessageReplyPayload[] = []
@@ -759,6 +817,47 @@ describe('FeishuChannel contract', () => {
         msg_type: 'post',
       },
     })
+  })
+
+  test('reply sends visible notice when inline image embedding and fallback delivery both fail', async () => {
+    const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
+    const calls: FeishuMessageReplyPayload[] = []
+    const imageUploads: FeishuImageCreatePayload[] = []
+    const originalFetch = globalThis.fetch
+
+    globalThis.fetch = ((async () => new Response('fake-inline-image')) as unknown) as typeof fetch
+    try {
+      getFeishuHarness(channel).client = {
+        im: {
+          image: {
+            create: async (payload: FeishuImageCreatePayload) => {
+              imageUploads.push(payload)
+              return {}
+            },
+          },
+          message: {
+            reply: async (payload: FeishuMessageReplyPayload) => {
+              calls.push(payload)
+            },
+          },
+        },
+      }
+
+      await channel.reply('msg-inline-1', 'Hello\n\n![diagram](https://example.com/demo.png)')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+
+    expect(imageUploads).toHaveLength(2)
+    expect(calls).toHaveLength(2)
+    expect(calls[0].data.msg_type).toBe('interactive')
+    expect(
+      JSON.parse(calls[0].data.content).body.elements[0].content.trim(),
+    ).toBe('Hello')
+    expect(calls[1].data.msg_type).toBe('interactive')
+    expect(JSON.parse(calls[1].data.content).body.elements[0].content).toBe(
+      '有 1 张图片未能发送，请检查图片引用或稍后重试。',
+    )
   })
 
   test('reply falls back to text when interactive and post replies fail', async () => {
