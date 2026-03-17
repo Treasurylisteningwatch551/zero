@@ -197,7 +197,14 @@ export class FeishuChannel implements Channel {
       }
     }
 
-    const rendered = renderMarkdownForFeishu(content)
+    let rendered = renderMarkdownForFeishu(content, { preserveExternalImages: true })
+
+    // Resolve image references (URL / local path → img_key)
+    if (this.client && new FeishuImageResolver({ client: this.client }).hasImages(rendered)) {
+      const resolver = new FeishuImageResolver({ client: this.client })
+      rendered = await resolver.resolveAll(rendered, 30_000)
+    }
+
     const isNotification = content.startsWith('[notification]')
     const cleanContent = isNotification ? rendered.replace('[notification]', '').trim() : rendered
     const options = isNotification
@@ -443,7 +450,14 @@ export class FeishuChannel implements Channel {
       }
     }
 
-    const rendered = renderMarkdownForFeishu(content)
+    let rendered = renderMarkdownForFeishu(content, { preserveExternalImages: true })
+
+    // Resolve image references (URL / local path → img_key)
+    if (this.client && new FeishuImageResolver({ client: this.client }).hasImages(rendered)) {
+      const resolver = new FeishuImageResolver({ client: this.client })
+      rendered = await resolver.resolveAll(rendered, 30_000)
+    }
+
     const chunks = this.chunkRichContent(rendered)
     for (const chunk of chunks) {
       await this.sendReplyWithFallback(messageId, chunk)
