@@ -52,6 +52,7 @@ ZeRo OS monorepo built with Bun + TypeScript.
 - Reuse existing utilities when possible; do not duplicate logic without a good reason.
 - Keep public exports and cross-package contracts stable unless the task explicitly requires breaking changes.
 - Preserve behavior by default; if behavior changes intentionally, make it explicit in the summary and add/update tests when appropriate.
+- When code changes affect behavior, interfaces, workflows, or operational expectations, update the corresponding documentation in the same task.
 - Avoid broad catch-all error handling or silent fallbacks that hide failures.
 - Prefer concise, maintainable diffs over cleverness.
 
@@ -90,8 +91,9 @@ ZeRo OS monorepo built with Bun + TypeScript.
 ## Change Workflow for Agents
 1. Identify the relevant files, then read/search broadly enough to understand current behavior.
 2. Implement the smallest coherent patch that solves the actual problem.
-3. Verify with at least one relevant command; use broader validation for higher-risk changes.
-4. Summarize clearly:
+3. Update any impacted documentation alongside the code change.
+4. Verify with at least one relevant command; use broader validation for higher-risk changes.
+5. Summarize clearly:
    - files changed
    - why the change was made
    - verification commands and results
