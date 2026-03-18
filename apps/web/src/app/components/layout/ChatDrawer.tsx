@@ -18,6 +18,10 @@ function createChatMessage(message: Omit<ChatMessage, 'id'>): ChatMessage {
   return { id: crypto.randomUUID(), ...message }
 }
 
+function isKnownModelName(modelName: string | null | undefined): modelName is string {
+  return Boolean(modelName && modelName !== 'unknown')
+}
+
 export function ChatDrawer() {
   const { chatDrawerOpen, toggleChatDrawer, isMobile } = useUIStore()
   const [message, setMessage] = useState('')
@@ -28,7 +32,13 @@ export function ChatDrawer() {
   const [modelName, setModelName] = useState('unknown')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const modelNameRef = useRef(modelName)
   const lastMessage = messages[messages.length - 1]
+
+  function updateModelName(nextModel: string) {
+    modelNameRef.current = nextModel
+    setModelName(nextModel)
+  }
 
   useEffect(() => {
     if (!lastMessage) return
@@ -51,7 +61,7 @@ export function ChatDrawer() {
   useEffect(() => {
     if (chatDrawerOpen) {
       apiFetch<{ currentModel: string }>('/api/status')
-        .then((res) => setModelName(res.currentModel))
+        .then((res) => updateModelName(res.currentModel))
         .catch(() => {})
     }
   }, [chatDrawerOpen])
@@ -115,7 +125,30 @@ export function ChatDrawer() {
   async function handleCommand(text: string): Promise<boolean> {
     if (text === '/new') {
       setSessionId(null)
-      setMessages([createChatMessage({ role: 'assistant', content: 'New session started.' })])
+      let currentModel: string | undefined
+
+      try {
+        const result = await apiFetch<{ currentModel: string }>('/api/status')
+        if (isKnownModelName(result.currentModel)) {
+          currentModel = result.currentModel
+          updateModelName(result.currentModel)
+        }
+      } catch {
+        // Fall back to the locally cached model label for the status message.
+      }
+
+      if (!currentModel && isKnownModelName(modelNameRef.current)) {
+        currentModel = modelNameRef.current
+      }
+
+      setMessages([
+        createChatMessage({
+          role: 'assistant',
+          content: currentModel
+            ? `New conversation started with model: ${currentModel}`
+            : 'New session started.',
+        }),
+      ])
       return true
     }
 
@@ -127,7 +160,7 @@ export function ChatDrawer() {
           model: newModel,
           sessionId,
         })
-        setModelName(result.currentModel)
+        updateModelName(result.currentModel)
         setMessages((prev) => [
           ...prev,
           createChatMessage({

@@ -131,6 +131,40 @@ describe('Session', () => {
     )
   })
 
+  test('/new command shows current model', async () => {
+    const router = createRouter()
+    const registry = createToolRegistry()
+    const session = new Session('web', router, registry)
+    session.initAgent({ name: 'test', agentInstruction: 'test' })
+
+    const messages = await session.handleMessage('/new')
+    const reply = messages[messages.length - 1]
+    expect(reply.role).toBe('assistant')
+    expect(reply.messageType).toBe('notification')
+    expect(reply.content[0]).toEqual({
+      type: 'text',
+      text: 'New conversation started with model: openai-codex/gpt-5.3-codex-medium',
+    })
+  })
+
+  test('/new command uses the switched model', async () => {
+    const router = createRouter()
+    const registry = createToolRegistry()
+    const session = new Session('web', router, registry)
+    session.initAgent({ name: 'test', agentInstruction: 'test' })
+
+    await session.switchModel('gpt-5.4-medium')
+    const messages = await session.handleMessage('/new')
+    const reply = messages[messages.length - 1]
+
+    expect(reply.role).toBe('assistant')
+    expect(reply.messageType).toBe('notification')
+    expect(reply.content[0]).toEqual({
+      type: 'text',
+      text: 'New conversation started with model: openai-codex/gpt-5.4-medium',
+    })
+  })
+
   test('switchModel updates the session model label', async () => {
     const router = createRouter()
     const registry = createToolRegistry()

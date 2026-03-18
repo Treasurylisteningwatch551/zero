@@ -60,6 +60,28 @@ test.describe('Chat Drawer', () => {
     await expect(textarea).toBeVisible()
   })
 
+  test('/new shows the currently selected model', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('aside button').filter({ hasText: 'Chat' }).click()
+
+    const drawer = page.locator('.fixed.right-0.top-0.h-full.w-\\[360px\\]')
+    const textarea = page.getByPlaceholder('Send a message...')
+
+    await textarea.fill('/model gpt-5.4-medium')
+    await textarea.press('Enter')
+
+    await expect(drawer).toContainText('Model switched to openai-codex/gpt-5.4-medium')
+    await expect(drawer).toContainText('Web Channel · openai-codex/gpt-5.4-medium')
+
+    await textarea.fill('/new')
+    await textarea.press('Enter')
+
+    await expect(drawer).toContainText(
+      'New conversation started with model: openai-codex/gpt-5.4-medium',
+    )
+    await expect(drawer).toContainText('Web Channel · openai-codex/gpt-5.4-medium')
+  })
+
   test('can type a message', async ({ page }) => {
     await page.goto('/')
     await page.locator('aside button').filter({ hasText: 'Chat' }).click()
