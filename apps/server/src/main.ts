@@ -131,6 +131,19 @@ export interface ZeroOS {
   shutdown(): Promise<void>
 }
 
+export function buildNewSessionReply(
+  currentModel: string,
+  modelResult?: { success: boolean; message: string },
+): string {
+  if (!modelResult) {
+    return `New conversation started with model: ${currentModel}`
+  }
+  if (modelResult.success) {
+    return `New conversation started with model: ${currentModel}`
+  }
+  return `New conversation started. ${modelResult.message}`
+}
+
 /**
  * Initialize and start ZeRo OS.
  */
@@ -520,19 +533,6 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     if (!match) return null
     const modelArg = match[1]?.trim()
     return modelArg ? { modelArg } : {}
-  }
-
-  function buildNewSessionReply(
-    currentModel: string,
-    modelResult?: { success: boolean; message: string },
-  ): string {
-    if (!modelResult) {
-      return 'New conversation started.'
-    }
-    if (modelResult.success) {
-      return `New conversation started with model: ${currentModel}`
-    }
-    return `New conversation started. ${modelResult.message}`
   }
 
   // 15. Channel registry (channels Map declared earlier with scheduler)
