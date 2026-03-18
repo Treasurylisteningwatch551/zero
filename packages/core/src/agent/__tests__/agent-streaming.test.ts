@@ -217,8 +217,14 @@ class AnthropicFailingAdapter implements ProviderAdapter {
   }
 }
 
+class TestAgent extends Agent {
+  protected transientRetryDelayMs(_attempt: number): number {
+    return 0 // no wait in tests
+  }
+}
+
 function createAgent(adapter: ProviderAdapter, logger?: ToolContext['logger']): Agent {
-  return new Agent(
+  return new TestAgent(
     {
       name: 'stream-agent',
       agentInstruction: 'test',
@@ -291,32 +297,33 @@ describe('Agent streaming callback', () => {
     })
   })
 
-  test('Anthropic API errors do not fallback to complete', async () => {
+  test('Anthropic 429 errors retry with backoff then throw', async () => {
     const streamError = Object.assign(new Error('429 rate limited'), {
       status: 429,
       request_id: 'req_123',
     })
     const adapter = new AnthropicFailingAdapter(streamError)
-    const warnings: Array<Record<string, unknown>> = []
+    const warnings: Array<{ event: string; data?: Record<string, unknown> }> = []
     const agent = createAgent(adapter, {
       info: () => {},
-      warn: (_event, data) => warnings.push(data ?? {}),
+      warn: (event, data) => warnings.push({ event, data }),
       error: () => {},
     })
 
     await expect(agent.run(createContext(), 'say hi')).rejects.toThrow('429 rate limited')
 
     expect(adapter.completeCalls).toBe(0)
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toMatchObject({
-      apiType: 'anthropic_messages',
-      status: 429,
-      requestId: 'req_123',
-      fallbackSkipped: true,
-    })
+    const retryWarnings = warnings.filter((w) => w.event === 'llm_stream_transient_retry')
+    expect(retryWarnings).toHaveLength(3)
+    expect(retryWarnings[0].data).toMatchObject({ status: 429, attempt: 1 })
+    expect(
+      warnings.some(
+        (w) => w.event === 'llm_stream_fallback_to_complete' && w.data?.fallbackSkipped === true,
+      ),
+    ).toBe(true)
   })
 
-  test('Anthropic SSE JSON errors do not fallback to complete', async () => {
+  test('Anthropic overloaded errors retry 3 times then throw', async () => {
     const streamError = new Error(
       JSON.stringify({
         type: 'error',
@@ -329,22 +336,87 @@ describe('Agent streaming callback', () => {
       }),
     )
     const adapter = new AnthropicFailingAdapter(streamError)
-    const warnings: Array<Record<string, unknown>> = []
+    const warnings: Array<{ event: string; data?: Record<string, unknown> }> = []
     const agent = createAgent(adapter, {
       info: () => {},
-      warn: (_event, data) => warnings.push(data ?? {}),
+      warn: (event, data) => warnings.push({ event, data }),
       error: () => {},
     })
 
     await expect(agent.run(createContext(), 'say hi')).rejects.toThrow('Overloaded')
 
     expect(adapter.completeCalls).toBe(0)
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toMatchObject({
-      apiType: 'anthropic_messages',
-      requestId: 'req_456',
-      fallbackSkipped: true,
+    // 3 transient retries then 1 fallback warning
+    const retryWarnings = warnings.filter((w) => w.event === 'llm_stream_transient_retry')
+    expect(retryWarnings).toHaveLength(3)
+    expect(retryWarnings[0].data).toMatchObject({ attempt: 1, maxRetries: 3 })
+    expect(retryWarnings[1].data).toMatchObject({ attempt: 2, maxRetries: 3 })
+    expect(retryWarnings[2].data).toMatchObject({ attempt: 3, maxRetries: 3 })
+    expect(
+      warnings.some(
+        (w) => w.event === 'llm_stream_fallback_to_complete' && w.data?.fallbackSkipped === true,
+      ),
+    ).toBe(true)
+  })
+
+  test('Anthropic overloaded error recovers on retry', async () => {
+    let streamCalls = 0
+    const overloadedError = new Error(
+      JSON.stringify({
+        type: 'error',
+        error: { type: 'overloaded_error', message: 'Overloaded' },
+        request_id: 'req_789',
+      }),
+    )
+    const adapter: ProviderAdapter = {
+      apiType: 'anthropic_messages' as const,
+      async complete() {
+        return {
+          id: 'resp-should-not-run',
+          content: [{ type: 'text' as const, text: 'unexpected' }],
+          stopReason: 'end_turn' as const,
+          usage: { input: 1, output: 1 },
+          model: 'claude-test',
+        }
+      },
+      async *stream() {
+        streamCalls++
+        if (streamCalls <= 2) {
+          // First two attempts: overloaded
+          yield* failStream(overloadedError)
+        }
+        // Third attempt: success
+        yield { type: 'text_delta' as const, data: { text: 'recovered after overload' } }
+        yield {
+          type: 'done' as const,
+          data: { finishReason: 'end_turn', usage: { input: 1, output: 3 }, model: 'claude-test' },
+        }
+      },
+      async healthCheck() {
+        return true
+      },
+    }
+
+    const warnings: Array<{ event: string; data?: Record<string, unknown> }> = []
+    const agent = createAgent(adapter, {
+      info: () => {},
+      warn: (event, data) => warnings.push({ event, data }),
+      error: () => {},
     })
+
+    const messages = await agent.run(createContext(), 'say hi')
+    const assistant = messages.find((m) => m.role === 'assistant')
+    const text = assistant?.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { text: string }).text)
+      .join('')
+
+    expect(streamCalls).toBe(3)
+    expect(text).toBe('recovered after overload')
+    const retryWarnings = warnings.filter((w) => w.event === 'llm_stream_transient_retry')
+    expect(retryWarnings).toHaveLength(2)
+    // No fallback warning — recovered before exhausting retries
+    expect(warnings.some((w) => w.event === 'llm_stream_fallback_to_complete')).toBe(false)
   })
 
   test('Anthropic SDK streaming guidance errors do not fallback to complete', async () => {

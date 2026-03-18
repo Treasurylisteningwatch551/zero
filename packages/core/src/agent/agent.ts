@@ -710,14 +710,33 @@ export class Agent {
     return newMessages
   }
 
+  private isTransientError(errorDetails: {
+    message: string
+    status?: number
+    errorType?: string
+  }): boolean {
+    const transientTypes = ['overloaded_error', 'api_error']
+    const transientStatuses = [429, 503, 529]
+    if (errorDetails.errorType && transientTypes.includes(errorDetails.errorType)) return true
+    if (errorDetails.status && transientStatuses.includes(errorDetails.status)) return true
+    return false
+  }
+
+  /** Backoff delay for transient retries. Override in tests to avoid real waits. */
+  protected transientRetryDelayMs(attempt: number): number {
+    return Math.min(5_000 * 2 ** (attempt - 1), 60_000) // 5s, 10s, 20s, 40s, 60s cap
+  }
+
   private async completeWithStreamFallback(
     request: CompletionRequest,
     onTextDelta?: (delta: string, meta: { role: 'assistant'; turnId: string }) => void,
   ): Promise<CompletionResponse> {
     const maxStreamRetries = 1
+    const maxTransientRetries = 3
     let lastStreamErr: unknown
+    let transientAttempts = 0
 
-    for (let attempt = 0; attempt <= maxStreamRetries; attempt++) {
+    for (let attempt = 0; attempt <= maxStreamRetries + maxTransientRetries; attempt++) {
       try {
         const streamed = await this.completeFromStream(request, onTextDelta)
         if (streamed.content.length === 0) {
@@ -728,6 +747,7 @@ export class Agent {
         lastStreamErr = streamErr
         const errorDetails = this.getStreamErrorDetails(streamErr)
 
+        // Retry on empty stream content (original logic, limited to maxStreamRetries)
         if (
           attempt < maxStreamRetries &&
           errorDetails.message === 'stream returned empty content'
@@ -737,6 +757,25 @@ export class Agent {
             apiType: this.adapter.apiType,
             attempt: attempt + 1,
           })
+          continue
+        }
+
+        // Retry on transient errors (overloaded, 429, 503, 529) with exponential backoff
+        if (transientAttempts < maxTransientRetries && this.isTransientError(errorDetails)) {
+          transientAttempts++
+          const delay = this.transientRetryDelayMs(transientAttempts)
+          this.toolContext.logger.warn('llm_stream_transient_retry', {
+            sessionId: this.toolContext.sessionId,
+            apiType: this.adapter.apiType,
+            error: errorDetails.message,
+            errorType: errorDetails.errorType,
+            status: errorDetails.status,
+            requestId: errorDetails.requestId,
+            attempt: transientAttempts,
+            maxRetries: maxTransientRetries,
+            delayMs: delay,
+          })
+          await new Promise((resolve) => setTimeout(resolve, delay))
           continue
         }
 
@@ -1238,6 +1277,7 @@ export class Agent {
     message: string
     status?: number
     requestId?: string
+    errorType?: string
   } {
     const data = this.toRecord(streamErr)
     const message = streamErr instanceof Error ? streamErr.message : String(streamErr)
@@ -1251,6 +1291,10 @@ export class Agent {
           : typeof data.requestId === 'string'
             ? data.requestId
             : anthropicPayload?.requestId,
+      errorType:
+        typeof data.error_type === 'string'
+          ? data.error_type
+          : anthropicPayload?.errorType,
     }
   }
 
