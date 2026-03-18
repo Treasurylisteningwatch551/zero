@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Channel, FeishuStreamingSession } from '@zero-os/channel'
 import { FeishuChannel, TelegramChannel, WebChannel } from '@zero-os/channel'
@@ -93,6 +93,18 @@ interface TelegramRuntimeDefinition extends ChannelRuntimeDefinition {
 
 type ExternalChannelRuntimeDefinition = FeishuRuntimeDefinition | TelegramRuntimeDefinition
 
+interface RestartSentinelEntry {
+  sessionId: string
+  source: SessionSource
+  channelId: string
+  channelName?: string
+}
+
+interface RestartSentinelFile {
+  ts: string
+  sessions: RestartSentinelEntry[]
+}
+
 export interface ZeroOS {
   config: ReturnType<typeof loadConfig>
   vault: Vault
@@ -115,6 +127,7 @@ export interface ZeroOS {
   channelDefinitions: Map<string, ChannelRuntimeDefinition>
   notifications: Notification[]
   addNotification(n: Omit<Notification, 'id' | 'createdAt'>): Notification
+  isShuttingDown(): boolean
   shutdown(): Promise<void>
 }
 
@@ -538,6 +551,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   heartbeat.write()
 
   let shuttingDown = false
+  const restartSentinelPath = join(ZERO_DIR, 'restart-sentinel.json')
   const shouldPersistBusEvent = (payload: { topic: string; data: Record<string, unknown> }) => {
     switch (payload.topic) {
       case 'session:create':
@@ -592,21 +606,39 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     if (shuttingDown) return
     shuttingDown = true
     console.log('\n[ZeRo OS] Shutting down...')
+    scheduler.stop()
+    console.log('[ZeRo OS] Scheduler stopped')
+
+    const interruptedSessions = await sessionManager.drainAndCollectInterrupted(30_000)
+    if (interruptedSessions.length > 0) {
+      const sentinel: RestartSentinelFile = {
+        ts: new Date().toISOString(),
+        sessions: interruptedSessions.filter(
+          (session): session is RestartSentinelEntry =>
+            typeof session.channelId === 'string' && session.source !== 'scheduler',
+        ),
+      }
+      if (sentinel.sessions.length > 0) {
+        writeFileSync(restartSentinelPath, JSON.stringify(sentinel))
+        console.log(
+          `[ZeRo OS] Restart sentinel recorded ${sentinel.sessions.length} interrupted session(s)`,
+        )
+      }
+    }
+
     globalBus.off('*', wildcardLogListener)
     globalBus.off('repair:end', repairMetricsListener)
     globalBus.off('tool:call', toolMetricsListener)
     litellmPricing.dispose()
     console.log('[ZeRo OS] LiteLLM pricing disposed')
-    scheduler.stop()
-    console.log('[ZeRo OS] Scheduler stopped')
-    heartbeat.stop()
-    console.log('[ZeRo OS] Heartbeat stopped')
     for (const [, ch] of channels) {
       try {
         await ch.stop()
       } catch {}
     }
     console.log('[ZeRo OS] Channels closed')
+    heartbeat.stop()
+    console.log('[ZeRo OS] Heartbeat stopped')
     sessionManager.flushAll()
     console.log('[ZeRo OS] Sessions flushed to DB')
     sessionDb.close()
@@ -639,6 +671,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     channelDefinitions,
     notifications,
     addNotification,
+    isShuttingDown: () => shuttingDown,
     shutdown,
   }
 
@@ -670,6 +703,11 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
           let streaming: FeishuStreamingSession | null = null
 
           try {
+            if (shuttingDown) {
+              console.log(`[ZeRo OS] Ignoring ${channelName} message during shutdown`)
+              return
+            }
+
             if (isRestartCommand(msg.content)) {
               const reply = 'Restarting ZeRo OS...'
               if (messageId) {
@@ -972,6 +1010,11 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
         let activeSessionId: string | null = null
 
         try {
+          if (shuttingDown) {
+            console.log(`[ZeRo OS] Ignoring ${channelName} message during shutdown`)
+            return
+          }
+
           if (isRestartCommand(msg.content)) {
             if (!canRunTelegramRestart(chatType)) {
               const reply = 'The /restart command is only available in private chats.'
@@ -1169,6 +1212,54 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   }
 
   console.log(`[ZeRo OS] ${channels.size} channels registered`)
+
+  if (existsSync(restartSentinelPath)) {
+    try {
+      const sentinel = JSON.parse(readFileSync(restartSentinelPath, 'utf-8')) as RestartSentinelFile
+      unlinkSync(restartSentinelPath)
+
+      if (Array.isArray(sentinel.sessions) && sentinel.sessions.length > 0) {
+        console.log(
+          `[ZeRo OS] Restart sentinel found ${sentinel.sessions.length} interrupted session(s)`,
+        )
+
+        for (const entry of sentinel.sessions) {
+          void (async () => {
+            const session = sessionManager.get(entry.sessionId)
+            if (!session) return
+
+            const channel = entry.channelName ? channels.get(entry.channelName) : undefined
+            if (!channel || !channel.isConnected()) return
+
+            if (!session.getAgentConfig()) {
+              console.warn(
+                `[ZeRo OS] Restart sentinel skipped session without agent config: ${entry.sessionId}`,
+              )
+              return
+            }
+
+            try {
+              session.setChannelCapabilities(channel.getCapabilities() as Record<string, unknown>)
+              const replies = await session.handleMessage(
+                '[System] The process restarted while your previous turn was still running. Continue the interrupted task from the existing conversation context. If the task is already complete, briefly confirm completion.',
+              )
+              const replyText = collectAssistantReply(replies)
+              if (replyText) {
+                await channel.send(entry.channelId, replyText)
+              }
+            } catch (error) {
+              console.warn(
+                `[ZeRo OS] Restart sentinel failed to resume session ${entry.sessionId}:`,
+                describeError(error),
+              )
+            }
+          })()
+        }
+      }
+    } catch (error) {
+      console.warn('[ZeRo OS] Failed to read restart sentinel:', describeError(error))
+    }
+  }
 
   heartbeat.setReady(true, 'ready')
   heartbeat.write()

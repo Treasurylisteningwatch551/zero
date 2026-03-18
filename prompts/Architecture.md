@@ -73,6 +73,7 @@ ZeRo OS 的所有数据统一存放在 `.zero/` 目录下：
   ├─ fuse_list.yaml      # 熔断名单，AI 执行命令前检查，命中则拒绝并告警
   ├─ secrets.enc         # 加密密钥文件，主密钥存于 macOS Keychain
   ├─ heartbeat.json      # 进程心跳文件，Supervisor 据此判断主进程是否存活
+  ├─ restart-sentinel.json # 重启恢复哨兵，仅记录关闭时仍被中断的 Session（临时文件）
   ├─ channels/           # AI 自建或用户后续接入的 Channel 扩展（运行时目录）
   │                      # 内置 Channel（飞书、Telegram、Web）在源码 packages/channel 中
   ├─ tools/              # AI 构建的自定义工具
@@ -1276,6 +1277,14 @@ Session 是多轮对话的载体，也是任务执行的载体。每个 Session 
 4. **归档**：过期或不再需要的 Session 移入 archive。
 5. **查询**：用户可随时查询历史 Session，查看总结和相关记忆。
 
+### 重启安全
+
+进程收到 `SIGTERM` / `SIGINT` 或执行 `bun zero restart` 时，不会立即中断当前 turn：
+
+1. **优雅排空（Graceful Drain）**：系统先拒绝新的聊天消息，但保持 Channel 连接和心跳写入，等待当前活跃 turn 尽量完成。
+2. **中断记录（Restart Sentinel）**：只有在 drain 超时后仍未完成、确实会被重启打断的 Session，才会写入 `.zero/restart-sentinel.json`。
+3. **启动恢复**：新进程启动后读取该哨兵，为这些被中断的 Session 注入一次恢复提示，继续未完成的任务。
+
 ### Session 数据结构
 
 ```yaml
@@ -1323,6 +1332,16 @@ session:
 3. `Supervisor` 每 20 秒检查心跳更新时间。
 4. 超过 50 秒未更新，判定主程序失活。
 5. `Supervisor` 是极简看门狗，不依赖主进程的任何内部模块。
+
+### 优雅关闭与重启恢复
+
+主进程收到终止信号时按以下顺序处理：
+
+1. 标记 `shuttingDown`，拒绝新的用户消息与新的聊天 turn。
+2. 停止 Scheduler 触发新的任务，但保持现有 Channel 连接和心跳写入。
+3. 等待当前活跃 turn 尽量完成；若超时，记录仍被中断的 Session 到 `restart-sentinel.json`。
+4. 关闭 Channel，停止心跳，flush Session 状态，关闭数据库并退出。
+5. 新进程启动后读取 sentinel，仅恢复那些确实因重启被打断的 Session。
 
 ### 修复流程（Health，主进程内部）
 

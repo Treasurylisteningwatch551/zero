@@ -25,6 +25,7 @@ export type { AgentConfig, AgentContext } from './agent/agent'
 export { Session } from './session/session'
 export type { SessionDeps, HandleMessageOptions } from './session/session'
 export { SessionManager } from './session/manager'
+export type { InterruptedSessionRef } from './session/manager'
 
 // Task
 export { TaskOrchestrator } from './task/orchestrator'

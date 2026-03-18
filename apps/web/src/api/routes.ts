@@ -533,6 +533,10 @@ export function createRoutes(zero: ZeroOS) {
 
     // Chat — create session + send message to AI
     .post('/api/chat', async (c) => {
+      if (zero.isShuttingDown()) {
+        return c.json({ error: 'ZeRo OS is restarting. Please retry shortly.' }, 503)
+      }
+
       const body = await c.req.json<{ message: string; sessionId?: string }>()
 
       let session = body.sessionId ? zero.sessionManager.get(body.sessionId) : undefined

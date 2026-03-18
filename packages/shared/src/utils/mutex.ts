@@ -6,6 +6,7 @@ export class Mutex {
   private locked = false
   private queue: Array<{ resolve: () => void }> = []
   private owner: string | null = null
+  private unlockListeners: Array<() => void> = []
 
   async acquire(ownerId: string): Promise<void> {
     if (!this.locked) {
@@ -35,7 +36,18 @@ export class Mutex {
     } else {
       this.locked = false
       this.owner = null
+      this.notifyUnlockListeners()
     }
+  }
+
+  waitForUnlock(): Promise<void> {
+    if (!this.locked) {
+      return Promise.resolve()
+    }
+
+    return new Promise<void>((resolve) => {
+      this.unlockListeners.push(resolve)
+    })
   }
 
   isLocked(): boolean {
@@ -44,5 +56,14 @@ export class Mutex {
 
   getOwner(): string | null {
     return this.owner
+  }
+
+  private notifyUnlockListeners(): void {
+    if (this.unlockListeners.length === 0) return
+    const listeners = this.unlockListeners
+    this.unlockListeners = []
+    for (const listener of listeners) {
+      listener()
+    }
   }
 }

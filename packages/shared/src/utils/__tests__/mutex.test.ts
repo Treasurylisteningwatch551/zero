@@ -73,4 +73,36 @@ describe('Mutex', () => {
     expect(order).toEqual(['B', 'C'])
     expect(mutex.isLocked()).toBe(false)
   })
+
+  test('waitForUnlock resolves immediately when mutex is idle', async () => {
+    const mutex = new Mutex()
+
+    await expect(mutex.waitForUnlock()).resolves.toBeUndefined()
+  })
+
+  test('waitForUnlock resolves only after the mutex becomes fully idle', async () => {
+    const mutex = new Mutex()
+    const events: string[] = []
+
+    await mutex.acquire('A')
+
+    const pB = mutex.acquire('B').then(() => {
+      events.push('B acquired')
+      mutex.release('B')
+      events.push('B released')
+    })
+
+    const unlocked = mutex.waitForUnlock().then(() => {
+      events.push('mutex unlocked')
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    mutex.release('A')
+
+    await pB
+    await unlocked
+
+    expect(events).toEqual(['B acquired', 'B released', 'mutex unlocked'])
+    expect(mutex.isLocked()).toBe(false)
+  })
 })

@@ -283,4 +283,23 @@ describe('API Routes (Real)', () => {
     expect(typeof data.reply).toBe('string')
     expect(data.reply.length).toBeGreaterThan(0)
   }, 60_000) // Real AI call may take time
+
+  test('POST /api/chat returns 503 while shutdown is in progress', async () => {
+    const originalIsShuttingDown = zero.isShuttingDown
+    zero.isShuttingDown = () => true
+
+    try {
+      const res = await app.request('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: 'hello during restart' }),
+      })
+
+      expect(res.status).toBe(503)
+      const data = await res.json()
+      expect(data.error).toContain('restarting')
+    } finally {
+      zero.isShuttingDown = originalIsShuttingDown
+    }
+  })
 })

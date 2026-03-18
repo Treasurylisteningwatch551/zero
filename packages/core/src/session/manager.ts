@@ -17,6 +17,13 @@ interface SessionCreateOptions {
   }
 }
 
+export interface InterruptedSessionRef {
+  sessionId: string
+  source: SessionSource
+  channelId?: string
+  channelName?: string
+}
+
 /**
  * Manages all active sessions.
  */
@@ -363,6 +370,40 @@ export class SessionManager {
     }
 
     return restored
+  }
+
+  /**
+   * Wait for currently active turns to finish.
+   * Returns only the sessions that are still in progress after the timeout and
+   * therefore will need recovery after restart.
+   */
+  async drainAndCollectInterrupted(timeoutMs = 30_000): Promise<InterruptedSessionRef[]> {
+    const active = Array.from(this.sessions.values()).filter((session) => session.isTurnInProgress())
+    if (active.length === 0) return []
+
+    console.log(`[SessionManager] Draining ${active.length} active turn(s)...`)
+
+    const result = await Promise.race([
+      Promise.all(active.map((session) => session.waitForTurnComplete())).then(() => 'done' as const),
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), timeoutMs)),
+    ])
+
+    if (result === 'done') {
+      console.log('[SessionManager] All turns drained.')
+      return []
+    }
+
+    const interrupted = active
+      .filter((session) => session.isTurnInProgress())
+      .map((session) => ({
+        sessionId: session.data.id,
+        source: session.data.source,
+        channelId: session.data.channelId,
+        channelName: session.data.channelName,
+      }))
+
+    console.warn(`[SessionManager] Drain timeout: ${interrupted.length} turn(s) still active`)
+    return interrupted
   }
 
   /**

@@ -207,6 +207,47 @@ describe('Session Persistence', () => {
     expect(expectDefined(row2).channelId).toBe('tg_flush')
   })
 
+  test('SessionManager.drainAndCollectInterrupted returns empty after active turns drain cleanly', async () => {
+    const manager = new SessionManager(modelRouter, toolRegistry, { sessionDb }, sessionDb)
+    const session = manager.create('feishu', {
+      channelId: 'chat_drain_ok',
+      channelName: 'feishu',
+    })
+    const internal = session as unknown as {
+      mutex: { acquire(ownerId: string): Promise<void>; release(ownerId: string): void }
+    }
+
+    await internal.mutex.acquire('drain-ok')
+    setTimeout(() => internal.mutex.release('drain-ok'), 10)
+
+    await expect(manager.drainAndCollectInterrupted(100)).resolves.toEqual([])
+  })
+
+  test('SessionManager.drainAndCollectInterrupted returns only still-interrupted sessions', async () => {
+    const manager = new SessionManager(modelRouter, toolRegistry, { sessionDb }, sessionDb)
+    const session = manager.create('telegram', {
+      channelId: 'chat_drain_timeout',
+      channelName: 'telegram',
+    })
+    const internal = session as unknown as {
+      mutex: { acquire(ownerId: string): Promise<void>; release(ownerId: string): void }
+    }
+
+    await internal.mutex.acquire('drain-timeout')
+
+    const interrupted = await manager.drainAndCollectInterrupted(20)
+    expect(interrupted).toEqual([
+      {
+        sessionId: session.data.id,
+        source: 'telegram',
+        channelId: 'chat_drain_timeout',
+        channelName: 'telegram',
+      },
+    ])
+
+    internal.mutex.release('drain-timeout')
+  })
+
   test('SessionManager DB query proxies work', () => {
     const manager = new SessionManager(modelRouter, toolRegistry, { sessionDb }, sessionDb)
 

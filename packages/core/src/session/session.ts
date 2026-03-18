@@ -675,7 +675,9 @@ export class Session {
           ]
         }
         this.reinitializeAgent()
-        return [this.makeSystemMessage('New conversation started.')]
+        return [
+          this.makeSystemMessage(`New conversation started with model: ${this.data.currentModel}`),
+        ]
       }
       default:
         return [this.makeSystemMessage(`Unknown command: ${cmd}`)]
@@ -803,6 +805,14 @@ export class Session {
 
   getMessages(): Message[] {
     return [...this.messages]
+  }
+
+  isTurnInProgress(): boolean {
+    return this.mutex.isLocked()
+  }
+
+  waitForTurnComplete(): Promise<void> {
+    return this.mutex.waitForUnlock()
   }
 
   getStatus(): SessionStatus {
