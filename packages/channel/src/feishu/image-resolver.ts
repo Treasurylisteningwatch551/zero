@@ -3,6 +3,23 @@ import { protectMarkdownCodeContent } from '../richtext/code-protection'
 
 const IMAGE_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g
 
+/**
+ * Normalize a `file://` URI to a local filesystem path.
+ * e.g. `file:///Users/foo/bar.png` → `/Users/foo/bar.png`
+ * Non-file references are returned unchanged.
+ */
+function normalizeFileReference(ref: string): string {
+  if (ref.startsWith('file://')) {
+    try {
+      return new URL(ref).pathname
+    } catch {
+      // Malformed URL — strip prefix as best-effort
+      return ref.replace(/^file:\/\//, '')
+    }
+  }
+  return ref
+}
+
 export interface FeishuImageResolverOptions {
   client: lark.Client
   onImageResolved?: () => void
@@ -127,20 +144,21 @@ export class FeishuImageResolver {
   private async doUpload(reference: string): Promise<string | null> {
     try {
       let buffer: Buffer
+      const normalizedRef = normalizeFileReference(reference)
 
-      if (reference.startsWith('http://') || reference.startsWith('https://')) {
-        console.log(`[FeishuImageResolver] Downloading: ${reference}`)
-        const resp = await fetch(reference, { signal: AbortSignal.timeout(15_000) })
+      if (normalizedRef.startsWith('http://') || normalizedRef.startsWith('https://')) {
+        console.log(`[FeishuImageResolver] Downloading: ${normalizedRef}`)
+        const resp = await fetch(normalizedRef, { signal: AbortSignal.timeout(15_000) })
         if (!resp.ok) {
           throw new Error(`HTTP ${resp.status}`)
         }
         buffer = Buffer.from(await resp.arrayBuffer())
       } else {
         const fs = await import('node:fs')
-        if (!fs.existsSync(reference)) {
-          throw new Error(`File not found: ${reference}`)
+        if (!fs.existsSync(normalizedRef)) {
+          throw new Error(`File not found: ${normalizedRef}`)
         }
-        buffer = fs.readFileSync(reference)
+        buffer = fs.readFileSync(normalizedRef)
       }
 
       const imageKey = await this.doUploadBuffer(buffer)

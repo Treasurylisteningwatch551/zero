@@ -877,24 +877,35 @@ export class FeishuChannel implements Channel {
     reference: string,
     target: FeishuImageTarget,
   ): Promise<boolean> {
-    if (reference.startsWith('http://') || reference.startsWith('https://')) {
+    // Normalize file:// URIs to local paths (e.g. file:///Users/foo/bar.png → /Users/foo/bar.png)
+    const normalizedRef = reference.startsWith('file://')
+      ? (() => {
+          try {
+            return new URL(reference).pathname
+          } catch {
+            return reference.replace(/^file:\/\//, '')
+          }
+        })()
+      : reference
+
+    if (normalizedRef.startsWith('http://') || normalizedRef.startsWith('https://')) {
       try {
-        const resp = await fetch(reference, { signal: AbortSignal.timeout(15_000) })
+        const resp = await fetch(normalizedRef, { signal: AbortSignal.timeout(15_000) })
         if (!resp.ok) {
           throw new Error(`HTTP ${resp.status}`)
         }
         return await this.sendImageMessage(Buffer.from(await resp.arrayBuffer()), target)
       } catch (error) {
         console.warn(
-          `[FeishuChannel] Failed to fetch fallback image ${reference}:`,
+          `[FeishuChannel] Failed to fetch fallback image ${normalizedRef}:`,
           this.describeError(error),
         )
         return false
       }
     }
 
-    if (reference.startsWith('data:')) {
-      const match = reference.match(/^data:[^;,]+;base64,([\s\S]+)$/)
+    if (normalizedRef.startsWith('data:')) {
+      const match = normalizedRef.match(/^data:[^;,]+;base64,([\s\S]+)$/)
       if (!match) {
         console.warn('[FeishuChannel] Unsupported inline image data URI')
         return false
@@ -902,7 +913,7 @@ export class FeishuChannel implements Channel {
       return this.sendImageMessage(Buffer.from(match[1], 'base64'), target)
     }
 
-    return this.sendImageMessage(reference, target)
+    return this.sendImageMessage(normalizedRef, target)
   }
 
   private async deliverUnresolvedInlineImages(
