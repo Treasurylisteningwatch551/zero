@@ -45,6 +45,8 @@ interface CodexInput {
   model?: string
   /** Additional directories to allow codex to access beyond the working directory. */
   additionalDirectories?: string[]
+  /** Thread ID from a previous codex call to resume the conversation. Enables multi-turn workflows. */
+  resumeThreadId?: string
 }
 
 /**
@@ -84,6 +86,11 @@ export class CodexTool extends BaseTool {
         items: { type: 'string' },
         description: 'Additional directories to allow codex to access.',
       },
+      resumeThreadId: {
+        type: 'string',
+        description:
+          'Thread ID from a previous codex call to resume the conversation. Use this for multi-turn workflows like "fix → verify → fix again".',
+      },
     },
     required: ['instruction'],
   }
@@ -103,12 +110,13 @@ export class CodexTool extends BaseTool {
       workingDirectory,
       model,
       additionalDirectories,
+      resumeThreadId,
     } = input as CodexInput
 
     const cwd = workingDirectory ?? ctx.projectRoot ?? ctx.workDir
 
     // Build command args
-    const args: string[] = ['exec', '--experimental-json']
+    const args: string[] = ['exec', '--json']
 
     if (model) {
       args.push('--model', model)
@@ -127,14 +135,22 @@ export class CodexTool extends BaseTool {
       }
     }
 
+    // Resume mode: append `resume <threadId> <prompt>` subcommand.
+    // In this mode the prompt goes via CLI args, not stdin.
+    const isResume = !!resumeThreadId
+    if (isResume) {
+      args.push('resume', resumeThreadId, instruction)
+    }
+
     ctx.logger.info('codex_start', {
       instruction: instruction.slice(0, 200),
       cwd,
       model: model ?? 'default',
+      resumeThreadId: resumeThreadId ?? null,
     })
 
     try {
-      const result = await this.runCodex(args, instruction, cwd)
+      const result = await this.runCodex(args, isResume ? null : instruction, cwd)
       ctx.logger.info('codex_complete', {
         fileChanges: result.fileChanges.length,
         commands: result.commands.length,
@@ -153,7 +169,7 @@ export class CodexTool extends BaseTool {
 
   private runCodex(
     args: string[],
-    instruction: string,
+    instruction: string | null,
     cwd: string,
   ): Promise<CodexResult> {
     return new Promise((resolve, reject) => {
@@ -220,8 +236,10 @@ export class CodexTool extends BaseTool {
         }
       })
 
-      // Send instruction and close stdin
-      child.stdin!.write(instruction)
+      // Send instruction via stdin (new session) or skip (resume — prompt is in CLI args)
+      if (instruction !== null) {
+        child.stdin!.write(instruction)
+      }
       child.stdin!.end()
     })
   }
@@ -330,6 +348,11 @@ export class CodexTool extends BaseTool {
     // Errors
     if (result.errors.length > 0) {
       sections.push(`## Errors\n${result.errors.join('\n')}`)
+    }
+
+    // Thread ID — enables resume in subsequent calls
+    if (result.threadId) {
+      sections.push(`## Thread\nthreadId: ${result.threadId}`)
     }
 
     // Usage
