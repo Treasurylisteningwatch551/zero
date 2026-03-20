@@ -3,4 +3,9 @@ version = 1
 name = "test4_zero"
 
 [setup]
-script = "bun install "
+script = "bun install"
+
+[[actions]]
+name = "check"
+icon = "tool"
+command = "bun run check"
