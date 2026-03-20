@@ -559,16 +559,36 @@ export class Session {
       throw new Error('Agent not initialized. Call initAgent() first.')
     }
 
-    const newMessages = await agent.run(
-      context,
-      content,
-      options?.images,
-      onNewMessage,
-      options?.onTextDelta,
-      shouldInterrupt,
-      getQueuedMessages,
-      { turnIndex: this.allocateTurnIndex() },
-    )
+    // Snapshot message count so we can rollback on transient failure
+    const messageCountBefore = this.messages.length
+
+    let newMessages: Message[]
+    try {
+      newMessages = await agent.run(
+        context,
+        content,
+        options?.images,
+        onNewMessage,
+        options?.onTextDelta,
+        shouldInterrupt,
+        getQueuedMessages,
+        { turnIndex: this.allocateTurnIndex() },
+      )
+    } catch (error) {
+      // Rollback messages added during this failed turn so the user can cleanly retry.
+      // Preserve any 'queued' messages that were pushed concurrently by handleMessage —
+      // they belong to the user, not to the failed agent turn.
+      if (this.messages.length > messageCountBefore) {
+        const added = this.messages.slice(messageCountBefore)
+        this.messages.length = messageCountBefore
+        for (const msg of added) {
+          if (msg.messageType === 'queued') {
+            this.messages.push(msg)
+          }
+        }
+      }
+      throw error
+    }
 
     // Emit session:update
     this.deps.bus?.emit('session:update', {

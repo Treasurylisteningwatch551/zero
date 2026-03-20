@@ -964,9 +964,16 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
               )
             }
 
+            const isTransient =
+              errorMessage.includes('overloaded_error') ||
+              errorMessage.includes('Overloaded') ||
+              /\b(429|503|529)\b/.test(errorMessage)
+
             const userReply = sessionWasArchived
               ? 'Session corrupted and has been reset. Please resend your message.'
-              : 'An error occurred processing your message.'
+              : isTransient
+                ? '⚠️ AI 服务暂时过载（已重试 3 次仍未恢复），消息已回滚。请稍后重新发送。'
+                : 'An error occurred processing your message.'
 
             try {
               if (streaming) {
@@ -1177,9 +1184,16 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
             )
           }
 
+          const isTransient =
+            errorMessage.includes('overloaded_error') ||
+            errorMessage.includes('Overloaded') ||
+            /\b(429|503|529)\b/.test(errorMessage)
+
           const userReply = sessionWasArchived
             ? 'Session corrupted and has been reset. Please resend your message.'
-            : 'An error occurred processing your message.'
+            : isTransient
+              ? '⚠️ AI 服务暂时过载（已重试 3 次仍未恢复），消息已回滚。请稍后重新发送。'
+              : 'An error occurred processing your message.'
 
           if (messageId) {
             telegramChannel.react(chatId, messageId, '❌').catch(() => {})
