@@ -5,6 +5,7 @@ import {
   buildDynamicContext,
   buildExecutionModeBlock,
   buildIdentityBlock,
+  buildOutputStyleBlock,
   buildRoleBlock,
   buildRulesBlock,
   buildRuntimeBlock,
@@ -82,6 +83,19 @@ describe('buildRulesBlock', () => {
     const inner = result.replace('<rules>\n', '').replace('\n</rules>', '')
     const lines = inner.split('\n').filter((l) => l.trim().length > 0)
     expect(lines.length).toBe(8)
+  })
+})
+
+describe('buildOutputStyleBlock', () => {
+  test('wraps channel delivery guidance in <output_style> tags', () => {
+    const result = buildOutputStyleBlock()
+
+    expect(result).toContain('<output_style>')
+    expect(result).toContain('</output_style>')
+    expect(result).toContain('会直接显示在当前 channel 中')
+    expect(result).toContain('不要为了把内容发回当前用户，再额外调用发送工具')
+    expect(result).toContain('以 channel capabilities 为准')
+    expect(result).toContain('必须在回复中直接写出来')
   })
 })
 
@@ -321,6 +335,23 @@ describe('buildRuntimeBlock', () => {
     const result = buildRuntimeBlock({})
     expect(result).toBe('')
   })
+
+  test('renders channel capability details for inline images', () => {
+    const result = buildRuntimeBlock({
+      channel: 'feishu',
+      channelCapabilities: {
+        inlineImages: true,
+        markdownNotes:
+          'Inline images can use img_xxx, local absolute paths, file:// URIs, or http(s) URLs.',
+      },
+    })
+
+    expect(result).toContain('channel=feishu')
+    expect(result).toContain('Inline images: supported')
+    expect(result).toContain('local absolute paths')
+    expect(result).toContain('file:// URIs')
+    expect(result).toContain('http(s) URLs')
+  })
 })
 
 describe('buildBootstrapContextBlock', () => {
@@ -413,6 +444,25 @@ describe('buildSystemPrompt', () => {
 
     expect(result).toContain('<runtime>')
     expect(result).toContain('model=gpt-5.3-codex-medium')
+  })
+
+  test('includes output_style for channel sessions', () => {
+    const result = buildSystemPrompt({
+      ...baseComponents,
+      runtimeInfo: { channel: 'feishu', model: 'gpt-5.3-codex-medium' },
+    })
+
+    expect(result).toContain('<output_style>')
+    expect(result).toContain('你的回复会直接显示在当前 channel 中')
+  })
+
+  test('omits output_style when no channel is present', () => {
+    const result = buildSystemPrompt({
+      ...baseComponents,
+      runtimeInfo: { model: 'gpt-5.3-codex-medium' },
+    })
+
+    expect(result).not.toContain('<output_style>')
   })
 
   test('includes bootstrap files as project context', () => {

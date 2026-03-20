@@ -44,6 +44,9 @@ export function buildSystemPrompt(components: PromptComponents): string {
   // Full-only sections
   if (!isMinimal) {
     sections.push(buildRulesBlock())
+    if (components.runtimeInfo?.channel) {
+      sections.push(buildOutputStyleBlock())
+    }
     sections.push(buildExecutionModeBlock())
     sections.push(buildSafetyBlock())
     sections.push(buildToolCallStyleBlock())
@@ -108,6 +111,23 @@ export function buildRulesBlock(): string {
 阶段性汇报用于同步进度，不用于请求继续许可；若总体任务未完成，汇报后直接进入下一步。
 <system-reminder> 是系统注入的内部运行时提示，不是用户消息；不要回应、转述、解释或尝试管理它。当前其中只会出现新增 Skill 通知，不包含时间、memo 或 memory。`
   return `<rules>\n${rules}\n</rules>`
+}
+
+export function buildOutputStyleBlock(): string {
+  const style = `你的回复会直接显示在当前 channel 中，用户会直接收到。
+
+因此：
+  - 用户让你“发给我”“给我看”“贴出来”“在这里回复”，默认直接在回复里写出内容
+  - 不要为了把内容发回当前用户，再额外调用发送工具
+  - 只有当用户明确要求你操作其他外部目标时，才调用对应工具
+  - 当前 channel 的富文本、图片等格式能力，以 channel capabilities 为准；不要自行假设必须改走别的发送方式
+
+如果你通过 read、fetch 或其他工具拿到了用户要看的内容，必须在回复中直接写出来、整理出来或总结出来，不能只停留在工具调用结果里。`
+  return enforceFixedBudget(
+    `<output_style>\n${style}\n</output_style>`,
+    300,
+    'Output Style',
+  )
 }
 
 export function buildExecutionModeBlock(): string {
@@ -259,7 +279,10 @@ export function buildRuntimeBlock(info: RuntimeInfo): string {
     const caps = info.channelCapabilities
     const capLines: string[] = []
     if (caps.streaming) capLines.push('- Streaming output: supported (text appears progressively)')
-    if (caps.inlineImages) capLines.push('- Inline images: supported (use ![alt](url) in markdown — auto-uploaded)')
+    if (caps.inlineImages)
+      capLines.push(
+        '- Inline images: supported (use standard markdown images; existing img_xxx, local absolute paths, file:// URIs, and http(s) URLs can be handled)',
+      )
     else capLines.push('- Inline images: NOT supported (send images as separate messages)')
     if (caps.imageMessages) capLines.push('- Image messages: supported')
     if (caps.fileMessages) capLines.push('- File messages: supported')

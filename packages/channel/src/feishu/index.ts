@@ -284,8 +284,7 @@ export class FeishuChannel implements Channel {
       threadReply: true,
       markdownNotes:
         'Feishu cards use a non-standard Markdown dialect. H1-H3 are not supported (use H4+). ' +
-        'Images must use Feishu image keys (img_xxx), not URLs. ' +
-        'Use standard ![alt](url) syntax for images — they will be auto-uploaded and converted. ' +
+        'Inline images can be written with standard markdown using Feishu image keys (img_xxx), local absolute paths (/Users/...), file:// URIs, or http(s) URLs; the channel will auto-upload and convert them. ' +
         'Obsidian wikilink images ![[path]] are also supported and auto-converted.',
       maxMessageLength: 30000,
     }
