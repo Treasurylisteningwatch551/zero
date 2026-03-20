@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 test.describe('Session Detail Page', () => {
   // Helper: create a session via chat, then navigate to session detail

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 test.describe('Skeleton Loaders', () => {
   test('config page shows skeletons during loading', async ({ page }) => {

@@ -7,6 +7,7 @@
   "scripts": {
     "test": "bun test --recursive packages apps",
     "test:e2e": "bunx playwright test",
+    "e2e:server": "bun run e2e/server.ts",
     "check": "bunx tsc -p tsconfig.check.json",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

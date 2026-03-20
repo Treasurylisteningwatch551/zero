@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 test.describe('Chat Drawer', () => {
   test('opens and closes chat drawer with push layout', async ({ page }) => {
