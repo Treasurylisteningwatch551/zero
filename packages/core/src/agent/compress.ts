@@ -33,6 +33,19 @@ export async function compressConversation(
   const minRetain = Math.max(0, messages.length - minRetainMessages)
   splitIndex = Math.min(splitIndex, minRetain)
 
+  // Guard: never split between an assistant tool_use and its user tool_result.
+  // Walk the split point forward until we're not inside a tool_use → tool_result pair.
+  while (
+    splitIndex > 0 &&
+    splitIndex < messages.length &&
+    messages[splitIndex - 1].role === 'assistant' &&
+    messages[splitIndex - 1].content.some((b) => b.type === 'tool_use') &&
+    messages[splitIndex].role === 'user' &&
+    messages[splitIndex].content.some((b) => b.type === 'tool_result')
+  ) {
+    splitIndex--
+  }
+
   // If nothing to compress, return as-is
   if (splitIndex <= 0) {
     return {
