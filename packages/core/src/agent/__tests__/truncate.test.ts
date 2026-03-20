@@ -1,5 +1,8 @@
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
-import { truncateToolOutput } from '../truncate'
+import { artifactizeToolOutput, truncateToolOutput } from '../truncate'
 
 describe('truncateToolOutput', () => {
   test('returns original output when within limit for read tool', () => {
@@ -69,5 +72,38 @@ describe('truncateToolOutput', () => {
     const resultBashLower = truncateToolOutput('bash', largeOutput)
     expect(resultBashUpper).toBe(resultBashLower)
     expect(resultBashUpper).toContain('输出已截断')
+  })
+})
+
+describe('artifactizeToolOutput', () => {
+  test('delegates to truncateToolOutput when output is within artifact threshold', () => {
+    const output = 'Hello world\nThis stays inline.'
+    const result = artifactizeToolOutput('read', output, { workDir: process.cwd() })
+
+    expect(result).toEqual({
+      content: truncateToolOutput('read', output),
+    })
+  })
+
+  test('writes oversized output to artifact file and returns compact reference', () => {
+    const workDir = mkdtempSync(join(tmpdir(), 'zero-artifactize-'))
+
+    try {
+      const output = `${'A'.repeat(70000)}\n${'B'.repeat(300)}`
+      const result = artifactizeToolOutput('bash', output, { workDir, toolUseId: 'tool-1' })
+
+      expect(result.artifactPath).toBeDefined()
+      expect(result.content).toContain('[Artifact: 原始输出')
+      expect(result.content).toContain('--- 摘要 ---')
+      expect(result.content).toContain('--- 尾部 ---')
+      expect(result.content).toContain('[使用 read 工具查看完整内容:')
+
+      const artifactPath = result.artifactPath!
+      expect(existsSync(artifactPath)).toBe(true)
+      expect(artifactPath.startsWith(join(workDir, '.artifacts'))).toBe(true)
+      expect(readFileSync(artifactPath, 'utf-8')).toBe(output)
+    } finally {
+      rmSync(workDir, { recursive: true, force: true })
+    }
   })
 })

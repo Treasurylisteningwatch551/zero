@@ -22,6 +22,8 @@ export interface ToolResultBlock {
   content: string
   isError?: boolean
   outputSummary?: string
+  /** Tracks the truncation level applied to this block for cache-friendly idempotency */
+  truncationLevel?: 'full' | 'summary' | 'status'
 }
 
 export interface ImageBlock {

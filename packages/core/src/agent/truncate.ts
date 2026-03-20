@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { estimateTokens } from '@zero-os/shared'
 import { CONTEXT_PARAMS } from './params'
 
@@ -33,4 +35,43 @@ export function truncateToolOutput(toolName: string, output: string): string {
     '',
     tail,
   ].join('\n')
+}
+
+/**
+ * For oversized tool output (>64KB chars), save raw output to disk as an artifact
+ * and return a compact reference for the conversation context.
+ * For normal-sized output, delegates to truncateToolOutput.
+ */
+export function artifactizeToolOutput(
+  toolName: string,
+  output: string,
+  opts: { workDir: string; toolUseId?: string },
+): { content: string; artifactPath?: string } {
+  const threshold = CONTEXT_PARAMS.toolOutput.artifactThresholdChars
+  if (output.length <= threshold) {
+    return { content: truncateToolOutput(toolName, output) }
+  }
+
+  const artifactDir = join(opts.workDir, '.artifacts')
+  mkdirSync(artifactDir, { recursive: true })
+  const filename = `tool-output-${Date.now()}-${toolName}.txt`
+  const artifactPath = join(artifactDir, filename)
+  writeFileSync(artifactPath, output, 'utf-8')
+
+  const summary = output.slice(0, 500)
+  const tail = output.slice(-200)
+  const content = [
+    `[Artifact: 原始输出 ${output.length.toLocaleString()} 字符，已落盘]`,
+    `路径: ${artifactPath}`,
+    '',
+    '--- 摘要 ---',
+    summary,
+    '',
+    '--- 尾部 ---',
+    tail,
+    '',
+    `[使用 read 工具查看完整内容: ${artifactPath}]`,
+  ].join('\n')
+
+  return { content, artifactPath }
 }

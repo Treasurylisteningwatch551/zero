@@ -45,7 +45,7 @@ import {
   parseTaskClosureDecision,
   stripAssistantTrimFrom,
 } from './task-closure'
-import { truncateToolOutput } from './truncate'
+import { artifactizeToolOutput } from './truncate'
 
 class ToolInputParseError extends Error {
   constructor(message: string) {
@@ -558,7 +558,18 @@ export class Agent {
           outputSummary: result.outputSummary,
         })
 
-        const truncatedOutput = truncateToolOutput(block.name, result.output)
+        const { content: truncatedOutput, artifactPath } = artifactizeToolOutput(
+          block.name,
+          result.output,
+          { workDir: this.toolContext.workDir, toolUseId: block.id },
+        )
+        if (artifactPath) {
+          this.toolContext.logger.info('tool_output_artifactized', {
+            tool: block.name,
+            originalChars: result.output.length,
+            artifactPath,
+          })
+        }
         toolResultBlocks.push({
           type: 'tool_result',
           toolUseId: block.id,

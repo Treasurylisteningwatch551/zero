@@ -37,6 +37,8 @@ export const CONTEXT_PARAMS = {
     bash: 4000,
     fetch: 6000,
     task: 2000,
+    /** Threshold (chars) above which tool output is saved as artifact file */
+    artifactThresholdChars: 65536,
     /** Default limit for unknown tools */
     default: 4000,
     /** Head portion ratio when truncating */

@@ -1,10 +1,81 @@
-import type { Message, ToolResultBlock } from '@zero-os/shared'
+import type { ContentBlock, Message, ToolResultBlock } from '@zero-os/shared'
 import { estimateMessageTokens } from '@zero-os/shared'
 import { CONTEXT_PARAMS } from './params'
 
 /**
+ * Merge queued messages that sit between an assistant tool_use message and
+ * its corresponding user tool_result message. The Anthropic API requires
+ * that every assistant message containing tool_use blocks is immediately
+ * followed by a user message with the matching tool_result blocks.
+ *
+ * When a user message arrives while the agent is executing tools, the session
+ * stores it as a standalone 'queued' message in the history. This can break
+ * the tool_use → tool_result pairing. This function detects that pattern and
+ * merges the queued content into the tool_result message.
+ */
+export function mergeInterleavedQueuedMessages(messages: Message[]): Message[] {
+  if (messages.length < 3) return messages
+
+  // Phase 1: identify queued messages sandwiched between tool_use and tool_result
+  const indicesToSkip = new Set<number>()
+  const mergeInto = new Map<number, number[]>() // tool_result idx → queued indices
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    if (
+      msg.role !== 'assistant' ||
+      !msg.content.some((b) => b.type === 'tool_use')
+    ) {
+      continue
+    }
+
+    // Scan forward past queued messages
+    const queuedIndices: number[] = []
+    let j = i + 1
+    while (j < messages.length && messages[j].messageType === 'queued') {
+      queuedIndices.push(j)
+      j++
+    }
+
+    if (queuedIndices.length === 0) continue
+
+    // Check if the next non-queued message is a user message with tool_result
+    if (
+      j < messages.length &&
+      messages[j].role === 'user' &&
+      messages[j].content.some((b) => b.type === 'tool_result')
+    ) {
+      for (const qi of queuedIndices) indicesToSkip.add(qi)
+      mergeInto.set(j, queuedIndices)
+    }
+  }
+
+  if (indicesToSkip.size === 0) return messages
+
+  // Phase 2: build output — skip standalone queued, merge into tool_result
+  const result: Message[] = []
+  for (let i = 0; i < messages.length; i++) {
+    if (indicesToSkip.has(i)) continue
+
+    if (mergeInto.has(i)) {
+      const extraContent: ContentBlock[] = []
+      for (const qi of mergeInto.get(i)!) {
+        extraContent.push(...messages[qi].content)
+      }
+      result.push({ ...messages[i], content: [...messages[i].content, ...extraContent] })
+    } else {
+      result.push(messages[i])
+    }
+  }
+
+  return result
+}
+
+/**
  * Prepare conversation history with progressive tool output reduction.
- * Does NOT modify the original messages array — returns a new array.
+ * Mutates tool_result blocks in the input messages array to persist truncation
+ * levels across turns for cache-friendly idempotency. Returns a shallow copy
+ * of the prepared messages array.
  *
  * Turn counting: each user message with a text block starts a new turn.
  * Turns are numbered from the end: most recent turn = 0.
@@ -16,10 +87,13 @@ import { CONTEXT_PARAMS } from './params'
 export function prepareConversationHistory(messages: Message[]): Message[] {
   if (messages.length === 0) return []
 
+  // Merge queued messages that break tool_use → tool_result pairing
+  const cleaned = mergeInterleavedQueuedMessages(messages)
+
   // Assign turn indices by scanning from the end
   const turnBoundaries: number[] = []
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i]
+  for (let i = cleaned.length - 1; i >= 0; i--) {
+    const msg = cleaned[i]
     if (startsTopLevelTurn(msg)) {
       turnBoundaries.push(i)
     }
@@ -30,7 +104,7 @@ export function prepareConversationHistory(messages: Message[]): Message[] {
   const turnAgeMap = new Map<number, number>()
   for (let t = 0; t < turnBoundaries.length; t++) {
     const startIdx = turnBoundaries[t]
-    const endIdx = t === 0 ? messages.length : turnBoundaries[t - 1]
+    const endIdx = t === 0 ? cleaned.length : turnBoundaries[t - 1]
     for (let i = startIdx; i < endIdx; i++) {
       turnAgeMap.set(i, t)
     }
@@ -43,25 +117,42 @@ export function prepareConversationHistory(messages: Message[]): Message[] {
     }
   }
 
-  return messages.map((msg, idx) => {
-    // Only process user messages with tool_result blocks
+  return cleaned.map((msg, idx) => {
     if (msg.role !== 'user') return msg
     const hasToolResult = msg.content.some((b) => b.type === 'tool_result')
     if (!hasToolResult) return msg
 
     const age = turnAgeMap.get(idx) ?? turnBoundaries.length
-    if (age <= CONTEXT_PARAMS.history.fullRetainTurns) return msg // Recent: keep full
-
-    // Process content blocks
     const newContent = msg.content.map((block) => {
       if (block.type !== 'tool_result') return block
 
-      if (age <= CONTEXT_PARAMS.history.summaryRetainTurns) {
-        // Mid-range: truncate to ~200 char summary
-        return summarizeToolResult(block)
+      // Already at maximum truncation — never re-process
+      if (block.truncationLevel === 'status') return block
+
+      // Recent turns: mark as full, no truncation
+      if (age <= CONTEXT_PARAMS.history.fullRetainTurns) {
+        if (!block.truncationLevel) block.truncationLevel = 'full'
+        return block
       }
-      // Old: replace with status only
-      return statusOnlyToolResult(block)
+
+      // Already summarized and still in summary range — skip
+      if (block.truncationLevel === 'summary' && age <= CONTEXT_PARAMS.history.summaryRetainTurns) {
+        return block
+      }
+
+      // Needs summary truncation
+      if (age <= CONTEXT_PARAMS.history.summaryRetainTurns) {
+        const summarized = summarizeToolResult(block)
+        block.content = summarized.content
+        block.truncationLevel = 'summary'
+        return block
+      }
+
+      // Needs status-only truncation
+      const statusOnly = statusOnlyToolResult(block)
+      block.content = statusOnly.content
+      block.truncationLevel = 'status'
+      return block
     })
 
     return { ...msg, content: newContent }
@@ -80,15 +171,15 @@ function summarizeToolResult(block: ToolResultBlock): ToolResultBlock {
   const summary =
     block.outputSummary ?? block.content.slice(0, CONTEXT_PARAMS.history.summaryMaxChars)
   const truncated = summary.length < block.content.length ? `${summary}...` : summary
-  return { ...block, content: truncated }
+  return { ...block, content: truncated, truncationLevel: 'summary' }
 }
 
 function statusOnlyToolResult(block: ToolResultBlock): ToolResultBlock {
   if (block.isError) {
     const errorSnippet = block.content.slice(0, 100)
-    return { ...block, content: `\u2717 failed: ${errorSnippet}` }
+    return { ...block, content: `\u2717 failed: ${errorSnippet}`, truncationLevel: 'status' }
   }
-  return { ...block, content: '\u2713 success' }
+  return { ...block, content: '\u2713 success', truncationLevel: 'status' }
 }
 
 /**

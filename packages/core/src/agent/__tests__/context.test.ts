@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { generateId, now } from '@zero-os/shared'
 import type { ContentBlock, Message } from '@zero-os/shared'
-import { estimateConversationTokens, prepareConversationHistory } from '../context'
+import {
+  estimateConversationTokens,
+  mergeInterleavedQueuedMessages,
+  prepareConversationHistory,
+} from '../context'
 
 function makeMessage(role: 'user' | 'assistant', content: ContentBlock[]): Message {
   return {
@@ -76,16 +80,21 @@ describe('prepareConversationHistory', () => {
     expect(result).toEqual([])
   })
 
-  test('does not modify original messages array (immutability)', () => {
+  test('mutates tool_result blocks in place to persist truncation levels', () => {
     const messages = buildConversation(6)
-    const originalContent = messages.map((m) => m.content.map((b) => ({ ...b })))
+    const oldestToolResult = expectDefined(
+      messages[2].content.find((b) => b.type === 'tool_result'),
+    )
+    const newestToolResult = expectDefined(
+      messages[messages.length - 2].content.find((b) => b.type === 'tool_result'),
+    )
 
-    prepareConversationHistory(messages)
+    const result = prepareConversationHistory(messages)
 
-    // Verify every message's content is unchanged
-    for (let i = 0; i < messages.length; i++) {
-      expect(messages[i].content).toEqual(originalContent[i])
-    }
+    expect(result).not.toBe(messages)
+    expect(oldestToolResult.truncationLevel).toBe('summary')
+    expect(oldestToolResult.content.length).toBeLessThanOrEqual(210)
+    expect(newestToolResult.truncationLevel).toBe('full')
   })
 
   test('preserves full tool output for turns 0-3 (most recent)', () => {
@@ -128,6 +137,7 @@ describe('prepareConversationHistory', () => {
     // The original content is long (~800 chars), truncated should be ~200 + "..."
     expect(midBlock.content.length).toBeLessThanOrEqual(210)
     expect(midBlock.content).toEndWith('...')
+    expect(midBlock.truncationLevel).toBe('summary')
   })
 
   test('replaces tool output with status for turns 9+', () => {
@@ -140,6 +150,7 @@ describe('prepareConversationHistory', () => {
     expect(oldToolResult.role).toBe('user')
     const oldBlock = expectDefined(oldToolResult.content.find((b) => b.type === 'tool_result'))
     expect(oldBlock.content).toBe('\u2713 success')
+    expect(oldBlock.truncationLevel).toBe('status')
   })
 
   test('handles error tool results with failed prefix', () => {
@@ -161,6 +172,7 @@ describe('prepareConversationHistory', () => {
     const errorBlock = expectDefined(errorResult.content.find((b) => b.type === 'tool_result'))
     expect(errorBlock.content).toContain('\u2717 failed:')
     expect(errorBlock.content).toContain('Error: command not found')
+    expect(errorBlock.truncationLevel).toBe('status')
   })
 
   test('handles success tool results with success marker', () => {
@@ -172,6 +184,7 @@ describe('prepareConversationHistory', () => {
     const successResult = result[6]
     const successBlock = expectDefined(successResult.content.find((b) => b.type === 'tool_result'))
     expect(successBlock.content).toBe('\u2713 success')
+    expect(successBlock.truncationLevel).toBe('status')
   })
 
   test('leaves assistant messages untouched', () => {
@@ -216,6 +229,36 @@ describe('prepareConversationHistory', () => {
     // Turn 0 (chronological) has age 5 => mid-range truncation
     const block = expectDefined(result[2].content.find((b) => b.type === 'tool_result'))
     expect(block.content).toContain('Custom summary of output')
+    expect(block.truncationLevel).toBe('summary')
+  })
+
+  test('repeated calls are idempotent for already summarized blocks', () => {
+    const messages = buildConversation(6)
+
+    prepareConversationHistory(messages)
+    const block = expectDefined(messages[2].content.find((b) => b.type === 'tool_result'))
+    const firstContent = block.content
+
+    const result = prepareConversationHistory(messages)
+    const repeatedBlock = expectDefined(result[2].content.find((b) => b.type === 'tool_result'))
+
+    expect(repeatedBlock.content).toBe(firstContent)
+    expect(repeatedBlock.truncationLevel).toBe('summary')
+  })
+
+  test('previously summarized blocks can later degrade to status', () => {
+    const messages = buildConversation(6)
+    prepareConversationHistory(messages)
+
+    const firstBlock = expectDefined(messages[2].content.find((b) => b.type === 'tool_result'))
+    expect(firstBlock.truncationLevel).toBe('summary')
+
+    const extended = [...messages, ...buildConversation(4)]
+    const result = prepareConversationHistory(extended)
+    const degradedBlock = expectDefined(result[2].content.find((b) => b.type === 'tool_result'))
+
+    expect(degradedBlock.content).toBe('\u2713 success')
+    expect(degradedBlock.truncationLevel).toBe('status')
   })
 
   test('preserves user text messages that are not tool results', () => {
@@ -252,6 +295,160 @@ describe('prepareConversationHistory', () => {
 
     expect(olderToolResult.content).toBe('A'.repeat(400))
     expect(result[4]).toBe(messages[4])
+  })
+})
+
+describe('mergeInterleavedQueuedMessages', () => {
+  test('returns same messages when no queued messages present', () => {
+    const messages = [
+      makeUserText('hello'),
+      makeAssistantToolUse('bash', 'tool-1'),
+      makeToolResult('tool-1', 'ok'),
+      makeAssistantText('done'),
+    ]
+    const result = mergeInterleavedQueuedMessages(messages)
+    expect(result).toBe(messages) // same reference, no copy needed
+  })
+
+  test('merges queued message between tool_use and tool_result', () => {
+    const messages = [
+      makeUserText('do something'),
+      makeAssistantToolUse('task', 'toolu_abc'),
+      makeQueuedUserText('additional constraint from user'),
+      makeToolResult('toolu_abc', 'task completed'),
+      makeAssistantText('done'),
+    ]
+    const result = mergeInterleavedQueuedMessages(messages)
+
+    // Queued message should be removed as standalone
+    expect(result.length).toBe(4)
+    // Message order: user, assistant(tool_use), user(tool_result + queued text), assistant
+    expect(result[0].role).toBe('user')
+    expect(result[1].role).toBe('assistant')
+    expect(result[2].role).toBe('user')
+    expect(result[3].role).toBe('assistant')
+
+    // tool_result message should contain both tool_result AND queued text blocks
+    const toolResultMsg = result[2]
+    const types = toolResultMsg.content.map((b) => b.type)
+    expect(types).toContain('tool_result')
+    expect(types).toContain('text')
+
+    // Queued text content should be present
+    const textBlock = toolResultMsg.content.find(
+      (b) => b.type === 'text' && (b as { text: string }).text.includes('additional constraint'),
+    )
+    expect(textBlock).toBeDefined()
+  })
+
+  test('merges multiple queued messages between tool_use and tool_result', () => {
+    const messages = [
+      makeUserText('start'),
+      makeAssistantToolUse('task', 'toolu_1'),
+      makeQueuedUserText('first queued'),
+      makeQueuedUserText('second queued'),
+      makeToolResult('toolu_1', 'result'),
+      makeAssistantText('end'),
+    ]
+    const result = mergeInterleavedQueuedMessages(messages)
+
+    expect(result.length).toBe(4)
+    // Both queued messages should be merged into the tool_result
+    const toolResultMsg = result[2]
+    const textBlocks = toolResultMsg.content.filter((b) => b.type === 'text')
+    expect(textBlocks.length).toBe(2)
+  })
+
+  test('does not merge queued messages that are not between tool_use/tool_result', () => {
+    const messages = [
+      makeUserText('turn 1'),
+      makeAssistantToolUse('bash', 'tool-1'),
+      makeToolResult('tool-1', 'ok'),
+      makeAssistantText('reply 1'),
+      makeQueuedUserText('late follow-up'), // NOT between tool_use and tool_result
+      makeAssistantText('queued ack'),
+    ]
+    const result = mergeInterleavedQueuedMessages(messages)
+
+    // No merge should happen — queued message stays as-is
+    expect(result).toBe(messages)
+  })
+
+  test('does not modify original messages array', () => {
+    const messages = [
+      makeUserText('start'),
+      makeAssistantToolUse('task', 'toolu_1'),
+      makeQueuedUserText('queued'),
+      makeToolResult('toolu_1', 'result'),
+    ]
+    const originalLength = messages.length
+    const originalContent = messages[3].content.length
+
+    mergeInterleavedQueuedMessages(messages)
+
+    expect(messages.length).toBe(originalLength)
+    expect(messages[3].content.length).toBe(originalContent)
+  })
+
+  test('handles fewer than 3 messages', () => {
+    const messages = [makeUserText('hi'), makeAssistantText('hello')]
+    const result = mergeInterleavedQueuedMessages(messages)
+    expect(result).toBe(messages)
+  })
+
+  test('handles multiple tool_use/queued/tool_result groups in same conversation', () => {
+    const messages = [
+      makeUserText('start'),
+      // First tool cycle with queued
+      makeAssistantToolUse('bash', 'tool-1'),
+      makeQueuedUserText('queued during tool-1'),
+      makeToolResult('tool-1', 'result-1'),
+      // Second tool cycle with queued
+      makeAssistantToolUse('bash', 'tool-2'),
+      makeQueuedUserText('queued during tool-2'),
+      makeToolResult('tool-2', 'result-2'),
+      makeAssistantText('all done'),
+    ]
+    const result = mergeInterleavedQueuedMessages(messages)
+
+    // Both queued messages should be merged
+    expect(result.length).toBe(6) // 8 - 2 queued = 6
+    // Both tool_result messages should have merged text blocks
+    const tr1 = result[2]
+    expect(tr1.content.some((b) => b.type === 'text')).toBe(true)
+    expect(tr1.content.some((b) => b.type === 'tool_result')).toBe(true)
+    const tr2 = result[4]
+    expect(tr2.content.some((b) => b.type === 'text')).toBe(true)
+    expect(tr2.content.some((b) => b.type === 'tool_result')).toBe(true)
+  })
+})
+
+describe('prepareConversationHistory — queued message merging', () => {
+  test('queued messages between tool_use and tool_result are merged before API call', () => {
+    // Reproduces the exact bug: sess_20260318_1452_fei_adaa
+    const messages = [
+      makeUserText('fix issues'),
+      makeAssistantToolUse('task', 'toolu_01MGFBSJfmWFTmKqy8Zd1oyJ'),
+      makeQueuedUserText('表格不要替换成列表'),
+      makeToolResult('toolu_01MGFBSJfmWFTmKqy8Zd1oyJ', 'All 4 tasks completed'),
+      makeAssistantText('done'),
+    ]
+
+    const result = prepareConversationHistory(messages)
+
+    // The queued message should NOT appear as standalone
+    for (let i = 0; i < result.length; i++) {
+      if (
+        result[i].role === 'assistant' &&
+        result[i].content.some((b) => b.type === 'tool_use')
+      ) {
+        // Next message must contain tool_result
+        const next = result[i + 1]
+        expect(next).toBeDefined()
+        expect(next.role).toBe('user')
+        expect(next.content.some((b) => b.type === 'tool_result')).toBe(true)
+      }
+    }
   })
 })
 
