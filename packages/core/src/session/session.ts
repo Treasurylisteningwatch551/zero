@@ -178,6 +178,10 @@ export class Session {
     this.cachedSystemPrompt = null // Force re-build on next turn
   }
 
+  isAgentInitialized(): boolean {
+    return !!this.agent
+  }
+
   initAgent(config: AgentConfig): void {
     this.lastAgentConfig = config
     this.cachedSystemPrompt = null
@@ -798,6 +802,14 @@ export class Session {
     const activeModel = modelRouter.resolveModel(normalizedCurrentModel)
 
     const session = Object.create(Session.prototype) as Session
+    const logger = {
+      info: (event: string, d?: Record<string, unknown>) =>
+        console.log(`[${data.id}] ${event}`, d ?? ''),
+      warn: (event: string, d?: Record<string, unknown>) =>
+        console.warn(`[${data.id}] ${event}`, d ?? ''),
+      error: (event: string, d?: Record<string, unknown>) =>
+        console.error(`[${data.id}] ${event}`, d ?? ''),
+    }
     Object.assign(session, {
       data: {
         ...data,
@@ -809,6 +821,11 @@ export class Session {
       toolRegistry,
       activeModel,
       deps,
+      logger,
+      agentControl: new AgentControl({
+        tracer: deps.tracer,
+        logger,
+      }),
       mutex: new Mutex(),
       interruptFlag: false,
       messageQueue: [],

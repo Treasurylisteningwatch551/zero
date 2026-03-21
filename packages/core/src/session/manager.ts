@@ -352,8 +352,8 @@ export class SessionManager {
           if (agentConfig) {
             session.initAgent(agentConfig)
           }
-        } catch {
-          // If agent config is invalid, skip re-init — session still usable
+        } catch (e) {
+          console.warn(`[SessionManager] Failed to restore agent for session ${row.id}:`, e)
         }
       }
 

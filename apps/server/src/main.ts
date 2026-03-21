@@ -764,6 +764,13 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
                 agentInstruction:
                   'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
               })
+            } else if (!session.isAgentInitialized()) {
+              session.setChannelCapabilities(feishuChannel.getCapabilities())
+              session.initAgent({
+                name: agentName,
+                agentInstruction:
+                  'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+              })
             }
 
             typingReactionId = messageId ? await feishuChannel.react(messageId, 'Typing') : null
@@ -1098,6 +1105,13 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
           )
           activeSessionId = session.data.id
           if (isNew) {
+            session.setChannelCapabilities(telegramChannel.getCapabilities())
+            session.initAgent({
+              name: agentName,
+              agentInstruction:
+                'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
+            })
+          } else if (!session.isAgentInitialized()) {
             session.setChannelCapabilities(telegramChannel.getCapabilities())
             session.initAgent({
               name: agentName,
