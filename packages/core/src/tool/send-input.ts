@@ -1,0 +1,60 @@
+import type { ToolContext, ToolResult } from '@zero-os/shared'
+import { BaseTool } from './base'
+
+interface SendInputInput {
+  id: string
+  message: string
+  interrupt?: boolean
+}
+
+export class SendInputTool extends BaseTool {
+  name = 'send_input'
+  description =
+    'Send an additional message to a running sub-agent. Optionally request a cooperative interrupt at the next safe point.'
+  parameters = {
+    type: 'object',
+    properties: {
+      id: {
+        type: 'string',
+        description: 'Agent ID to send the message to.',
+      },
+      message: {
+        type: 'string',
+        description: 'Additional message text for the running sub-agent.',
+      },
+      interrupt: {
+        type: 'boolean',
+        description:
+          'If true, request that the sub-agent cooperatively interrupt at the next safe point before handling the new message.',
+      },
+    },
+    required: ['id', 'message'],
+  }
+
+  protected async execute(ctx: ToolContext, input: unknown): Promise<ToolResult> {
+    if (!ctx.agentControl) {
+      return {
+        success: false,
+        output: 'Agent control is not available in this session.',
+        outputSummary: 'Agent control unavailable',
+      }
+    }
+
+    const { id, message, interrupt } = input as SendInputInput
+    const result = ctx.agentControl.sendInput(id, message, { interrupt })
+
+    if (!result.success) {
+      return {
+        success: false,
+        output: result.error ?? 'Failed to send input to sub-agent.',
+        outputSummary: 'send_input failed',
+      }
+    }
+
+    return {
+      success: true,
+      output: `Queued message for sub-agent "${id}".${interrupt ? ' Interrupt requested.' : ''}`,
+      outputSummary: `Queued input for "${id}"`,
+    }
+  }
+}

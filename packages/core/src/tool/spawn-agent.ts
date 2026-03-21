@@ -1,0 +1,224 @@
+import { existsSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+import type { ModelRouter } from '@zero-os/model'
+import type { ToolContext, ToolResult } from '@zero-os/shared'
+import { generateId } from '@zero-os/shared'
+import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
+import { buildSubAgentPrompt } from '../agent/prompt'
+import { loadRoles, resolveRole } from '../agent/roles'
+import { BaseTool } from './base'
+import { ToolRegistry } from './registry'
+
+interface SpawnAgentInput {
+  instruction: string
+  label?: string
+  role?: string
+  agent_type?: string
+  preset?: string
+  agentInstruction?: string
+  tools?: string[]
+  model?: string
+}
+
+const BLOCKED_TOOLS = new Set(['task', 'spawn_agent', 'wait_agent', 'close_agent', 'send_input'])
+
+export class SpawnAgentTool extends BaseTool {
+  name = 'spawn_agent'
+  description =
+    'Spawn a sub-agent asynchronously. Returns immediately with an agent_id. Use wait_agent later to wait for one or more spawned sub-agents.'
+  parameters = {
+    type: 'object',
+    properties: {
+      instruction: {
+        type: 'string',
+        description: 'The task the sub-agent should execute.',
+      },
+      label: {
+        type: 'string',
+        description: 'Optional human-readable label for the sub-agent.',
+      },
+      role: {
+        type: 'string',
+        description:
+          'Optional role ID alias for agent_type/preset. For backward compatibility, if no matching role exists and no agentInstruction is provided, this value is used as the agent instruction.',
+      },
+      agent_type: {
+        type: 'string',
+        description: 'Optional role ID to use for the sub-agent.',
+      },
+      preset: {
+        type: 'string',
+        description: 'Backward-compatible alias for agent_type.',
+      },
+      agentInstruction: {
+        type: 'string',
+        description: 'Optional explicit agent instruction for a custom sub-agent.',
+      },
+      tools: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Optional allowlist of tool names for the sub-agent. Defaults to all non-blocked tools.',
+      },
+      model: {
+        type: 'string',
+        description:
+          'Optional model override for this sub-agent. Defaults to the current session model.',
+      },
+    },
+    required: ['instruction'],
+  }
+
+  constructor(
+    private modelRouter: ModelRouter,
+    private baseToolRegistry: ToolRegistry,
+  ) {
+    super()
+  }
+
+  protected async execute(ctx: ToolContext, input: unknown): Promise<ToolResult> {
+    if (!ctx.agentControl) {
+      return {
+        success: false,
+        output: 'Agent control is not available in this session.',
+        outputSummary: 'Agent control unavailable',
+      }
+    }
+
+    const { instruction, label, role, agent_type, preset, agentInstruction, tools, model } =
+      input as SpawnAgentInput
+    const trimmedInstruction = instruction.trim()
+    const roles = await loadRoles(ctx.projectRoot ?? process.cwd())
+    const requestedRoleId = preset?.trim() || agent_type?.trim() || role?.trim()
+    const roleDefinition = requestedRoleId ? resolveRole(requestedRoleId, roles) : undefined
+    const legacyRoleInstruction =
+      !preset?.trim() && !agent_type?.trim() && requestedRoleId && !roleDefinition
+        ? requestedRoleId
+        : undefined
+
+    if ((preset?.trim() || agent_type?.trim()) && requestedRoleId && !roleDefinition) {
+      return {
+        success: false,
+        output: `Unknown sub-agent role: ${requestedRoleId}`,
+        outputSummary: 'Unknown sub-agent role',
+      }
+    }
+
+    const resolvedAgentInstruction =
+      agentInstruction?.trim() ||
+      roleDefinition?.agentInstruction ||
+      legacyRoleInstruction ||
+      'You are a focused sub-agent. Execute the assigned task and report back.'
+    const agentLabel =
+      label?.trim() || roleDefinition?.name || (legacyRoleInstruction ? role?.trim() : undefined) || 'SubAgent'
+
+    const requestedModel = model?.trim() || roleDefinition?.model
+    const resolvedModel = requestedModel
+      ? this.modelRouter.resolveModel(requestedModel)
+      : ctx.currentModel
+        ? this.modelRouter.resolveModel(ctx.currentModel)
+        : this.modelRouter.getCurrentModel()
+    const adapter = resolvedModel?.adapter ?? this.modelRouter.getAdapter()
+    const scopedRegistry = this.buildScopedRegistry(tools ?? roleDefinition?.defaultTools)
+    const toolDefinitions = scopedRegistry.getDefinitions()
+
+    const subWorkDir = join(
+      ctx.workDir,
+      'subagents',
+      `${this.sanitizeSegment(agentLabel)}-${generateId().slice(0, 8)}`,
+    )
+    if (!existsSync(subWorkDir)) {
+      mkdirSync(subWorkDir, { recursive: true })
+    }
+
+    const toolContext: ToolContext = {
+      ...ctx,
+      sessionId: ctx.sessionId,
+      currentRequestId: undefined,
+      currentModel: resolvedModel
+        ? this.modelRouter.getModelLabel(resolvedModel)
+        : ctx.currentModel,
+      currentTraceSpanId: ctx.currentTraceSpanId,
+      spawnedByRequestId: ctx.currentRequestId,
+      workDir: subWorkDir,
+      agentControl: undefined,
+    }
+
+    const agentConfig: AgentConfig = {
+      name: agentLabel,
+      agentInstruction: resolvedAgentInstruction,
+      promptMode: roleDefinition?.promptMode ?? 'minimal',
+    }
+
+    const agentObs: AgentObservability = {
+      tracer: ctx.tracer,
+      secretFilter: ctx.secretFilter,
+      providerName: resolvedModel?.providerName,
+      modelLabel: resolvedModel ? this.modelRouter.getModelLabel(resolvedModel) : ctx.currentModel,
+      pricing: resolvedModel?.modelConfig.pricing,
+    }
+
+    const agent = new Agent(agentConfig, adapter, scopedRegistry, toolContext, agentObs)
+    const agentContext: AgentContext = {
+      systemPrompt: buildSubAgentPrompt(toolDefinitions, trimmedInstruction, resolvedAgentInstruction),
+      conversationHistory: [],
+      tools: toolDefinitions,
+    }
+
+    const spawnResult = ctx.agentControl.spawn(agent, agentContext, trimmedInstruction, {
+      label: agentLabel,
+      role: roleDefinition ? requestedRoleId : undefined,
+      depth: 1,
+    })
+
+    if ('error' in spawnResult) {
+      return {
+        success: false,
+        output: spawnResult.error,
+        outputSummary: 'Sub-agent spawn failed',
+      }
+    }
+
+    return {
+      success: true,
+      output: JSON.stringify(
+        {
+          agent_id: spawnResult.agentId,
+          label: spawnResult.label,
+        },
+        null,
+        2,
+      ),
+      outputSummary: `Spawned sub-agent "${spawnResult.label}"`,
+    }
+  }
+
+  private buildScopedRegistry(toolNames?: string[]): ToolRegistry {
+    const scopedRegistry = new ToolRegistry()
+    const selectedNames =
+      toolNames && toolNames.length > 0
+        ? toolNames
+        : this.baseToolRegistry
+            .list()
+            .map((tool) => tool.name)
+            .filter((toolName) => !BLOCKED_TOOLS.has(toolName))
+
+    for (const toolName of selectedNames) {
+      if (BLOCKED_TOOLS.has(toolName)) continue
+      const tool = this.baseToolRegistry.get(toolName)
+      if (tool) {
+        scopedRegistry.register(tool)
+      }
+    }
+
+    return scopedRegistry
+  }
+
+  private sanitizeSegment(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48)
+  }
+}

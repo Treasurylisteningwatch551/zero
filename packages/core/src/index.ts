@@ -15,11 +15,18 @@ export { MemorySearchTool } from './tool/memory-search'
 export { MemoryGetTool } from './tool/memory-get'
 export { ScheduleTool } from './tool/schedule'
 export { CodexTool } from './tool/codex'
+export { SpawnAgentTool } from './tool/spawn-agent'
+export { WaitAgentTool } from './tool/wait-agent'
+export { CloseAgentTool } from './tool/close-agent'
+export { SendInputTool } from './tool/send-input'
 export { ToolRegistry } from './tool/registry'
 
 // Agent
 export { Agent } from './agent/agent'
+export { AgentControl } from './agent/agent-control'
+export { loadRoles, resolveRole, getBuiltinRoles } from './agent/roles'
 export type { AgentConfig, AgentContext } from './agent/agent'
+export type { RoleDefinition } from './agent/roles'
 
 // Session
 export { Session } from './session/session'
