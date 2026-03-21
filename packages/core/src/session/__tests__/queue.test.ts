@@ -448,4 +448,50 @@ describe('Session queue handling', () => {
 
     expect(turnIndexes).toEqual([2])
   })
+
+  test('failed turn rollback emits session:update for subscribers', async () => {
+    const events: Array<{ topic: string; data: Record<string, unknown> }> = []
+    const session = new Session('web', createRouter(), new ToolRegistry(), {
+      bus: {
+        emit(topic, data) {
+          events.push({ topic, data })
+        },
+      },
+    })
+    session.initAgent({ name: 'queue-agent', agentInstruction: 'queue test agent' })
+
+    const failedMessage = makeMessage(session.data.id, 'assistant', 'message', 'partial output')
+    ;(
+      session as unknown as {
+        agent: {
+          run: (
+            context: unknown,
+            userMessage: string,
+            images: unknown,
+            onNewMessage?: (message: Message) => void,
+          ) => Promise<Message[]>
+        }
+      }
+    ).agent = {
+      run: async (
+        _context: unknown,
+        userMessage: string,
+        _images: unknown,
+        onNewMessage?: (message: Message) => void,
+      ) => {
+        onNewMessage?.(makeMessage(session.data.id, 'user', 'message', userMessage))
+        onNewMessage?.(failedMessage)
+        throw new Error('provider overloaded')
+      },
+    }
+
+    await expect(session.handleMessage('hello')).rejects.toThrow('provider overloaded')
+    expect(session.getMessages()).toEqual([])
+
+    const rollbackUpdate = events.find(
+      (event) => event.topic === 'session:update' && event.data.event === 'message_rollback',
+    )
+    expect(rollbackUpdate?.data.sessionId).toBe(session.data.id)
+    expect(rollbackUpdate?.data.messageCount).toBe(0)
+  })
 })

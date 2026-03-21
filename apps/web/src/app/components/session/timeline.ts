@@ -124,6 +124,11 @@ export function buildTimeline(
     }
 
     if (msg.role === 'user') {
+      const hasToolResultBlocks = msg.content.some((b) => b.type === 'tool_result')
+      if (hasToolResultBlocks && msg.messageType !== 'queued') {
+        continue
+      }
+
       const textBlocks = msg.content.filter((b) => b.type === 'text')
       const imageBlocks = msg.content
         .filter((b) => b.type === 'image')

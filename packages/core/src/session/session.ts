@@ -602,6 +602,11 @@ export class Session {
             this.messages.push(msg)
           }
         }
+        this.deps.bus?.emit('session:update', {
+          sessionId: this.data.id,
+          event: 'message_rollback',
+          messageCount: this.messages.length,
+        })
       }
       throw error
     }

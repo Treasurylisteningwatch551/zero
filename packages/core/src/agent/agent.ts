@@ -746,6 +746,7 @@ export class Agent {
     const maxTransientRetries = 3
     let lastStreamErr: unknown
     let transientAttempts = 0
+    let emptyStreamAttempts = 0
 
     for (let attempt = 0; attempt <= maxStreamRetries + maxTransientRetries; attempt++) {
       try {
@@ -759,16 +760,16 @@ export class Agent {
         const errorDetails = this.getStreamErrorDetails(streamErr)
 
         // Retry on empty stream content (original logic, limited to maxStreamRetries)
-        if (
-          attempt < maxStreamRetries &&
-          errorDetails.message === 'stream returned empty content'
-        ) {
-          this.toolContext.logger.warn('llm_stream_empty_retry', {
-            sessionId: this.toolContext.sessionId,
-            apiType: this.adapter.apiType,
-            attempt: attempt + 1,
-          })
-          continue
+        if (errorDetails.message === 'stream returned empty content') {
+          if (emptyStreamAttempts < maxStreamRetries) {
+            emptyStreamAttempts++
+            this.toolContext.logger.warn('llm_stream_empty_retry', {
+              sessionId: this.toolContext.sessionId,
+              apiType: this.adapter.apiType,
+              attempt: emptyStreamAttempts,
+            })
+            continue
+          }
         }
 
         // Retry on transient errors (overloaded, 429, 503, 529) with exponential backoff

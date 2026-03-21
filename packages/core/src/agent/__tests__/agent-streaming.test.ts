@@ -419,6 +419,72 @@ describe('Agent streaming callback', () => {
     expect(warnings.some((w) => w.event === 'llm_stream_fallback_to_complete')).toBe(false)
   })
 
+  test('empty stream retry remains available after a transient retry', async () => {
+    let streamCalls = 0
+    const adapter: ProviderAdapter = {
+      apiType: 'anthropic_messages' as const,
+      async complete() {
+        return {
+          id: 'resp-should-not-run',
+          content: [{ type: 'text' as const, text: 'unexpected' }],
+          stopReason: 'end_turn' as const,
+          usage: { input: 1, output: 1 },
+          model: 'claude-test',
+        }
+      },
+      async *stream() {
+        streamCalls++
+
+        if (streamCalls === 1) {
+          yield* failStream(
+            Object.assign(new Error('429 rate limited'), {
+              status: 429,
+              request_id: 'req_mix_1',
+            }),
+          )
+          return
+        }
+
+        if (streamCalls === 2) {
+          // This yields done without text, causing "stream returned empty content".
+          yield {
+            type: 'done' as const,
+            data: { finishReason: 'end_turn', usage: { input: 1, output: 1 }, model: 'claude-test' },
+          }
+          return
+        }
+
+        yield { type: 'text_delta' as const, data: { text: 'recovered after empty retry' } }
+        yield {
+          type: 'done' as const,
+          data: { finishReason: 'end_turn', usage: { input: 1, output: 2 }, model: 'claude-test' },
+        }
+      },
+      async healthCheck() {
+        return true
+      },
+    }
+
+    const warnings: Array<{ event: string; data?: Record<string, unknown> }> = []
+    const agent = createAgent(adapter, {
+      info: () => {},
+      warn: (event, data) => warnings.push({ event, data }),
+      error: () => {},
+    })
+
+    const messages = await agent.run(createContext(), 'say hi')
+    const assistant = messages.find((m) => m.role === 'assistant')
+    const text = assistant?.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { text: string }).text)
+      .join('')
+
+    expect(streamCalls).toBe(3)
+    expect(text).toBe('recovered after empty retry')
+    expect(warnings.some((w) => w.event === 'llm_stream_empty_retry')).toBe(true)
+    expect(warnings.some((w) => w.event === 'llm_stream_fallback_to_complete')).toBe(false)
+  })
+
   test('Anthropic SDK streaming guidance errors do not fallback to complete', async () => {
     const streamError = new Error(
       'Streaming is strongly recommended for operations that may take longer than 10 minutes.',

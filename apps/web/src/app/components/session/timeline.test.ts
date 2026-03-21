@@ -341,3 +341,43 @@ test('marks queued user messages for timeline rendering and preserves image atta
     images: [{ mediaType: 'image/png', data: 'abc123' }],
   })
 })
+
+test('does not render tool-result carrier messages as duplicate user messages', () => {
+  const items = buildTimeline([
+    {
+      id: 'msg_assistant_tool',
+      role: 'assistant',
+      messageType: 'message',
+      content: [{ type: 'tool_use', id: 'call_1', name: 'generate', input: {} }],
+      createdAt: '2026-03-08T00:00:00.000Z',
+    },
+    {
+      id: 'msg_tool_result_carrier',
+      role: 'user',
+      messageType: 'message',
+      content: [
+        { type: 'tool_result', toolUseId: 'call_1', content: 'ok' },
+        { type: 'text', text: '<queued_message>late follow-up</queued_message>' },
+      ],
+      createdAt: '2026-03-08T00:00:01.000Z',
+    },
+    {
+      id: 'msg_queued_visible',
+      role: 'user',
+      messageType: 'queued',
+      content: [{ type: 'text', text: 'late follow-up' }],
+      createdAt: '2026-03-08T00:00:02.000Z',
+    },
+  ])
+
+  expect(items).toHaveLength(2)
+  expect(items[0]).toMatchObject({
+    type: 'tool-call',
+    id: 'call_1',
+  })
+  expect(items[1]).toMatchObject({
+    type: 'user-message',
+    text: 'late follow-up',
+    queued: true,
+  })
+})
