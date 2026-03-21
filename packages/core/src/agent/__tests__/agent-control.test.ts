@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { Message } from '@zero-os/shared'
+import type { Message, ToolLogger, ToolTracer } from '@zero-os/shared'
 import { AgentControl } from '../agent-control'
 
 function sleep(ms: number): Promise<void> {
@@ -80,6 +80,71 @@ const agentContext = {
   systemPrompt: 'test',
   conversationHistory: [],
   tools: [],
+}
+
+function createObservabilityMocks(): {
+  tracer: ToolTracer
+  logger: ToolLogger
+  updates: Array<{ spanId: string; update: Record<string, unknown> }>
+  endings: Array<{ spanId: string; status?: 'success' | 'error'; metadata?: Record<string, unknown> }>
+  infos: Array<{ event: string; data?: Record<string, unknown> }>
+  warns: Array<{ event: string; data?: Record<string, unknown> }>
+  errors: Array<{ event: string; data?: Record<string, unknown> }>
+} {
+  const updates: Array<{ spanId: string; update: Record<string, unknown> }> = []
+  const endings: Array<{
+    spanId: string
+    status?: 'success' | 'error'
+    metadata?: Record<string, unknown>
+  }> = []
+  const infos: Array<{ event: string; data?: Record<string, unknown> }> = []
+  const warns: Array<{ event: string; data?: Record<string, unknown> }> = []
+  const errors: Array<{ event: string; data?: Record<string, unknown> }> = []
+
+  return {
+    tracer: {
+      startSpan(sessionId, name, parentId, options) {
+        return {
+          id: `span_${Math.random().toString(36).slice(2)}`,
+          sessionId,
+          parentId,
+          kind: options?.kind ?? 'turn',
+          name,
+          agentName: options?.agentName,
+          startTime: new Date().toISOString(),
+          status: 'running',
+          data: options?.data,
+          metadata: options?.metadata,
+          children: [],
+        }
+      },
+      updateSpan(spanId, update) {
+        updates.push({ spanId, update })
+      },
+      endSpan(spanId, status, metadata) {
+        endings.push({ spanId, status, metadata })
+      },
+      getSpan() {
+        return undefined
+      },
+    },
+    logger: {
+      info(event, data) {
+        infos.push({ event, data })
+      },
+      warn(event, data) {
+        warns.push({ event, data })
+      },
+      error(event, data) {
+        errors.push({ event, data })
+      },
+    },
+    updates,
+    endings,
+    infos,
+    warns,
+    errors,
+  }
 }
 
 describe('AgentControl', () => {
@@ -392,5 +457,152 @@ describe('AgentControl', () => {
     await control.waitAll([result.agentId], 100)
 
     expect(interrupted).toBe(true)
+  })
+
+  test('completing an agent updates and ends the linked sub-agent span', async () => {
+    const { tracer, logger, updates, endings, infos } = createObservabilityMocks()
+    const control = new AgentControl({ tracer, logger })
+    const result = control.spawn(createAgent({ text: 'final output' }), agentContext, 'finish', {
+      label: 'worker-1',
+      role: 'explorer',
+      traceSpanId: 'span_subagent_1',
+      sessionId: 'sess_test',
+    })
+    if (!('agentId' in result)) throw new Error('expected spawn success')
+
+    await control.waitAll([result.agentId], 100)
+
+    expect(updates).toContainEqual({
+      spanId: 'span_subagent_1',
+      update: {
+        data: {
+          success: true,
+          durationMs: expect.any(Number),
+          outputSummary: 'final output',
+        },
+      },
+    })
+    expect(endings).toContainEqual({
+      spanId: 'span_subagent_1',
+      status: 'success',
+      metadata: undefined,
+    })
+    expect(infos).toContainEqual({
+      event: 'subagent_spawned',
+      data: {
+        agentId: result.agentId,
+        sessionId: 'sess_test',
+        label: 'worker-1',
+        role: 'explorer',
+        depth: 1,
+        traceSpanId: 'span_subagent_1',
+      },
+    })
+    expect(infos).toContainEqual({
+      event: 'subagent_completed',
+      data: {
+        agentId: result.agentId,
+        sessionId: 'sess_test',
+        label: 'worker-1',
+        role: 'explorer',
+        durationMs: expect.any(Number),
+        traceSpanId: 'span_subagent_1',
+        outputSummary: 'final output',
+      },
+    })
+  })
+
+  test('failing an agent filters secrets and ends the linked sub-agent span with error', async () => {
+    const { tracer, logger, updates, endings, errors } = createObservabilityMocks()
+    const control = new AgentControl({ tracer, logger })
+    const result = control.spawn(createAgent({ error: 'secret boom' }), agentContext, 'finish', {
+      label: 'worker-2',
+      traceSpanId: 'span_subagent_2',
+      secretFilter: {
+        filter(text: string) {
+          return text.replaceAll('secret', '[REDACTED]')
+        },
+        addSecret() {},
+        removeSecret() {},
+      },
+      sessionId: 'sess_test',
+    })
+    if (!('agentId' in result)) throw new Error('expected spawn success')
+
+    await control.waitAll([result.agentId], 100)
+
+    expect(control.getStatus(result.agentId)?.error).toBe('[REDACTED] boom')
+    expect(updates).toContainEqual({
+      spanId: 'span_subagent_2',
+      update: {
+        data: {
+          success: false,
+          durationMs: expect.any(Number),
+          error: '[REDACTED] boom',
+        },
+      },
+    })
+    expect(endings).toContainEqual({
+      spanId: 'span_subagent_2',
+      status: 'error',
+      metadata: {
+        error: '[REDACTED] boom',
+      },
+    })
+    expect(errors).toContainEqual({
+      event: 'subagent_failed',
+      data: {
+        agentId: result.agentId,
+        sessionId: 'sess_test',
+        label: 'worker-2',
+        role: undefined,
+        durationMs: expect.any(Number),
+        traceSpanId: 'span_subagent_2',
+        error: '[REDACTED] boom',
+      },
+    })
+  })
+
+  test('closing a running agent ends the linked sub-agent span and logs the close', () => {
+    const { tracer, logger, updates, endings, infos } = createObservabilityMocks()
+    const control = new AgentControl({ tracer, logger })
+    const result = control.spawn(createAgent({ delayMs: 30 }), agentContext, 'close me', {
+      label: 'worker-3',
+      traceSpanId: 'span_subagent_3',
+      sessionId: 'sess_test',
+    })
+    if (!('agentId' in result)) throw new Error('expected spawn success')
+
+    control.close(result.agentId)
+
+    expect(updates).toContainEqual({
+      spanId: 'span_subagent_3',
+      update: {
+        data: {
+          success: false,
+          closedByParent: true,
+          durationMs: expect.any(Number),
+        },
+      },
+    })
+    expect(endings).toContainEqual({
+      spanId: 'span_subagent_3',
+      status: 'error',
+      metadata: {
+        error: 'Closed by parent',
+      },
+    })
+    expect(infos).toContainEqual({
+      event: 'subagent_closed',
+      data: {
+        agentId: result.agentId,
+        sessionId: 'sess_test',
+        label: 'worker-3',
+        role: undefined,
+        previousState: 'running',
+        durationMs: expect.any(Number),
+        traceSpanId: 'span_subagent_3',
+      },
+    })
   })
 })

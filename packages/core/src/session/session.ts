@@ -19,6 +19,7 @@ import type {
   SessionSource,
   SessionStatus,
   ToolDefinition,
+  ToolLogger,
 } from '@zero-os/shared'
 import { Mutex, generateId, generateSessionId, now } from '@zero-os/shared'
 import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
@@ -91,6 +92,7 @@ export class Session {
   private activeModel: ResolvedModel | undefined
   private deps: SessionDeps
   private agentControl: AgentControl
+  private logger: ToolLogger
   private mutex = new Mutex()
   private interruptFlag = false
   private messageQueue: QueuedMessage[] = []
@@ -139,7 +141,18 @@ export class Session {
     this.toolRegistry = toolRegistry
     this.activeModel = currentModel
     this.deps = deps
-    this.agentControl = new AgentControl()
+    this.logger = {
+      info: (event: string, data?: Record<string, unknown>) =>
+        console.log(`[${this.data.id}] ${event}`, data ?? ''),
+      warn: (event: string, data?: Record<string, unknown>) =>
+        console.warn(`[${this.data.id}] ${event}`, data ?? ''),
+      error: (event: string, data?: Record<string, unknown>) =>
+        console.error(`[${this.data.id}] ${event}`, data ?? ''),
+    }
+    this.agentControl = new AgentControl({
+      tracer: this.deps.tracer,
+      logger: this.logger,
+    })
 
     // Emit session:create event
     this.deps.bus?.emit('session:create', {
@@ -192,19 +205,14 @@ export class Session {
           }
         : undefined
 
+    this.agentControl.setInstrumentation(this.deps.tracer, this.logger)
+
     const toolContext = {
       sessionId: this.data.id,
       currentModel: this.modelRouter.getModelLabel(resolved),
       workDir: workspacePath,
       projectRoot,
-      logger: {
-        info: (event: string, data?: Record<string, unknown>) =>
-          console.log(`[${this.data.id}] ${event}`, data ?? ''),
-        warn: (event: string, data?: Record<string, unknown>) =>
-          console.warn(`[${this.data.id}] ${event}`, data ?? ''),
-        error: (event: string, data?: Record<string, unknown>) =>
-          console.error(`[${this.data.id}] ${event}`, data ?? ''),
-      },
+      logger: this.logger,
       tracer: this.deps.tracer,
       secretFilter: this.deps.secretFilter,
       observability: observabilityHandle,

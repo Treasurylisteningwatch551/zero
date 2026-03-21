@@ -41,7 +41,23 @@ export class SendInputTool extends BaseTool {
     }
 
     const { id, message, interrupt } = input as SendInputInput
+    const traceSpanId = ctx.agentControl.getTraceSpanId(id)
     const result = ctx.agentControl.sendInput(id, message, { interrupt })
+
+    if (ctx.currentTraceSpanId) {
+      ctx.tracer?.updateSpan(ctx.currentTraceSpanId, {
+        data: {
+          targetAgentId: id,
+          targetSubAgentSpanId: traceSpanId,
+          interruptRequested: interrupt ?? false,
+        },
+        metadata: {
+          targetAgentId: id,
+          targetSubAgentSpanId: traceSpanId,
+          interruptRequested: interrupt ?? false,
+        },
+      })
+    }
 
     if (!result.success) {
       return {

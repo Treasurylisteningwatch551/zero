@@ -1,4 +1,4 @@
-import type { Message } from '@zero-os/shared'
+import type { Message, SecretFilter, ToolLogger, ToolTracer } from '@zero-os/shared'
 import { generatePrefixedId } from '@zero-os/shared'
 import type { AgentContext } from './agent'
 import type { QueuedMessage } from './queue'
@@ -20,6 +20,7 @@ interface ControlledAgent {
 
 interface AgentEntry {
   id: string
+  sessionId?: string
   label: string
   role?: string
   depth: number
@@ -34,10 +35,26 @@ interface AgentEntry {
   messageQueue: QueuedMessage[]
   interruptFlag: boolean
   waiters: Set<() => void>
+  traceSpanId?: string
+  tracer?: ToolTracer
+  logger?: ToolLogger
+  secretFilter?: SecretFilter
 }
 
 export class AgentControl {
   private entries: Map<string, AgentEntry> = new Map()
+  private tracer?: ToolTracer
+  private logger?: ToolLogger
+
+  constructor(instrumentation?: { tracer?: ToolTracer; logger?: ToolLogger }) {
+    this.tracer = instrumentation?.tracer
+    this.logger = instrumentation?.logger
+  }
+
+  setInstrumentation(tracer?: ToolTracer, logger?: ToolLogger): void {
+    this.tracer = tracer
+    this.logger = logger
+  }
 
   get activeAgentCount(): number {
     let count = 0
@@ -55,6 +72,11 @@ export class AgentControl {
       label?: string
       role?: string
       depth?: number
+      traceSpanId?: string
+      tracer?: ToolTracer
+      logger?: ToolLogger
+      secretFilter?: SecretFilter
+      sessionId?: string
     },
   ): { agentId: string; label: string } | { error: string } {
     if (!agent || typeof agent.run !== 'function') {
@@ -71,6 +93,7 @@ export class AgentControl {
     const label = options?.label?.trim() || `agent-${this.entries.size + 1}`
     const entry: AgentEntry = {
       id: agentId,
+      sessionId: options?.sessionId,
       label,
       role: options?.role?.trim() || undefined,
       depth: Math.max(1, options?.depth ?? 1),
@@ -82,9 +105,21 @@ export class AgentControl {
       messageQueue: [],
       interruptFlag: false,
       waiters: new Set(),
+      traceSpanId: options?.traceSpanId,
+      tracer: options?.tracer ?? this.tracer,
+      logger: options?.logger ?? this.logger,
+      secretFilter: options?.secretFilter,
     }
 
     this.entries.set(agentId, entry)
+    entry.logger?.info('subagent_spawned', {
+      agentId,
+      sessionId: entry.sessionId,
+      label: entry.label,
+      role: entry.role,
+      depth: entry.depth,
+      traceSpanId: entry.traceSpanId,
+    })
     void this.runEntry(entry)
 
     return { agentId, label }
@@ -119,6 +154,10 @@ export class AgentControl {
     return this.entries.get(agentId)?.output
   }
 
+  getTraceSpanId(agentId: string): string | undefined {
+    return this.entries.get(agentId)?.traceSpanId
+  }
+
   sendInput(
     agentId: string,
     message: string,
@@ -126,9 +165,20 @@ export class AgentControl {
   ): { success: boolean; error?: string } {
     const entry = this.entries.get(agentId)
     if (!entry) {
+      this.logger?.warn('subagent_input_rejected', {
+        agentId,
+        reason: 'not_found',
+      })
       return { success: false, error: `Sub-agent "${agentId}" was not found.` }
     }
     if (this.isTerminal(entry)) {
+      entry.logger?.warn('subagent_input_rejected', {
+        agentId,
+        label: entry.label,
+        state: entry.state,
+        traceSpanId: entry.traceSpanId,
+        reason: 'terminal_state',
+      })
       return {
         success: false,
         error: `Sub-agent "${agentId}" is already in terminal state "${entry.state}".`,
@@ -137,6 +187,12 @@ export class AgentControl {
 
     const trimmedMessage = message.trim()
     if (!trimmedMessage) {
+      entry.logger?.warn('subagent_input_rejected', {
+        agentId,
+        label: entry.label,
+        traceSpanId: entry.traceSpanId,
+        reason: 'empty_message',
+      })
       return { success: false, error: 'Message is required.' }
     }
 
@@ -147,6 +203,15 @@ export class AgentControl {
     if (options?.interrupt) {
       entry.interruptFlag = true
     }
+
+    entry.logger?.info('subagent_input_sent', {
+      agentId,
+      sessionId: entry.sessionId,
+      label: entry.label,
+      interrupt: options?.interrupt ?? false,
+      queueLength: entry.messageQueue.length,
+      traceSpanId: entry.traceSpanId,
+    })
 
     return { success: true }
   }
@@ -165,17 +230,35 @@ export class AgentControl {
 
   close(agentId: string): { state: string; [key: string]: unknown } | undefined {
     const entry = this.entries.get(agentId)
-    if (!entry) return undefined
+    if (!entry) {
+      this.logger?.warn('subagent_close_missing', {
+        agentId,
+      })
+      return undefined
+    }
 
+    const previousState = entry.state
     if (entry.state !== 'closed') {
       entry.state = 'closed'
       entry.endedAt ??= Date.now()
+      if (previousState === 'running') {
+        this.endSpanForClosedEntry(entry)
+      }
       entry.agent = undefined
       entry.context = undefined
       entry.instruction = ''
       entry.messageQueue = []
       entry.interruptFlag = false
       this.resolveWaiters(entry)
+      entry.logger?.info('subagent_closed', {
+        agentId,
+        sessionId: entry.sessionId,
+        label: entry.label,
+        role: entry.role,
+        previousState,
+        durationMs: this.getElapsedMs(entry),
+        traceSpanId: entry.traceSpanId,
+      })
     }
 
     return this.buildStatus(entry)
@@ -221,10 +304,12 @@ export class AgentControl {
       : knownEntries.some((entry) => this.isTerminal(entry))
 
     if (alreadySatisfied || knownEntries.length === 0) {
-      return {
+      const result = {
         statuses: this.buildStatuses(requestedIds),
         timedOut: false,
       }
+      this.logWaitResult(requestedIds, knownEntries, result.statuses, false, waitAll, timeoutMs)
+      return result
     }
 
     const waitPromise = waitAll
@@ -244,10 +329,12 @@ export class AgentControl {
       await waitPromise
     }
 
-    return {
+    const result = {
       statuses: this.buildStatuses(requestedIds),
       timedOut,
     }
+    this.logWaitResult(requestedIds, knownEntries, result.statuses, timedOut, waitAll, timeoutMs)
+    return result
   }
 
   private waitForTerminal(entry: AgentEntry): Promise<void> {
@@ -275,15 +362,38 @@ export class AgentControl {
         },
       )
       if (entry.state !== 'closed') {
-        entry.output = this.extractOutput(messages ?? [])
+        entry.output = this.filterSensitive(entry, this.extractOutput(messages ?? []))
         entry.state = 'completed'
         entry.endedAt = Date.now()
+        this.completeSpan(entry)
+        entry.logger?.info('subagent_completed', {
+          agentId: entry.id,
+          sessionId: entry.sessionId,
+          label: entry.label,
+          role: entry.role,
+          durationMs: this.getElapsedMs(entry),
+          traceSpanId: entry.traceSpanId,
+          outputSummary: entry.output.slice(0, 200),
+        })
       }
     } catch (error) {
       if (entry.state !== 'closed') {
-        entry.error = error instanceof Error ? error.message : String(error)
+        entry.error = this.filterSensitive(
+          entry,
+          error instanceof Error ? error.message : String(error),
+        )
         entry.state = 'failed'
         entry.endedAt = Date.now()
+        this.failSpan(entry)
+        entry.logger?.error('subagent_failed', {
+          agentId: entry.id,
+          sessionId: entry.sessionId,
+          label: entry.label,
+          role: entry.role,
+          durationMs: this.getElapsedMs(entry),
+          traceSpanId: entry.traceSpanId,
+          error: entry.error,
+        })
       }
     } finally {
       entry.agent = undefined
@@ -331,6 +441,90 @@ export class AgentControl {
 
   private isTerminal(entry: AgentEntry): boolean {
     return entry.state === 'completed' || entry.state === 'failed' || entry.state === 'closed'
+  }
+
+  private filterSensitive(entry: AgentEntry, value: string): string {
+    return entry.secretFilter ? entry.secretFilter.filter(value) : value
+  }
+
+  private completeSpan(entry: AgentEntry): void {
+    if (!entry.tracer || !entry.traceSpanId) return
+
+    entry.tracer.updateSpan(entry.traceSpanId, {
+      data: {
+        success: true,
+        durationMs: this.getElapsedMs(entry),
+        outputSummary: entry.output?.slice(0, 200) ?? '',
+      },
+    })
+    entry.tracer.endSpan(entry.traceSpanId, 'success')
+  }
+
+  private failSpan(entry: AgentEntry): void {
+    if (!entry.tracer || !entry.traceSpanId) return
+
+    entry.tracer.updateSpan(entry.traceSpanId, {
+      data: {
+        success: false,
+        durationMs: this.getElapsedMs(entry),
+        error: entry.error,
+      },
+    })
+    entry.tracer.endSpan(entry.traceSpanId, 'error', {
+      error: entry.error,
+    })
+  }
+
+  private endSpanForClosedEntry(entry: AgentEntry): void {
+    if (!entry.tracer || !entry.traceSpanId) return
+
+    entry.tracer.updateSpan(entry.traceSpanId, {
+      data: {
+        success: false,
+        closedByParent: true,
+        durationMs: this.getElapsedMs(entry),
+      },
+    })
+    entry.tracer.endSpan(entry.traceSpanId, 'error', {
+      error: 'Closed by parent',
+    })
+  }
+
+  private logWaitResult(
+    requestedIds: string[],
+    entries: AgentEntry[],
+    statuses: Record<string, { state: string; [key: string]: unknown }>,
+    timedOut: boolean,
+    waitAll: boolean,
+    timeoutMs?: number,
+  ): void {
+    const loggers = new Set<ToolLogger>()
+    if (this.logger) {
+      loggers.add(this.logger)
+    }
+    for (const entry of entries) {
+      if (entry.logger) {
+        loggers.add(entry.logger)
+      }
+    }
+
+    const stateByAgent = Object.fromEntries(
+      requestedIds.map((id) => [id, statuses[id]?.state ?? 'not_found']),
+    )
+    const traceSpanIds = Object.fromEntries(
+      requestedIds.map((id) => [id, this.entries.get(id)?.traceSpanId]),
+    )
+
+    for (const logger of loggers) {
+      logger.info('subagent_wait_complete', {
+        agentIds: requestedIds,
+        waitAll,
+        timeoutMs,
+        timedOut,
+        stateByAgent,
+        traceSpanIds,
+      })
+    }
   }
 
   private extractOutput(messages: Message[]): string {

@@ -33,7 +33,8 @@ export class WaitAgentTool extends BaseTool {
   }
 
   protected async execute(ctx: ToolContext, input: unknown): Promise<ToolResult> {
-    if (!ctx.agentControl) {
+    const control = ctx.agentControl
+    if (!control) {
       return {
         success: false,
         output: 'Agent control is not available in this session.',
@@ -42,9 +43,27 @@ export class WaitAgentTool extends BaseTool {
     }
 
     const { ids, timeoutMs, waitAll } = input as WaitAgentInput
+    const traceSpanIds = Object.fromEntries(ids.map((id) => [id, control.getTraceSpanId(id)]))
     const result = waitAll
-      ? await ctx.agentControl.waitAll(ids, timeoutMs)
-      : await ctx.agentControl.waitAny(ids, timeoutMs)
+      ? await control.waitAll(ids, timeoutMs)
+      : await control.waitAny(ids, timeoutMs)
+
+    if (ctx.currentTraceSpanId) {
+      ctx.tracer?.updateSpan(ctx.currentTraceSpanId, {
+        data: {
+          observedAgentIds: ids,
+          observedSubAgentSpanIds: traceSpanIds,
+          waitAll: waitAll ?? false,
+          timedOut: result.timedOut,
+        },
+        metadata: {
+          observedAgentIds: ids,
+          observedSubAgentSpanIds: traceSpanIds,
+          waitAll: waitAll ?? false,
+          timedOut: result.timedOut,
+        },
+      })
+    }
 
     return {
       success: true,

@@ -131,6 +131,24 @@ export class SpawnAgentTool extends BaseTool {
       mkdirSync(subWorkDir, { recursive: true })
     }
 
+    const safeInstructionSummary = ctx.secretFilter
+      ? ctx.secretFilter.filter(trimmedInstruction.slice(0, 200))
+      : trimmedInstruction.slice(0, 200)
+    const subAgentSpan = ctx.tracer?.startSpan(
+      ctx.sessionId,
+      `sub_agent:${agentLabel}`,
+      ctx.currentTraceSpanId,
+      {
+        kind: 'sub_agent',
+        agentName: agentLabel,
+        data: {
+          role: requestedRoleId,
+          instruction: safeInstructionSummary,
+          spawnedByRequestId: ctx.currentRequestId,
+        },
+      },
+    )
+
     const toolContext: ToolContext = {
       ...ctx,
       sessionId: ctx.sessionId,
@@ -138,7 +156,7 @@ export class SpawnAgentTool extends BaseTool {
       currentModel: resolvedModel
         ? this.modelRouter.getModelLabel(resolvedModel)
         : ctx.currentModel,
-      currentTraceSpanId: ctx.currentTraceSpanId,
+      currentTraceSpanId: subAgentSpan?.id ?? ctx.currentTraceSpanId,
       spawnedByRequestId: ctx.currentRequestId,
       workDir: subWorkDir,
       agentControl: undefined,
@@ -169,14 +187,45 @@ export class SpawnAgentTool extends BaseTool {
       label: agentLabel,
       role: roleDefinition ? requestedRoleId : undefined,
       depth: 1,
+      traceSpanId: subAgentSpan?.id,
+      tracer: ctx.tracer,
+      logger: ctx.logger,
+      secretFilter: ctx.secretFilter,
+      sessionId: ctx.sessionId,
     })
 
     if ('error' in spawnResult) {
+      if (subAgentSpan) {
+        ctx.tracer?.updateSpan(subAgentSpan.id, {
+          data: {
+            success: false,
+            error: spawnResult.error,
+          },
+        })
+        ctx.tracer?.endSpan(subAgentSpan.id, 'error', {
+          error: spawnResult.error,
+        })
+      }
       return {
         success: false,
         output: spawnResult.error,
         outputSummary: 'Sub-agent spawn failed',
       }
+    }
+
+    if (ctx.currentTraceSpanId) {
+      ctx.tracer?.updateSpan(ctx.currentTraceSpanId, {
+        data: {
+          spawnedAgentId: spawnResult.agentId,
+          spawnedAgentLabel: spawnResult.label,
+          spawnedAgentSpanId: subAgentSpan?.id,
+        },
+        metadata: {
+          spawnedAgentId: spawnResult.agentId,
+          spawnedAgentLabel: spawnResult.label,
+          spawnedAgentSpanId: subAgentSpan?.id,
+        },
+      })
     }
 
     return {

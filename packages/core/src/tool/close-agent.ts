@@ -29,7 +29,26 @@ export class CloseAgentTool extends BaseTool {
     }
 
     const { agentId } = input as CloseAgentInput
+    const traceSpanId = ctx.agentControl.getTraceSpanId(agentId)
     const status = ctx.agentControl.close(agentId)
+
+    if (ctx.currentTraceSpanId) {
+      ctx.tracer?.updateSpan(ctx.currentTraceSpanId, {
+        data: {
+          targetAgentId: agentId,
+          targetSubAgentSpanId: traceSpanId,
+          closeSucceeded: Boolean(status),
+          resultingState: status?.state,
+        },
+        metadata: {
+          targetAgentId: agentId,
+          targetSubAgentSpanId: traceSpanId,
+          closeSucceeded: Boolean(status),
+          resultingState: status?.state,
+        },
+      })
+    }
+
     if (!status) {
       return {
         success: false,

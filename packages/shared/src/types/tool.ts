@@ -47,6 +47,46 @@ export interface ToolTraceSpan {
   children: ToolTraceSpan[]
 }
 
+export interface ToolTracer {
+  startSpan(
+    sessionId: string,
+    name: string,
+    parentId?: string,
+    options?: {
+      kind?:
+        | 'turn'
+        | 'llm_request'
+        | 'tool_call'
+        | 'sub_agent'
+        | 'snapshot'
+        | 'closure_decision'
+        | 'closure_failed'
+      agentName?: string
+      data?: Record<string, unknown>
+      metadata?: Record<string, unknown>
+    },
+  ): ToolTraceSpan
+  updateSpan(
+    spanId: string,
+    update: {
+      kind?:
+        | 'turn'
+        | 'llm_request'
+        | 'tool_call'
+        | 'sub_agent'
+        | 'snapshot'
+        | 'closure_decision'
+        | 'closure_failed'
+      name?: string
+      agentName?: string
+      data?: Record<string, unknown>
+      metadata?: Record<string, unknown>
+    },
+  ): void
+  endSpan(spanId: string, status?: 'success' | 'error', metadata?: Record<string, unknown>): void
+  getSpan(spanId: string): ToolTraceSpan | undefined
+}
+
 export interface AgentControlHandle {
   spawn(
     agent: unknown,
@@ -56,6 +96,11 @@ export interface AgentControlHandle {
       label?: string
       role?: string
       depth?: number
+      traceSpanId?: string
+      tracer?: ToolTracer
+      logger?: ToolLogger
+      secretFilter?: SecretFilter
+      sessionId?: string
     },
   ): { agentId: string; label: string } | { error: string }
   waitAny(
@@ -79,6 +124,7 @@ export interface AgentControlHandle {
     message: string,
     options?: { interrupt?: boolean },
   ): { success: boolean; error?: string }
+  getTraceSpanId(agentId: string): string | undefined
   getAgentInfo(
     agentId: string,
   ): { label: string; role?: string; status: { state: string } } | undefined
@@ -103,45 +149,7 @@ export interface ToolContext {
   workDir: string
   projectRoot?: string
   logger: ToolLogger
-  tracer?: {
-    startSpan(
-      sessionId: string,
-      name: string,
-      parentId?: string,
-      options?: {
-        kind?:
-          | 'turn'
-          | 'llm_request'
-          | 'tool_call'
-          | 'sub_agent'
-          | 'snapshot'
-          | 'closure_decision'
-          | 'closure_failed'
-        agentName?: string
-        data?: Record<string, unknown>
-        metadata?: Record<string, unknown>
-      },
-    ): ToolTraceSpan
-    updateSpan(
-      spanId: string,
-      update: {
-        kind?:
-          | 'turn'
-          | 'llm_request'
-          | 'tool_call'
-          | 'sub_agent'
-          | 'snapshot'
-          | 'closure_decision'
-          | 'closure_failed'
-        name?: string
-        agentName?: string
-        data?: Record<string, unknown>
-        metadata?: Record<string, unknown>
-      },
-    ): void
-    endSpan(spanId: string, status?: 'success' | 'error', metadata?: Record<string, unknown>): void
-    getSpan(spanId: string): ToolTraceSpan | undefined
-  }
+  tracer?: ToolTracer
   secretFilter?: SecretFilter
   observability?: ObservabilityHandle
   secretResolver?: (ref: string) => string | undefined
