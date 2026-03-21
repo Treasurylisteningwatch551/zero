@@ -177,10 +177,21 @@ export class SpawnAgentTool extends BaseTool {
     }
 
     const agent = new Agent(agentConfig, adapter, scopedRegistry, toolContext, agentObs)
+    const systemPrompt = buildSubAgentPrompt(toolDefinitions, trimmedInstruction, resolvedAgentInstruction)
     const agentContext: AgentContext = {
-      systemPrompt: buildSubAgentPrompt(toolDefinitions, trimmedInstruction, resolvedAgentInstruction),
+      systemPrompt,
       conversationHistory: [],
       tools: toolDefinitions,
+    }
+
+    // Record the full system prompt in the sub_agent span for debugging/auditing
+    if (subAgentSpan?.id && ctx.tracer) {
+      const safeSystemPrompt = ctx.secretFilter
+        ? ctx.secretFilter.filter(systemPrompt)
+        : systemPrompt
+      ctx.tracer.updateSpan(subAgentSpan.id, {
+        data: { systemPrompt: safeSystemPrompt },
+      })
     }
 
     const spawnResult = ctx.agentControl.spawn(agent, agentContext, trimmedInstruction, {
