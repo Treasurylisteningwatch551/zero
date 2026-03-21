@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startZeroOS } from '../main'
@@ -10,19 +10,42 @@ let testDataDir: string
 
 beforeAll(async () => {
   testDataDir = mkdtempSync(join(tmpdir(), 'zero-test-'))
-  const prodDir = join(process.cwd(), '.zero')
-  // Copy only config files needed for bootstrap (not databases)
-  for (const file of ['secrets.enc', 'config.yaml', 'fuse_list.yaml']) {
-    const src = join(prodDir, file)
-    if (existsSync(src)) {
-      cpSync(src, join(testDataDir, file))
-    }
-  }
+  process.env.ZERO_MASTER_KEY_BASE64 = Buffer.alloc(32, 7).toString('base64')
+  writeFileSync(
+    join(testDataDir, 'config.yaml'),
+    `providers:
+  openai-codex:
+    api_type: openai_chat_completions
+    base_url: https://example.com/v1
+    auth:
+      type: api_key
+      api_key_ref: openai_codex_api_key
+    models:
+      gpt-5.4-medium:
+        model_id: gpt-5.4-medium
+        max_context: 400000
+        max_output: 128000
+        capabilities:
+          - tools
+          - vision
+          - reasoning
+        tags:
+          - powerful
+          - coding
+default_model: openai-codex/gpt-5.4-medium
+fallback_chain:
+  - openai-codex/gpt-5.4-medium
+schedules: []
+fuse_list: []
+`,
+  )
+  writeFileSync(join(testDataDir, 'fuse_list.yaml'), 'rules: []\n')
   zero = await startZeroOS({ dataDir: testDataDir, skipProcessExit: true })
 })
 
 afterAll(async () => {
   await zero.shutdown()
+  delete process.env.ZERO_MASTER_KEY_BASE64
   rmSync(testDataDir, { recursive: true, force: true })
 })
 
@@ -76,9 +99,9 @@ describe('startZeroOS Integration', () => {
     expect(current.modelName).toBe('gpt-5.4-medium')
   })
 
-  test('toolRegistry has 11 registered tools', () => {
+  test('toolRegistry has 15 registered tools', () => {
     const tools = zero.toolRegistry.list()
-    expect(tools.length).toBe(11)
+    expect(tools.length).toBe(15)
     const names = tools.map((t) => t.name)
     expect(names).toContain('read')
     expect(names).toContain('write')
@@ -91,6 +114,10 @@ describe('startZeroOS Integration', () => {
     expect(names).toContain('task')
     expect(names).toContain('schedule')
     expect(names).toContain('codex')
+    expect(names).toContain('spawn_agent')
+    expect(names).toContain('wait_agent')
+    expect(names).toContain('close_agent')
+    expect(names).toContain('send_input')
   })
 
   test('channels map contains web, feishu, telegram', () => {

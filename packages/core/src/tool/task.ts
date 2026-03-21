@@ -4,6 +4,7 @@ import type { ModelRouter } from '@zero-os/model'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
 import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
 import { buildSubAgentPrompt } from '../agent/prompt'
+import { getBuiltinRoles, loadRoles, resolveRole, type RoleDefinition } from '../agent/roles'
 import { type TaskNode, TaskOrchestrator, type TaskResult } from '../task/orchestrator'
 import { BaseTool } from './base'
 import { ToolRegistry } from './registry'
@@ -23,37 +24,10 @@ interface TaskInput {
   tasks: SubAgentSpec[]
 }
 
-interface PresetConfig {
-  name: string
-  agentInstruction: string
-  defaultTools: string[]
-}
-
-const PRESET_AGENTS: Record<string, PresetConfig> = {
-  explorer: {
-    name: 'Explorer',
-    agentInstruction:
-      'You are an Explorer SubAgent for ZeRo OS. Research, investigate, and report findings. Be thorough and concise.',
-    defaultTools: ['read', 'bash', 'fetch'],
-  },
-  coder: {
-    name: 'Coder',
-    agentInstruction:
-      'You are a Coder SubAgent for ZeRo OS. Write, modify, and test code. Make minimal, correct changes.',
-    defaultTools: ['read', 'write', 'edit', 'bash'],
-  },
-  reviewer: {
-    name: 'Reviewer',
-    agentInstruction:
-      'You are a Reviewer SubAgent for ZeRo OS. Review code, identify bugs, and suggest improvements. Do not modify files.',
-    defaultTools: ['read', 'bash'],
-  },
-}
-
 export class TaskTool extends BaseTool {
   name = 'task'
   description =
-    'Launch SubAgents to execute specific tasks. Supports preset agents (explorer, coder, reviewer) and custom agents. Tasks can have dependencies for ordered execution.'
+    'Launch SubAgents to execute specific tasks. Supports preset agents (builtin and file-configured roles) and custom agents. Tasks can have dependencies for ordered execution.'
   parameters = {
     type: 'object',
     properties: {
@@ -66,8 +40,8 @@ export class TaskTool extends BaseTool {
             instruction: { type: 'string', description: 'What the SubAgent should do' },
             preset: {
               type: 'string',
-              enum: ['explorer', 'coder', 'reviewer'],
-              description: 'Preset SubAgent type',
+              description:
+                'Preset SubAgent type. Builtins include explorer, coder, reviewer; project roles from .zero/roles/* are also supported.',
             },
             name: { type: 'string', description: 'Custom agent name (required if no preset)' },
             agentInstruction: {
@@ -111,21 +85,25 @@ export class TaskTool extends BaseTool {
       return { success: false, output: 'No tasks provided', outputSummary: 'No tasks' }
     }
 
+    const roles = ctx.projectRoot ? await loadRoles(ctx.projectRoot) : getBuiltinRoles()
+    const rolesByTaskId = new Map<string, RoleDefinition | undefined>()
+
     // Validate and build TaskNodes
     const nodes: TaskNode[] = []
     for (const spec of tasks) {
-      const config = this.resolveAgentConfig(spec)
-      if (!config) {
+      const resolved = this.resolveAgentConfig(spec, roles)
+      if (!resolved) {
         return {
           success: false,
           output: `Task "${spec.id}": must specify either preset or both name and agentInstruction`,
           outputSummary: 'Invalid task config',
         }
       }
+      rolesByTaskId.set(spec.id, resolved.role)
 
       nodes.push({
         id: spec.id,
-        agentConfig: config,
+        agentConfig: resolved.config,
         instruction: spec.instruction,
         dependsOn: spec.dependsOn ?? [],
         timeout: spec.timeout ?? 120_000,
@@ -157,14 +135,17 @@ export class TaskTool extends BaseTool {
 
       // Find the matching spec to get tools list
       const spec = tasks.find((t) => t.id === node.id)
-      const scopedRegistry = this.buildScopedRegistry(spec)
+      const role = rolesByTaskId.get(node.id)
+      const scopedRegistry = this.buildScopedRegistry(spec, role)
 
       // Create SubAgent with isolated workspace
-      const resolvedModel = ctx.currentModel
-        ? this.modelRouter.resolveModel(ctx.currentModel)
-        : this.modelRouter.getCurrentModel()
+      const resolvedModel = role?.model
+        ? this.modelRouter.resolveModel(role.model)
+        : ctx.currentModel
+          ? this.modelRouter.resolveModel(ctx.currentModel)
+          : this.modelRouter.getCurrentModel()
       const adapter = resolvedModel?.adapter ?? this.modelRouter.getAdapter()
-      const subAgentName = spec?.name ?? spec?.preset ?? node.id
+      const subAgentName = spec?.name ?? role?.name ?? spec?.preset ?? node.id
       const subWorkDir = join(ctx.workDir, subAgentName)
       if (!existsSync(subWorkDir)) {
         mkdirSync(subWorkDir, { recursive: true })
@@ -287,30 +268,41 @@ export class TaskTool extends BaseTool {
     return { success: allSuccess, output, outputSummary: summary }
   }
 
-  private resolveAgentConfig(spec: SubAgentSpec): AgentConfig | null {
+  private resolveAgentConfig(
+    spec: SubAgentSpec,
+    roles: Record<string, RoleDefinition>,
+  ): { config: AgentConfig; role?: RoleDefinition } | null {
     if (spec.preset) {
-      const preset = PRESET_AGENTS[spec.preset]
-      if (!preset) return null
+      const role = resolveRole(spec.preset, roles)
+      if (!role) return null
       return {
-        name: spec.name ?? preset.name,
-        agentInstruction: spec.agentInstruction ?? preset.agentInstruction,
+        config: {
+          name: spec.name ?? role.name,
+          agentInstruction: spec.agentInstruction ?? role.agentInstruction,
+          promptMode: role.promptMode ?? 'minimal',
+        },
+        role,
       }
     }
 
     if (spec.name && spec.agentInstruction) {
       return {
-        name: spec.name,
-        agentInstruction: spec.agentInstruction,
+        config: {
+          name: spec.name,
+          agentInstruction: spec.agentInstruction,
+        },
       }
     }
 
     return null
   }
 
-  private buildScopedRegistry(spec: SubAgentSpec | undefined): ToolRegistry {
+  private buildScopedRegistry(
+    spec: SubAgentSpec | undefined,
+    role: RoleDefinition | undefined,
+  ): ToolRegistry {
     const scopedRegistry = new ToolRegistry()
-    const preset = spec?.preset ? PRESET_AGENTS[spec.preset] : null
-    const toolNames = spec?.tools ?? preset?.defaultTools ?? ['read', 'bash']
+    const toolNames = spec?.tools ?? role?.defaultTools ?? ['read', 'bash']
 
     for (const toolName of toolNames) {
       // Never include 'task' in SubAgent registry to prevent recursion

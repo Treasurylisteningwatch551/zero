@@ -5,6 +5,7 @@ import { FeishuChannel, TelegramChannel, WebChannel } from '@zero-os/channel'
 import { CONTEXT_PARAMS, loadConfig, loadFuseList } from '@zero-os/core'
 import {
   BashTool,
+  CloseAgentTool,
   CodexTool,
   EditTool,
   FetchTool,
@@ -13,8 +14,11 @@ import {
   MemoryTool,
   ReadTool,
   ScheduleTool,
+  SendInputTool,
+  SpawnAgentTool,
   TaskTool,
   ToolRegistry,
+  WaitAgentTool,
   WriteTool,
 } from '@zero-os/core'
 import { SessionManager } from '@zero-os/core'
@@ -220,6 +224,10 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   toolRegistry.register(new TaskTool(modelRouter, toolRegistry))
   toolRegistry.register(new ScheduleTool())
   toolRegistry.register(new CodexTool())
+  toolRegistry.register(new SpawnAgentTool(modelRouter, toolRegistry))
+  toolRegistry.register(new WaitAgentTool())
+  toolRegistry.register(new CloseAgentTool())
+  toolRegistry.register(new SendInputTool())
   console.log(`[ZeRo OS] ${toolRegistry.list().length} tools registered`)
 
   // 9. Memory

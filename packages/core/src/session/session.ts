@@ -22,6 +22,7 @@ import type {
 } from '@zero-os/shared'
 import { Mutex, generateId, generateSessionId, now } from '@zero-os/shared'
 import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
+import { AgentControl } from '../agent/agent-control'
 import { allocateBudget } from '../agent/budget'
 import { estimateConversationTokens } from '../agent/context'
 import { buildDynamicContext, buildSystemPrompt } from '../agent/prompt'
@@ -89,6 +90,7 @@ export class Session {
   private agent: Agent | null = null
   private activeModel: ResolvedModel | undefined
   private deps: SessionDeps
+  private agentControl: AgentControl
   private mutex = new Mutex()
   private interruptFlag = false
   private messageQueue: QueuedMessage[] = []
@@ -137,6 +139,7 @@ export class Session {
     this.toolRegistry = toolRegistry
     this.activeModel = currentModel
     this.deps = deps
+    this.agentControl = new AgentControl()
 
     // Emit session:create event
     this.deps.bus?.emit('session:create', {
@@ -217,6 +220,7 @@ export class Session {
         : undefined,
       schedulerHandle: this.deps.schedulerHandle,
       scheduleStore: this.deps.scheduleStore,
+      agentControl: this.agentControl,
     }
 
     const agentObs: AgentObservability = {

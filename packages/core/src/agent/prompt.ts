@@ -162,6 +162,13 @@ export function buildToolRulesBlock(tools: ToolDefinition[]): string {
     memory:
       'Memory：显式写入或维护记忆。create + note 记录发现，create + preference 记录偏好，create + decision 记录决策及理由。每次会话如有值得持久化的信息，主动 create。',
     task: 'Task：拆分 SubAgent 时明确每个子任务的输入、输出和依赖关系。不要把含糊的大任务直接丢给 SubAgent。',
+    spawn_agent:
+      'Spawn Agent：用于创建并行执行的子 agent。spawn 立即返回 agent_id，不会阻塞。可同时 spawn 多个 agent 并行工作。',
+    wait_agent:
+      'Wait Agent：等待子 agent 完成。默认等待任意一个完成即返回（Promise.race 语义），设置 wait_all=true 等待全部完成。',
+    close_agent: 'Close Agent：关闭不再需要的子 agent，释放资源。',
+    send_input:
+      'Send Input：向运行中的子 agent 发送追加消息。设置 interrupt=true 可在下一个安全点中断当前流程处理新消息。',
   }
 
   const availableToolNames = tools.map((t) => t.name.toLowerCase())

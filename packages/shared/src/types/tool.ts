@@ -47,6 +47,53 @@ export interface ToolTraceSpan {
   children: ToolTraceSpan[]
 }
 
+export interface AgentControlHandle {
+  spawn(
+    agent: unknown,
+    context: unknown,
+    instruction: string,
+    options?: {
+      label?: string
+      role?: string
+      depth?: number
+    },
+  ): { agentId: string; label: string } | { error: string }
+  waitAny(
+    ids: string[],
+    timeoutMs?: number,
+  ): Promise<{
+    statuses: Record<string, { state: string; [key: string]: unknown }>
+    timedOut: boolean
+  }>
+  waitAll(
+    ids: string[],
+    timeoutMs?: number,
+  ): Promise<{
+    statuses: Record<string, { state: string; [key: string]: unknown }>
+    timedOut: boolean
+  }>
+  getStatus(agentId: string): { state: string; [key: string]: unknown } | undefined
+  getOutput(agentId: string): string | undefined
+  sendInput(
+    agentId: string,
+    message: string,
+    options?: { interrupt?: boolean },
+  ): { success: boolean; error?: string }
+  getAgentInfo(
+    agentId: string,
+  ): { label: string; role?: string; status: { state: string } } | undefined
+  close(agentId: string): { state: string; [key: string]: unknown } | undefined
+  listAgents(): Array<{
+    id: string
+    label: string
+    role?: string
+    status: { state: string }
+    depth: number
+    elapsedMs: number
+  }>
+  readonly activeAgentCount: number
+}
+
 export interface ToolContext {
   sessionId: string
   currentModel?: string
@@ -137,6 +184,7 @@ export interface ToolContext {
     save(config: ScheduleConfig): void
     delete(name: string): boolean
   }
+  agentControl?: AgentControlHandle
 }
 
 export interface ToolLogger {

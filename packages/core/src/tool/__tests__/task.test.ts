@@ -152,9 +152,7 @@ describe('TaskTool', () => {
 
   test('single task with preset runs successfully', async () => {
     const registry = createToolRegistry()
-    const router = new ModelRouter(config, secrets)
-    router.init()
-    const taskTool = new TaskTool(router, registry)
+    const taskTool = new TaskTool(createStubRouter(new StaticResponseAdapter()), registry)
 
     const result = await taskTool.run(ctx, {
       tasks: [
@@ -174,9 +172,7 @@ describe('TaskTool', () => {
 
   test('parallel tasks execute concurrently', async () => {
     const registry = createToolRegistry()
-    const router = new ModelRouter(config, secrets)
-    router.init()
-    const taskTool = new TaskTool(router, registry)
+    const taskTool = new TaskTool(createStubRouter(new StaticResponseAdapter()), registry)
 
     const _start = Date.now()
     const result = await taskTool.run(ctx, {
@@ -205,9 +201,7 @@ describe('TaskTool', () => {
 
   test('dependency chain passes upstream output', async () => {
     const registry = createToolRegistry()
-    const router = new ModelRouter(config, secrets)
-    router.init()
-    const taskTool = new TaskTool(router, registry)
+    const taskTool = new TaskTool(createStubRouter(new StaticResponseAdapter()), registry)
 
     const result = await taskTool.run(ctx, {
       tasks: [
@@ -236,9 +230,7 @@ describe('TaskTool', () => {
 
   test('custom agent with name and agentInstruction works', async () => {
     const registry = createToolRegistry()
-    const router = new ModelRouter(config, secrets)
-    router.init()
-    const taskTool = new TaskTool(router, registry)
+    const taskTool = new TaskTool(createStubRouter(new StaticResponseAdapter()), registry)
 
     const result = await taskTool.run(ctx, {
       tasks: [
