@@ -1,10 +1,19 @@
 const SERVICE = 'com.zero-os.vault'
 const ACCOUNT = 'master-key'
 
+function getEnvMasterKey(): Buffer | undefined {
+  const encoded = process.env.ZERO_MASTER_KEY_BASE64?.trim()
+  if (!encoded) return undefined
+  return Buffer.from(encoded, 'base64')
+}
+
 /**
  * Read the master key from macOS Keychain.
  */
 export async function getMasterKey(): Promise<Buffer> {
+  const envKey = getEnvMasterKey()
+  if (envKey) return envKey
+
   const proc = Bun.spawn(
     ['security', 'find-generic-password', '-s', SERVICE, '-a', ACCOUNT, '-w'],
     { stdout: 'pipe', stderr: 'pipe' },
@@ -22,6 +31,11 @@ export async function getMasterKey(): Promise<Buffer> {
  * Uses -U flag to update if already exists.
  */
 export async function setMasterKey(key: Buffer): Promise<void> {
+  if (getEnvMasterKey()) {
+    process.env.ZERO_MASTER_KEY_BASE64 = key.toString('base64')
+    return
+  }
+
   const encoded = key.toString('base64')
   // First try to delete existing entry (ignore errors)
   const del = Bun.spawn(['security', 'delete-generic-password', '-s', SERVICE, '-a', ACCOUNT], {
@@ -46,6 +60,11 @@ export async function setMasterKey(key: Buffer): Promise<void> {
  * Delete the master key from macOS Keychain.
  */
 export async function deleteMasterKey(): Promise<void> {
+  if (getEnvMasterKey()) {
+    delete process.env.ZERO_MASTER_KEY_BASE64
+    return
+  }
+
   const proc = Bun.spawn(['security', 'delete-generic-password', '-s', SERVICE, '-a', ACCOUNT], {
     stdout: 'pipe',
     stderr: 'pipe',
