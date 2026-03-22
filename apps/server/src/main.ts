@@ -2,7 +2,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeF
 import { join } from 'node:path'
 import type { Channel, FeishuStreamingSession } from '@zero-os/channel'
 import { FeishuChannel, TelegramChannel, WebChannel } from '@zero-os/channel'
-import { CONTEXT_PARAMS, loadConfig, loadFuseList } from '@zero-os/core'
+import type { Command } from '@zero-os/core'
+import { CONTEXT_PARAMS, CommandRouter, loadConfig, loadFuseList, registerBuiltinCommands } from '@zero-os/core'
 import {
   BashTool,
   CloseAgentTool,
@@ -46,8 +47,10 @@ import {
 import { RepairEngine } from '@zero-os/supervisor'
 import { HeartbeatWriter } from '@zero-os/supervisor'
 import { globalBus } from './bus'
-import { canRunTelegramRestart, syncTelegramCommandMenu } from './telegram-menu'
-import { createTelegramStreamFlusher, reconcileTelegramFinalText } from './telegram-streaming'
+import { FeishuAdapter } from './feishu-adapter'
+import { handleChannelMessage } from './message-handler'
+import { syncTelegramCommandMenu } from './telegram-menu'
+import { TelegramAdapter } from './telegram-adapter'
 import { rebuildWebBundle } from './web-build'
 
 export interface StartOptions {
@@ -135,6 +138,7 @@ export interface ZeroOS {
   shutdown(): Promise<void>
 }
 
+/** @deprecated Use `newSessionCommand` reply from `CommandRouter` instead. */
 export function buildNewSessionReply(
   currentModel: string,
   modelResult?: { success: boolean; message: string },
@@ -484,16 +488,6 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     return notification
   }
 
-  // Helper: extract text from an assistant Message
-  function extractAssistantText(msg: import('@zero-os/shared').Message): string {
-    if (msg.role !== 'assistant') return ''
-    return msg.content
-      .filter((b) => b.type === 'text')
-      .map((b) => (b as { type: 'text'; text: string }).text)
-      .join('\n')
-      .trim()
-  }
-
   function collectAssistantReply(messages: import('@zero-os/shared').Message[]): string {
     return messages
       .filter((m) => m.role === 'assistant')
@@ -529,20 +523,6 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
     return parts.join(' | ') || '[unknown error]'
   }
-
-  function isRestartCommand(content: string): boolean {
-    if (Date.now() - startedAt < 15_000) return false // ignore during startup grace period
-    return /^\/restart(?:@\S+)?$/i.test(content.trim())
-  }
-
-  function parseNewSessionCommand(content: string): { modelArg?: string } | null {
-    const trimmed = content.trim()
-    const match = trimmed.match(/^\/new(?:@\S+)?(?:\s+(.+))?$/i)
-    if (!match) return null
-    const modelArg = match[1]?.trim()
-    return modelArg ? { modelArg } : {}
-  }
-
   // 15. Channel registry (channels Map declared earlier with scheduler)
 
   // Web channel — always registered
@@ -723,7 +703,43 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
   await options?.onCoreReady?.(zero)
 
+  const commandRouter = new CommandRouter()
+  registerBuiltinCommands(commandRouter)
+
+  const restartCommand: Command = {
+    name: '/restart',
+    description: 'Rebuild the web UI and restart ZeRo OS.',
+    parse(content) {
+      if (Date.now() - startedAt < 15_000) return null
+      return /^\/restart(?:@\S+)?$/i.test(content.trim()) ? {} : null
+    },
+    async execute(_args, ctx) {
+      if (ctx.source === 'telegram' && ctx.metadata?.chatType !== 'private') {
+        return {
+          handled: true,
+          reply: 'The /restart command is only available in private chats.',
+        }
+      }
+
+      await ctx.reply('Rebuilding web UI and restarting ZeRo OS...')
+
+      const build = rebuildWebBundle()
+      if (!build.ok) {
+        await ctx.reply(`Web rebuild failed, restart cancelled: ${build.error ?? 'unknown error'}`)
+        return { handled: true }
+      }
+
+      setTimeout(() => {
+        void shutdown()
+      }, 500)
+      return { handled: true }
+    },
+  }
+  commandRouter.register(restartCommand)
+
   const externalChannelDefinitions = buildExternalChannelDefinitions(config.channels, vault)
+  const defaultAgentInstruction =
+    'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.'
 
   for (const definition of externalChannelDefinitions) {
     channelDefinitions.set(definition.name, definition)
@@ -742,344 +758,22 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
         const agentName = buildAgentName(channelName)
         const activeStreamingSessions = new Set<FeishuStreamingSession>()
         allActiveStreamingSessions.push(activeStreamingSessions)
+        const feishuAdapter = new FeishuAdapter(feishuChannel, {
+          activeStreamingSessions,
+        })
 
         feishuChannel.setMessageHandler(async (msg) => {
-          const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
-          const messageId = msg.metadata?.messageId as string
-          let activeSessionId: string | null = null
-          let typingReactionId: string | null = null
-          let streaming: FeishuStreamingSession | null = null
-          const trackStreamingSession = (session: FeishuStreamingSession) => {
-            activeStreamingSessions.add(session)
-            return session
-          }
-
-          try {
-            if (shuttingDown) {
-              console.log(`[ZeRo OS] Ignoring ${channelName} message during shutdown`)
-              return
-            }
-
-            if (isRestartCommand(msg.content)) {
-              const reply = 'Rebuilding web UI and restarting ZeRo OS...'
-              if (messageId) {
-                await feishuChannel.reply(messageId, reply)
-              } else {
-                await feishuChannel.send(chatId, reply)
-              }
-
-              const build = rebuildWebBundle()
-              if (!build.ok) {
-                const failureReply = `Web rebuild failed, restart cancelled: ${build.error ?? 'unknown error'}`
-                if (messageId) {
-                  await feishuChannel.reply(messageId, failureReply)
-                } else {
-                  await feishuChannel.send(chatId, failureReply)
-                }
-                return
-              }
-
-              setTimeout(() => shutdown(), 500)
-              return
-            }
-
-            const newCommand = parseNewSessionCommand(msg.content)
-            if (newCommand) {
-              const { session } = sessionManager.startNewForChannel('feishu', chatId, {
-                channelName,
-              })
-              activeSessionId = session.data.id
-              const modelResult = newCommand.modelArg
-                ? await session.switchModel(newCommand.modelArg)
-                : undefined
-              session.initAgent({
-                name: agentName,
-                agentInstruction:
-                  'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
-              })
-
-              const replyText = buildNewSessionReply(session.data.currentModel, modelResult)
-              if (messageId) {
-                await feishuChannel.reply(messageId, replyText)
-              } else {
-                await feishuChannel.send(chatId, replyText)
-              }
-              return
-            }
-
-            const { session, isNew } = sessionManager.getOrCreateForChannel(
-              'feishu',
-              chatId,
-              channelName,
-            )
-            activeSessionId = session.data.id
-            if (isNew) {
-              session.setChannelCapabilities(feishuChannel.getCapabilities())
-              session.initAgent({
-                name: agentName,
-                agentInstruction:
-                  'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
-              })
-            } else if (!session.isAgentInitialized()) {
-              session.setChannelCapabilities(feishuChannel.getCapabilities())
-              session.initAgent({
-                name: agentName,
-                agentInstruction:
-                  'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
-              })
-            }
-
-            typingReactionId = messageId ? await feishuChannel.react(messageId, 'Typing') : null
-            const startStreaming = createFeishuStreamingStarter(feishuChannel, chatId, messageId)
-
-            try {
-              streaming = trackStreamingSession(await startStreaming())
-            } catch (err) {
-              console.warn(
-                `[ZeRo OS] ${channelName} streaming init failed, falling back to static:`,
-                describeError(err),
-              )
-            }
-
-            let firstReply = true
-            let lastSentMsgId: string | null = null
-            let lastProgressText: string | null = null
-            // True streaming: accumulate deltas per card, new card per turn
-            let streamText = ''
-            let seenDelta = false
-            let lastTurnId: string | null = null
-            // Queue for completing previous cards before creating new ones
-            let turnRotateChain: Promise<void> = Promise.resolve()
-
-            const replies = await session.handleMessage(msg.content, {
-              images: msg.images,
-              onTextDelta: streaming
-                ? (delta, meta) => {
-                    if (!delta) return
-                    seenDelta = true
-
-                    // New turn → complete current card, start a new one
-                    if (lastTurnId && lastTurnId !== meta.turnId && streamText) {
-                      const prevText = streamText
-                      const previousStreaming = streaming
-                      streamText = ''
-                      turnRotateChain = turnRotateChain.then(async () => {
-                        if (!previousStreaming) return
-                        try {
-                          await previousStreaming.complete(prevText)
-                          activeStreamingSessions.delete(previousStreaming)
-                          streaming = trackStreamingSession(await startStreaming())
-                        } catch (err) {
-                          activeStreamingSessions.delete(previousStreaming)
-                          console.error(
-                            `[ZeRo OS] ${channelName} streaming turn rotate error:`,
-                            describeError(err),
-                          )
-                          streaming = null
-                        }
-                      })
-                    }
-                    lastTurnId = meta.turnId
-                    streamText += delta
-                    const textSnapshot = streamText
-                    turnRotateChain = turnRotateChain.then(() => {
-                      if (!streaming) return
-                      return streaming.update(textSnapshot).catch((err) =>
-                        console.error(
-                          `[ZeRo OS] ${channelName} streaming update error:`,
-                          describeError(err),
-                        ),
-                      )
-                    })
-                  }
-                : undefined,
-              onProgress: (newMsg) => {
-                const text = extractAssistantText(newMsg)
-                if (!text) return
-
-                // When streaming is active, onTextDelta handles the card updates.
-                // onProgress still tracks lastSentMsgId for bookkeeping.
-                if (streaming) {
-                  lastSentMsgId = newMsg.id
-                  // If onTextDelta didn't fire (e.g. non-streaming model), use onProgress as fallback
-                  if (!seenDelta && text !== lastProgressText) {
-                    lastProgressText = text
-                    streamText = streamText ? `${streamText}\n\n${text}` : text
-                    const textSnapshot = streamText
-                    turnRotateChain = turnRotateChain.then(() => {
-                      if (!streaming) return
-                      return streaming.update(textSnapshot).catch((err) =>
-                        console.error(
-                          `[ZeRo OS] ${channelName} streaming update error:`,
-                          describeError(err),
-                        ),
-                      )
-                    })
-                  }
-                  return
-                }
-
-                if (text === lastProgressText) return
-                lastProgressText = text
-                lastSentMsgId = newMsg.id
-
-                if (firstReply && messageId) {
-                  firstReply = false
-                  feishuChannel
-                    .reply(messageId, text)
-                    .catch((err) =>
-                      console.error(
-                        `[ZeRo OS] ${channelName} progressive send error:`,
-                        describeError(err),
-                      ),
-                    )
-                } else {
-                  feishuChannel
-                    .send(chatId, text)
-                    .catch((err) =>
-                      console.error(
-                        `[ZeRo OS] ${channelName} progressive send error:`,
-                        describeError(err),
-                      ),
-                    )
-                }
-              },
-            })
-
-            // Wait for any pending turn rotations
-            await turnRotateChain
-            const imageBlocks = replies
-              .filter((m) => m.role === 'assistant')
-              .flatMap((m) => m.content)
-              .filter((b): b is import('@zero-os/shared').ImageBlock => b.type === 'image')
-
-            let imageMarkdownSuffix = ''
-            const shouldEmbedImageBlocks = Boolean(streaming) || !lastSentMsgId
-            let failedImageBlocks: import('@zero-os/shared').ImageBlock[] = []
-            if (imageBlocks.length > 0 && shouldEmbedImageBlocks) {
-              const uploadResults = await Promise.all(
-                imageBlocks.map(async (img, i) => {
-                  try {
-                    const imageBuffer = Buffer.from(img.data, 'base64')
-                    const imageKey = await feishuChannel.uploadImage(imageBuffer)
-                    return { imageKey, block: img }
-                  } catch (imgErr) {
-                    console.warn(
-                      `[ZeRo OS] ${channelName} failed to upload image block ${i}:`,
-                      describeError(imgErr),
-                    )
-                    return { imageKey: null, block: img }
-                  }
-                }),
-              )
-
-              const uploadedKeys = uploadResults
-                .map((result) => result.imageKey)
-                .filter((key): key is string => key !== null)
-              failedImageBlocks = uploadResults
-                .filter((result) => result.imageKey === null)
-                .map((result) => result.block)
-
-              if (uploadedKeys.length > 0) {
-                imageMarkdownSuffix =
-                  '\n\n' +
-                  uploadedKeys.map((key, i) => `![image-${i + 1}](${key})`).join('\n\n')
-              }
-            }
-
-            if (streaming) {
-              const finalText = (streamText || collectAssistantReply(replies)) + imageMarkdownSuffix
-              if (finalText) {
-                await streaming.complete(finalText)
-                activeStreamingSessions.delete(streaming)
-              } else {
-                await streaming.dismiss()
-                activeStreamingSessions.delete(streaming)
-              }
-              streaming = null
-            } else if (!lastSentMsgId) {
-              const replyText = collectAssistantReply(replies) + imageMarkdownSuffix
-              if (replyText && messageId) {
-                await feishuChannel.reply(messageId, replyText)
-              } else if (replyText) {
-                await feishuChannel.send(chatId, replyText)
-              }
-            }
-
-            const fallbackImageBlocks = shouldEmbedImageBlocks ? failedImageBlocks : imageBlocks
-            if (fallbackImageBlocks.length > 0) {
-              for (const img of fallbackImageBlocks) {
-                try {
-                  const imageBuffer = Buffer.from(img.data, 'base64')
-                  await feishuChannel.sendImage(chatId, imageBuffer)
-                } catch (imgErr) {
-                  console.warn(
-                    `[ZeRo OS] ${channelName} failed to send image block:`,
-                    describeError(imgErr),
-                  )
-                }
-              }
-            }
-
-            if (messageId) {
-              if (typingReactionId)
-                feishuChannel.removeReaction(messageId, typingReactionId).catch(() => {})
-              feishuChannel.react(messageId, 'DONE').catch(() => {})
-            }
-          } catch (err) {
-            console.error(`[ZeRo OS] ${channelName} message handler error:`, describeError(err))
-            const errorMessage = err instanceof Error ? err.message : String(err)
-            let sessionWasArchived = false
-
-            if (
-              activeSessionId &&
-              errorMessage.includes('No tool output found for function call')
-            ) {
-              const poisonedSession = sessionManager.get(activeSessionId)
-              if (poisonedSession) {
-                poisonedSession.setStatus('archived')
-              }
-              sessionManager.remove(activeSessionId)
-              sessionWasArchived = true
-              console.warn(
-                `[ZeRo OS] Archived poisoned ${channelName} session after tool output mismatch:`,
-                activeSessionId,
-              )
-            }
-
-            const isTransient =
-              errorMessage.includes('overloaded_error') ||
-              errorMessage.includes('Overloaded') ||
-              /\b(429|503|529)\b/.test(errorMessage)
-
-            const userReply = sessionWasArchived
-              ? 'Session corrupted and has been reset. Please resend your message.'
-              : isTransient
-                ? '⚠️ AI 服务暂时过载（已重试 3 次仍未恢复），消息已回滚。请稍后重新发送。'
-                : 'An error occurred processing your message.'
-
-            try {
-              const activeStreaming = streaming
-              if (activeStreaming) {
-                streaming = null
-                activeStreaming
-                  .abort(userReply)
-                  .finally(() => {
-                    activeStreamingSessions.delete(activeStreaming)
-                  })
-                  .catch(() => {})
-              }
-              if (messageId) {
-                if (typingReactionId)
-                  feishuChannel.removeReaction(messageId, typingReactionId).catch(() => {})
-                if (!activeStreaming) {
-                  await feishuChannel.reply(messageId, userReply)
-                }
-              } else if (!activeStreaming) {
-                await feishuChannel.send(chatId, userReply)
-              }
-            } catch {}
-          }
+          await handleChannelMessage(msg, {
+            channelType: 'feishu',
+            channelName,
+            agentName,
+            agentInstruction: defaultAgentInstruction,
+            sessionManager,
+            commandRouter,
+            channelAdapter: feishuAdapter,
+            channelCapabilities: feishuChannel.getCapabilities(),
+            isShuttingDown: () => shuttingDown,
+          })
         })
 
         await feishuChannel.start()
@@ -1099,211 +793,20 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     if (definition.credentials) {
       const channelName = definition.name
       const agentName = buildAgentName(channelName)
+      const telegramAdapter = new TelegramAdapter(telegramChannel)
 
       telegramChannel.setMessageHandler(async (msg) => {
-        const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
-        const messageId = msg.metadata?.messageId as number | undefined
-        const chatType = msg.metadata?.chatType
-        let activeSessionId: string | null = null
-
-        try {
-          if (shuttingDown) {
-            console.log(`[ZeRo OS] Ignoring ${channelName} message during shutdown`)
-            return
-          }
-
-          if (isRestartCommand(msg.content)) {
-            if (!canRunTelegramRestart(chatType)) {
-              const reply = 'The /restart command is only available in private chats.'
-              if (messageId) {
-                await telegramChannel.replyRich(chatId, messageId, reply)
-              } else {
-                await telegramChannel.sendRich(chatId, reply)
-              }
-              return
-            }
-
-            const reply = 'Rebuilding web UI and restarting ZeRo OS...'
-            if (messageId) {
-              await telegramChannel.replyRich(chatId, messageId, reply)
-            } else {
-              await telegramChannel.sendRich(chatId, reply)
-            }
-
-            const build = rebuildWebBundle()
-            if (!build.ok) {
-              const failureReply = `Web rebuild failed, restart cancelled: ${build.error ?? 'unknown error'}`
-              if (messageId) {
-                await telegramChannel.replyRich(chatId, messageId, failureReply)
-              } else {
-                await telegramChannel.sendRich(chatId, failureReply)
-              }
-              return
-            }
-
-            setTimeout(() => shutdown(), 500)
-            return
-          }
-
-          const newCommand = parseNewSessionCommand(msg.content)
-          if (newCommand) {
-            const { session } = sessionManager.startNewForChannel('telegram', chatId, {
-              channelName,
-            })
-            activeSessionId = session.data.id
-            const modelResult = newCommand.modelArg
-              ? await session.switchModel(newCommand.modelArg)
-              : undefined
-            session.initAgent({
-              name: agentName,
-              agentInstruction:
-                'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
-            })
-            const replyText = buildNewSessionReply(session.data.currentModel, modelResult)
-            if (messageId) {
-              await telegramChannel.replyRich(chatId, messageId, replyText)
-            } else {
-              await telegramChannel.sendRich(chatId, replyText)
-            }
-            return
-          }
-
-          telegramChannel.sendTyping(chatId).catch(() => {})
-          if (messageId) {
-            telegramChannel.react(chatId, messageId, '👀').catch(() => {})
-          }
-
-          const { session, isNew } = sessionManager.getOrCreateForChannel(
-            'telegram',
-            chatId,
-            channelName,
-          )
-          activeSessionId = session.data.id
-          if (isNew) {
-            session.setChannelCapabilities(telegramChannel.getCapabilities())
-            session.initAgent({
-              name: agentName,
-              agentInstruction:
-                'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
-            })
-          } else if (!session.isAgentInitialized()) {
-            session.setChannelCapabilities(telegramChannel.getCapabilities())
-            session.initAgent({
-              name: agentName,
-              agentInstruction:
-                'You are ZeRo OS, an AI agent system. Be helpful, concise, and accurate.',
-            })
-          }
-
-          let streamText = ''
-          let seenDelta = false
-          let lastTurnId: string | null = null
-
-          const streamFlusher = createTelegramStreamFlusher({
-            minIntervalMs: 350,
-            getText: () => streamText,
-            sendInitial: async (text) => {
-              const sent = messageId
-                ? await telegramChannel.replyRich(chatId, messageId, text)
-                : await telegramChannel.sendRich(chatId, text)
-              return sent?.message_id ?? null
-            },
-            edit: async (sentMessageId, text) => {
-              await telegramChannel.editRich(chatId, sentMessageId, text)
-            },
-          })
-
-          const replies = await session.handleMessage(msg.content, {
-            images: msg.images,
-            onTextDelta: (delta, meta) => {
-              if (!delta) return
-              seenDelta = true
-              if (lastTurnId && lastTurnId !== meta.turnId && streamText) {
-                streamText += '\n'
-              }
-              lastTurnId = meta.turnId
-              streamText += delta
-              telegramChannel.sendTyping(chatId).catch(() => {})
-              streamFlusher
-                .flush(false)
-                .catch((err) =>
-                  console.error(`[ZeRo OS] ${channelName} streaming flush error:`, err),
-                )
-            },
-            onProgress: (newMsg) => {
-              const text = extractAssistantText(newMsg)
-              if (!text || seenDelta) return
-              streamText = streamText ? `${streamText}\n${text}` : text
-            },
-          })
-
-          const finalReply = collectAssistantReply(replies)
-          streamText = reconcileTelegramFinalText(streamText, finalReply)
-
-          if (streamText) {
-            try {
-              await streamFlusher.flush(true)
-            } catch (err) {
-              console.error(`[ZeRo OS] ${channelName} final flush failed, fallback to sendRich:`, {
-                sessionId: session.data.id,
-                chatId,
-                messageId: messageId ?? null,
-                error: err instanceof Error ? err.message : String(err),
-              })
-              await telegramChannel.sendRich(chatId, streamText)
-            }
-          } else if (finalReply) {
-            if (messageId) {
-              await telegramChannel.replyRich(chatId, messageId, finalReply)
-            } else {
-              await telegramChannel.sendRich(chatId, finalReply)
-            }
-          }
-
-          if (messageId) {
-            telegramChannel.react(chatId, messageId, '✅').catch(() => {})
-          }
-        } catch (err) {
-          console.error(`[ZeRo OS] ${channelName} message handler error:`, err)
-          const errorMessage = err instanceof Error ? err.message : String(err)
-          let sessionWasArchived = false
-
-          if (activeSessionId && errorMessage.includes('No tool output found for function call')) {
-            const poisonedSession = sessionManager.get(activeSessionId)
-            if (poisonedSession) {
-              poisonedSession.setStatus('archived')
-            }
-            sessionManager.remove(activeSessionId)
-            sessionWasArchived = true
-            console.warn(
-              `[ZeRo OS] Archived poisoned ${channelName} session after tool output mismatch:`,
-              activeSessionId,
-            )
-          }
-
-          const isTransient =
-            errorMessage.includes('overloaded_error') ||
-            errorMessage.includes('Overloaded') ||
-            /\b(429|503|529)\b/.test(errorMessage)
-
-          const userReply = sessionWasArchived
-            ? 'Session corrupted and has been reset. Please resend your message.'
-            : isTransient
-              ? '⚠️ AI 服务暂时过载（已重试 3 次仍未恢复），消息已回滚。请稍后重新发送。'
-              : 'An error occurred processing your message.'
-
-          if (messageId) {
-            telegramChannel.react(chatId, messageId, '❌').catch(() => {})
-          }
-
-          try {
-            if (messageId) {
-              await telegramChannel.replyRich(chatId, messageId, userReply)
-            } else {
-              await telegramChannel.sendRich(chatId, userReply)
-            }
-          } catch {}
-        }
+        await handleChannelMessage(msg, {
+          channelType: 'telegram',
+          channelName,
+          agentName,
+          agentInstruction: defaultAgentInstruction,
+          sessionManager,
+          commandRouter,
+          channelAdapter: telegramAdapter,
+          channelCapabilities: telegramChannel.getCapabilities(),
+          isShuttingDown: () => shuttingDown,
+        })
       })
 
       await telegramChannel.start()

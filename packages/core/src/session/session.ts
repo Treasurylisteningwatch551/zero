@@ -260,13 +260,6 @@ export class Session {
    * Handle a user message.
    */
   async handleMessage(content: string, options?: HandleMessageOptions): Promise<Message[]> {
-    // Check for commands
-    if (content.startsWith('/')) {
-      const replies = await this.handleCommand(content)
-      this.persistState()
-      return replies
-    }
-
     if (!this.agent) {
       throw new Error('Agent not initialized. Call initAgent() first.')
     }
@@ -688,49 +681,6 @@ export class Session {
       .map((model) => `${model.providerName}/${model.modelName}`)
   }
 
-  private async handleCommand(command: string): Promise<Message[]> {
-    const parts = command.trim().split(/\s+/)
-    const cmd = parts[0].toLowerCase()
-    const args = parts.slice(1).join(' ')
-
-    switch (cmd) {
-      case '/model': {
-        if (!args) {
-          return [this.makeSystemMessage(`Current model: ${this.data.currentModel}`)]
-        }
-        if (args.toLowerCase() === 'list') {
-          const available = this.listModels()
-            .map((model) => `- ${model}`)
-            .join('\n')
-          return [this.makeSystemMessage(`Available models:\n${available}`)]
-        }
-        const result = await this.switchModel(args)
-        return [this.makeSystemMessage(result.message)]
-      }
-      case '/new': {
-        // Reset conversation, optionally switch model
-        this.messages = []
-        if (args) {
-          const result = await this.switchModel(args)
-          if (!result.success) {
-            return [this.makeSystemMessage(result.message)]
-          }
-          return [
-            this.makeSystemMessage(
-              `New conversation started with model: ${this.data.currentModel}`,
-            ),
-          ]
-        }
-        this.reinitializeAgent()
-        return [
-          this.makeSystemMessage(`New conversation started with model: ${this.data.currentModel}`),
-        ]
-      }
-      default:
-        return [this.makeSystemMessage(`Unknown command: ${cmd}`)]
-    }
-  }
-
   private reinitializeAgent(): void {
     if (!this.agent || !this.lastAgentConfig) return
     this.initAgent(this.lastAgentConfig)
@@ -744,17 +694,6 @@ export class Session {
       agentConfig ? JSON.stringify(agentConfig) : undefined,
       this.lastSystemPrompt || undefined,
     )
-  }
-
-  private makeSystemMessage(text: string): Message {
-    return {
-      id: Bun.randomUUIDv7(),
-      sessionId: this.data.id,
-      role: 'assistant',
-      messageType: 'notification',
-      content: [{ type: 'text', text }],
-      createdAt: now(),
-    }
   }
 
   private makeUserMessage(

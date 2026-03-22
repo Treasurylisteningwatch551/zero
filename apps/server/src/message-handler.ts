@@ -1,0 +1,398 @@
+import type { IncomingMessage } from '@zero-os/channel'
+import type {
+  CommandContext,
+  CommandRouter,
+  HandleMessageOptions,
+  Session,
+  SessionManager,
+} from '@zero-os/core'
+import type { ChannelCapabilities, ImageBlock, Message, SessionSource } from '@zero-os/shared'
+import type { ChannelAdapter, StreamAdapter, TypingHandle } from './channel-adapter'
+
+export interface MessageHandlerDeps {
+  channelType: SessionSource
+  channelName: string
+  agentName: string
+  agentInstruction: string
+  sessionManager: SessionManager
+  commandRouter: CommandRouter
+  channelAdapter: ChannelAdapter
+  channelCapabilities?: ChannelCapabilities
+  isShuttingDown: () => boolean
+  /** Server-level pre-command hook (for /restart etc). Return true if handled. */
+  onPreCommand?: (content: string, reply: (text: string) => Promise<void>) => Promise<boolean>
+}
+
+export async function handleChannelMessage(
+  msg: IncomingMessage,
+  deps: MessageHandlerDeps,
+): Promise<void> {
+  const chatId = normalizeChatId(msg)
+  const messageId = normalizeMessageId(msg)
+
+  const reply = (text: string) => deps.channelAdapter.reply(chatId, text, messageId)
+
+  let activeSessionId: string | null = null
+  let typingHandle: TypingHandle | null = null
+  let streaming: StreamAdapter | null = null
+
+  try {
+    if (deps.isShuttingDown()) {
+      console.log(`[ZeRo OS] Ignoring ${deps.channelName} message during shutdown`)
+      return
+    }
+
+    if (deps.onPreCommand) {
+      const handled = await deps.onPreCommand(msg.content, reply)
+      if (handled) return
+    }
+
+    const commandCtx: CommandContext = {
+      source: deps.channelType,
+      channelName: deps.channelName,
+      chatId,
+      senderId: msg.senderId,
+      messageId,
+      metadata: msg.metadata,
+      sessionManager: deps.sessionManager,
+      channelCapabilities: deps.channelCapabilities,
+      agentConfig: {
+        name: deps.agentName,
+        agentInstruction: deps.agentInstruction,
+      },
+      reply,
+    }
+
+    const commandResult = await deps.commandRouter.handle(msg.content, commandCtx)
+    if (commandResult?.handled) {
+      if (commandResult.reply) {
+        await reply(commandResult.reply)
+      }
+      return
+    }
+
+    const { session, isNew } = deps.sessionManager.getOrCreateForChannel(
+      deps.channelType,
+      chatId,
+      deps.channelName,
+    )
+    activeSessionId = session.data.id
+    ensureSessionReady(session, isNew, deps)
+
+    typingHandle = await deps.channelAdapter.showTyping(chatId, messageId)
+
+    if (deps.channelAdapter.createStreaming) {
+      try {
+        streaming = await deps.channelAdapter.createStreaming(chatId, messageId)
+      } catch (err) {
+        console.warn(
+          `[ZeRo OS] ${deps.channelName} streaming init failed, falling back to static:`,
+          describeError(err),
+        )
+      }
+    }
+
+    let firstReply = true
+    let lastSentMsgId: string | null = null
+    let lastProgressText: string | null = null
+    let streamText = ''
+    let seenDelta = false
+    let lastTurnId: string | null = null
+    let turnRotateChain: Promise<void> = Promise.resolve()
+
+    const replies = await session.handleMessage(msg.content, {
+      images: msg.images,
+      onTextDelta: streaming
+        ? (delta, meta) => {
+            if (!delta) return
+            seenDelta = true
+
+            if (lastTurnId && lastTurnId !== meta.turnId && streamText) {
+              const prevText = streamText
+              const previousStreaming = streaming
+              streamText = ''
+              turnRotateChain = turnRotateChain.then(async () => {
+                if (!previousStreaming) return
+                try {
+                  await previousStreaming.complete(prevText)
+                  if (deps.channelAdapter.createStreaming) {
+                    streaming = await deps.channelAdapter.createStreaming(chatId, messageId)
+                  } else {
+                    streaming = null
+                  }
+                } catch (err) {
+                  console.error(
+                    `[ZeRo OS] ${deps.channelName} streaming turn rotate error:`,
+                    describeError(err),
+                  )
+                  streaming = null
+                }
+              })
+            }
+
+            lastTurnId = meta.turnId
+            streamText += delta
+            const textSnapshot = streamText
+            turnRotateChain = turnRotateChain.then(() => {
+              if (!streaming) return
+              return streaming.update(textSnapshot).catch((err) => {
+                console.error(
+                  `[ZeRo OS] ${deps.channelName} streaming update error:`,
+                  describeError(err),
+                )
+              })
+            })
+          }
+        : undefined,
+      onProgress: (newMsg) => {
+        const text = extractAssistantText(newMsg)
+        if (!text) return
+
+        if (streaming) {
+          lastSentMsgId = newMsg.id
+          if (!seenDelta && text !== lastProgressText) {
+            lastProgressText = text
+            streamText = streamText ? `${streamText}\n\n${text}` : text
+            const textSnapshot = streamText
+            turnRotateChain = turnRotateChain.then(() => {
+              if (!streaming) return
+              return streaming.update(textSnapshot).catch((err) => {
+                console.error(
+                  `[ZeRo OS] ${deps.channelName} streaming update error:`,
+                  describeError(err),
+                )
+              })
+            })
+          }
+          return
+        }
+
+        if (text === lastProgressText) return
+        lastProgressText = text
+        lastSentMsgId = newMsg.id
+
+        if (firstReply && messageId !== undefined) {
+          firstReply = false
+          deps.channelAdapter
+            .reply(chatId, text, messageId)
+            .catch((err) =>
+              console.error(
+                `[ZeRo OS] ${deps.channelName} progressive send error:`,
+                describeError(err),
+              ),
+            )
+          return
+        }
+
+        deps.channelAdapter
+          .reply(chatId, text)
+          .catch((err) =>
+            console.error(
+              `[ZeRo OS] ${deps.channelName} progressive send error:`,
+              describeError(err),
+            ),
+          )
+      },
+    } satisfies HandleMessageOptions)
+
+    await turnRotateChain
+
+    const imageBlocks = replies
+      .filter((m) => m.role === 'assistant')
+      .flatMap((m) => m.content)
+      .filter((block): block is ImageBlock => block.type === 'image')
+
+    let imageMarkdownSuffix = ''
+    const shouldEmbedImageBlocks = Boolean(streaming) || !lastSentMsgId
+    let failedImageBlocks: ImageBlock[] = []
+    if (imageBlocks.length > 0 && shouldEmbedImageBlocks) {
+      if (deps.channelAdapter.uploadImage) {
+        const uploadResults = await Promise.all(
+          imageBlocks.map(async (img, index) => {
+            try {
+              const imageBuffer = Buffer.from(img.data, 'base64')
+              const uploaded = await deps.channelAdapter.uploadImage?.(imageBuffer)
+              return { uploaded, block: img }
+            } catch (imgErr) {
+              console.warn(
+                `[ZeRo OS] ${deps.channelName} failed to upload image block ${index}:`,
+                describeError(imgErr),
+              )
+              return { uploaded: null, block: img }
+            }
+          }),
+        )
+
+        const uploadedRefs = uploadResults
+          .map((result) => result.uploaded?.markdownRef)
+          .filter((ref): ref is string => Boolean(ref))
+        failedImageBlocks = uploadResults
+          .filter((result) => !result.uploaded)
+          .map((result) => result.block)
+
+        if (uploadedRefs.length > 0) {
+          imageMarkdownSuffix =
+            '\n\n' + uploadedRefs.map((ref, index) => `![image-${index + 1}](${ref})`).join('\n\n')
+        }
+      } else {
+        failedImageBlocks = imageBlocks
+      }
+    }
+
+    if (streaming) {
+      const finalText = (streamText || collectAssistantReply(replies)) + imageMarkdownSuffix
+      try {
+        await streaming.complete(finalText)
+      } catch (err) {
+        console.error(`[ZeRo OS] ${deps.channelName} streaming finalization error:`, describeError(err))
+        if (finalText) {
+          await deps.channelAdapter.reply(chatId, finalText, messageId)
+        }
+      }
+      streaming = null
+    } else if (!lastSentMsgId) {
+      const replyText = collectAssistantReply(replies) + imageMarkdownSuffix
+      if (replyText) {
+        await deps.channelAdapter.reply(chatId, replyText, messageId)
+      }
+    }
+
+    const fallbackImageBlocks = shouldEmbedImageBlocks ? failedImageBlocks : imageBlocks
+    if (fallbackImageBlocks.length > 0 && deps.channelAdapter.sendImage) {
+      for (const img of fallbackImageBlocks) {
+        try {
+          const imageBuffer = Buffer.from(img.data, 'base64')
+          await deps.channelAdapter.sendImage(chatId, imageBuffer)
+        } catch (imgErr) {
+          console.warn(
+            `[ZeRo OS] ${deps.channelName} failed to send image block:`,
+            describeError(imgErr),
+          )
+        }
+      }
+    }
+
+    await typingHandle?.clear().catch(() => {})
+    await deps.channelAdapter.markDone?.(chatId, messageId).catch(() => {})
+  } catch (err) {
+    console.error(`[ZeRo OS] ${deps.channelName} message handler error:`, describeError(err))
+
+    const errorMessage = err instanceof Error ? err.message : String(err)
+    let sessionWasArchived = false
+
+    if (activeSessionId && errorMessage.includes('No tool output found for function call')) {
+      const poisonedSession = deps.sessionManager.get(activeSessionId)
+      if (poisonedSession) {
+        poisonedSession.setStatus('archived')
+      }
+      deps.sessionManager.remove(activeSessionId)
+      sessionWasArchived = true
+      console.warn(
+        `[ZeRo OS] Archived poisoned ${deps.channelName} session after tool output mismatch:`,
+        activeSessionId,
+      )
+    }
+
+    const isTransient =
+      errorMessage.includes('overloaded_error') ||
+      errorMessage.includes('Overloaded') ||
+      /\b(429|503|529)\b/.test(errorMessage)
+
+    const userReply = sessionWasArchived
+      ? 'Session corrupted and has been reset. Please resend your message.'
+      : isTransient
+        ? '⚠️ AI 服务暂时过载（已重试 3 次仍未恢复），消息已回滚。请稍后重新发送。'
+        : 'An error occurred processing your message.'
+
+    try {
+      const activeStreaming = streaming
+      if (activeStreaming) {
+        streaming = null
+        await activeStreaming.abort(userReply).catch(() => {})
+      }
+
+      await typingHandle?.clear().catch(() => {})
+      await deps.channelAdapter.markError?.(chatId, messageId).catch(() => {})
+
+      if (!activeStreaming) {
+        await deps.channelAdapter.reply(chatId, userReply, messageId)
+      }
+    } catch {}
+  }
+}
+
+function ensureSessionReady(session: Session, isNew: boolean, deps: MessageHandlerDeps): void {
+  if (isNew || !session.isAgentInitialized()) {
+    if (deps.channelCapabilities) {
+      session.setChannelCapabilities(deps.channelCapabilities)
+    }
+    session.initAgent({
+      name: deps.agentName,
+      agentInstruction: deps.agentInstruction,
+    })
+  }
+}
+
+function normalizeChatId(msg: IncomingMessage): string {
+  const chatId = msg.metadata?.chatId
+  if (typeof chatId === 'string' && chatId.trim()) {
+    return chatId
+  }
+  if (typeof chatId === 'number') {
+    return String(chatId)
+  }
+  return msg.senderId
+}
+
+function normalizeMessageId(msg: IncomingMessage): string | number | undefined {
+  const messageId = msg.metadata?.messageId
+  if (typeof messageId === 'string' || typeof messageId === 'number') {
+    return messageId
+  }
+  return undefined
+}
+
+function extractAssistantText(msg: Message): string {
+  if (msg.role !== 'assistant') return ''
+  return msg.content
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('\n')
+    .trim()
+}
+
+function collectAssistantReply(messages: Message[]): string {
+  return messages
+    .filter((m) => m.role === 'assistant')
+    .flatMap((m) => m.content)
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+    .join('\n')
+    .trim()
+}
+
+function describeError(err: unknown): string {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'string') return err
+  if (!err || typeof err !== 'object') return String(err)
+
+  const record = err as Record<string, unknown>
+  const response =
+    typeof record.response === 'object' && record.response !== null
+      ? (record.response as Record<string, unknown>)
+      : undefined
+  const config =
+    typeof record.config === 'object' && record.config !== null
+      ? (record.config as Record<string, unknown>)
+      : undefined
+
+  const parts = [
+    typeof response?.status === 'number' ? `status=${response.status}` : '',
+    typeof config?.method === 'string' || typeof config?.url === 'string'
+      ? `${typeof config?.method === 'string' ? config.method.toUpperCase() : 'REQUEST'} ${typeof config?.url === 'string' ? config.url : ''}`.trim()
+      : '',
+    typeof record.message === 'string' ? record.message : '',
+  ].filter(Boolean)
+
+  return parts.join(' | ') || '[unknown error]'
+}
