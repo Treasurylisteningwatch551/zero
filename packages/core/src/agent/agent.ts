@@ -22,6 +22,7 @@ import type {
   ToolResult,
 } from '@zero-os/shared'
 import { generateId, generatePrefixedId, now } from '@zero-os/shared'
+import { EMPTY_RESPONSE_RETRY_PROMPT } from '../constants'
 import type { ToolRegistry } from '../tool/registry'
 import { allocateBudget, shouldCompress } from './budget'
 import { estimateConversationTokens, prepareConversationHistory } from './context'
@@ -96,9 +97,6 @@ export interface AgentObservability {
     stats: CompressionResult['stats']
   }) => void
 }
-
-const EMPTY_RESPONSE_RETRY_PROMPT =
-  'Your previous reply was empty. Continue the current task and provide the actual answer or the next required tool call. Do not return an empty response.'
 
 /**
  * Agent execution engine — runs the tool use loop.

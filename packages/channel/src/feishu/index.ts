@@ -1,5 +1,6 @@
 import type { Readable } from 'node:stream'
 import * as lark from '@larksuiteoapi/node-sdk'
+import { describeError } from '@zero-os/shared'
 import type { Channel, ImageAttachment, IncomingMessage, MessageHandler } from '../base'
 import { renderMarkdownForFeishu } from '../richtext/feishu'
 import type { FeishuImageReference } from './image-resolver'
@@ -155,12 +156,12 @@ export class FeishuChannel implements Channel {
 
           // Fire-and-forget: return immediately so SDK sends ACK within 3s
           this.messageHandler(incoming).catch((err) => {
-            console.error('[FeishuChannel] Async handler error:', this.describeError(err))
+            console.error('[FeishuChannel] Async handler error:', describeError(err))
           })
         } catch (err) {
           console.error(
             '[FeishuChannel] Error handling im.message.receive_v1:',
-            this.describeError(err),
+            describeError(err),
           )
         }
       },
@@ -200,7 +201,7 @@ export class FeishuChannel implements Channel {
       } catch (error) {
         console.warn(
           '[FeishuChannel] Card JSON send failed, falling back to text:',
-          this.describeError(error),
+          describeError(error),
         )
       }
     }
@@ -321,7 +322,7 @@ export class FeishuChannel implements Channel {
       } catch (parseErr) {
         console.error(
           '[FeishuChannel] Failed to parse message content:',
-          this.describeError(parseErr),
+          describeError(parseErr),
         )
         content = msg.content ?? ''
       }
@@ -351,7 +352,7 @@ export class FeishuChannel implements Channel {
       } catch (parseErr) {
         console.error(
           '[FeishuChannel] Failed to parse post content:',
-          this.describeError(parseErr),
+          describeError(parseErr),
           'raw:',
           this.truncate(msg.content ?? '', 200),
         )
@@ -379,7 +380,7 @@ export class FeishuChannel implements Channel {
       } catch (parseErr) {
         console.error(
           '[FeishuChannel] Failed to parse image message content:',
-          this.describeError(parseErr),
+          describeError(parseErr),
         )
         content = '[图片下载失败]'
       }
@@ -390,7 +391,7 @@ export class FeishuChannel implements Channel {
     // Resolve quoted / replied-to message content
     if (msg.parent_id) {
       const quotedContent = await this.fetchQuotedContent(msg.parent_id).catch((err) => {
-        console.warn('[FeishuChannel] Failed to resolve quoted message:', this.describeError(err))
+        console.warn('[FeishuChannel] Failed to resolve quoted message:', describeError(err))
         return null
       })
       if (quotedContent) {
@@ -465,7 +466,7 @@ export class FeishuChannel implements Channel {
       } catch (error) {
         console.warn(
           '[FeishuChannel] Card JSON reply failed, falling back to text:',
-          this.describeError(error),
+          describeError(error),
         )
       }
     }
@@ -564,7 +565,7 @@ export class FeishuChannel implements Channel {
 
       console.log(`[FeishuChannel] File "${fileName}" sent successfully`)
     } catch (error) {
-      console.error('[FeishuChannel] Failed to send file:', this.describeError(error))
+      console.error('[FeishuChannel] Failed to send file:', describeError(error))
     }
   }
 
@@ -876,7 +877,7 @@ export class FeishuChannel implements Channel {
       console.log('[FeishuChannel] Image sent successfully')
       return true
     } catch (error) {
-      console.error('[FeishuChannel] Failed to send image:', this.describeError(error))
+      console.error('[FeishuChannel] Failed to send image:', describeError(error))
       return false
     }
   }
@@ -906,7 +907,7 @@ export class FeishuChannel implements Channel {
       } catch (error) {
         console.warn(
           `[FeishuChannel] Failed to fetch fallback image ${normalizedRef}:`,
-          this.describeError(error),
+          describeError(error),
         )
         return false
       }
@@ -972,7 +973,7 @@ export class FeishuChannel implements Channel {
     try {
       initialMessageId = await attachMessage(cardId)
     } catch (error) {
-      console.warn('[FeishuChannel] streaming card attach failed:', this.describeError(error))
+      console.warn('[FeishuChannel] streaming card attach failed:', describeError(error))
       throw error
     }
     const client = this.client
@@ -1047,7 +1048,7 @@ export class FeishuChannel implements Channel {
         lastFlushAt = Date.now()
       } catch (error) {
         pendingText = text
-        console.warn('[FeishuChannel] streaming update failed:', this.describeError(error))
+        console.warn('[FeishuChannel] streaming update failed:', describeError(error))
       } finally {
         markScheduledFlushDone()
       }
@@ -1096,7 +1097,7 @@ export class FeishuChannel implements Channel {
         })
         lastDeliveredText = content
       } catch (error) {
-        console.warn(`[FeishuChannel] ${logLabel}:`, this.describeError(error))
+        console.warn(`[FeishuChannel] ${logLabel}:`, describeError(error))
       }
     }
 
@@ -1148,7 +1149,7 @@ export class FeishuChannel implements Channel {
             await this.deleteMessage(messageId)
           }
         } catch (error) {
-          console.warn('[FeishuChannel] streaming dismiss failed:', this.describeError(error))
+          console.warn('[FeishuChannel] streaming dismiss failed:', describeError(error))
         }
       },
     }
@@ -1172,7 +1173,7 @@ export class FeishuChannel implements Channel {
       }
       return cardId
     } catch (error) {
-      console.warn('[FeishuChannel] streaming card create failed:', this.describeError(error))
+      console.warn('[FeishuChannel] streaming card create failed:', describeError(error))
       throw error
     }
   }
@@ -1199,7 +1200,7 @@ export class FeishuChannel implements Channel {
       } catch (interactiveErr) {
         console.warn(
           '[FeishuChannel] interactive send failed, fallback to post:',
-          this.describeError(interactiveErr),
+          describeError(interactiveErr),
         )
       }
     } else {
@@ -1221,7 +1222,7 @@ export class FeishuChannel implements Channel {
       } catch (postErr) {
         console.warn(
           '[FeishuChannel] post send failed, fallback to text:',
-          this.describeError(postErr),
+          describeError(postErr),
         )
       }
     } else {
@@ -1262,7 +1263,7 @@ export class FeishuChannel implements Channel {
       } catch (interactiveErr) {
         console.warn(
           '[FeishuChannel] interactive reply failed, fallback to post:',
-          this.describeError(interactiveErr),
+          describeError(interactiveErr),
         )
       }
     } else {
@@ -1283,7 +1284,7 @@ export class FeishuChannel implements Channel {
       } catch (postErr) {
         console.warn(
           '[FeishuChannel] post reply failed, fallback to text:',
-          this.describeError(postErr),
+          describeError(postErr),
         )
       }
     } else {
@@ -1306,7 +1307,7 @@ export class FeishuChannel implements Channel {
         })
       }
     } catch (textErr) {
-      console.error('[FeishuChannel] text reply fallback failed:', this.describeError(textErr))
+      console.error('[FeishuChannel] text reply fallback failed:', describeError(textErr))
       throw textErr
     }
   }
@@ -1444,7 +1445,7 @@ export class FeishuChannel implements Channel {
     } catch (error) {
       console.warn(
         '[FeishuChannel] Failed to fetch quoted message:',
-        this.describeError(error),
+        describeError(error),
       )
       return null
     }
@@ -1464,7 +1465,7 @@ export class FeishuChannel implements Channel {
       })
       return await this.readBinaryResponse(response)
     } catch (error) {
-      console.error(`[FeishuChannel] ${logContext}:`, this.describeError(error))
+      console.error(`[FeishuChannel] ${logContext}:`, describeError(error))
       return null
     }
   }
@@ -1509,33 +1510,6 @@ export class FeishuChannel implements Channel {
     return undefined
   }
 
-  private extractRequestId(headers: unknown): string | undefined {
-    return (
-      this.getHeaderValue(headers, 'x-request-id') ?? this.getHeaderValue(headers, 'request-id')
-    )
-  }
-
-  private extractResponseDetail(data: unknown): string | undefined {
-    if (!data) return undefined
-    if (typeof data === 'string') return this.truncate(data, 160)
-    if (typeof data !== 'object') return undefined
-
-    const record = data as Record<string, unknown>
-    const code =
-      typeof record.code === 'number' || typeof record.code === 'string'
-        ? String(record.code)
-        : undefined
-    const message =
-      typeof record.msg === 'string'
-        ? record.msg
-        : typeof record.message === 'string'
-          ? record.message
-          : undefined
-
-    if (!code && !message) return undefined
-    return [code ? `code=${code}` : '', message ?? ''].filter(Boolean).join(' ')
-  }
-
   private describeLogValue(value: unknown): string {
     if (Array.isArray(value)) {
       return value
@@ -1548,7 +1522,7 @@ export class FeishuChannel implements Channel {
     if (typeof value === 'number' || typeof value === 'boolean' || value == null)
       return String(value)
 
-    const errorSummary = this.describeError(value)
+    const errorSummary = describeError(value)
     if (errorSummary !== '[unknown error]') return errorSummary
 
     const objectName =
@@ -1556,58 +1530,6 @@ export class FeishuChannel implements Channel {
         ? (value as { constructor?: { name?: string } }).constructor?.name
         : undefined
     return objectName ? `[${objectName}]` : '[object]'
-  }
-
-  private describeError(error: unknown): string {
-    if (typeof error === 'string') return error
-    if (typeof error === 'number' || typeof error === 'boolean' || error == null)
-      return String(error)
-
-    const record = error as Record<string, unknown>
-    const response =
-      typeof record.response === 'object' && record.response !== null
-        ? (record.response as Record<string, unknown>)
-        : undefined
-    const config =
-      typeof record.config === 'object' && record.config !== null
-        ? (record.config as Record<string, unknown>)
-        : undefined
-
-    const message =
-      typeof record.message === 'string'
-        ? record.message
-        : error instanceof Error
-          ? error.message
-          : undefined
-    const code = typeof record.code === 'string' ? record.code : undefined
-    const status =
-      typeof response?.status === 'number'
-        ? response.status
-        : typeof record.status === 'number'
-          ? record.status
-          : typeof record.statusCode === 'number'
-            ? record.statusCode
-            : undefined
-    const method = typeof config?.method === 'string' ? config.method.toUpperCase() : undefined
-    const url =
-      typeof config?.url === 'string'
-        ? config.url
-        : typeof record.url === 'string'
-          ? record.url
-          : undefined
-    const requestId = this.extractRequestId(response?.headers)
-    const detail = this.extractResponseDetail(response?.data)
-
-    const parts = [
-      status ? `status=${status}` : '',
-      code ? `code=${code}` : '',
-      requestId ? `request_id=${requestId}` : '',
-      method || url ? `${method ?? 'REQUEST'} ${url ?? ''}`.trim() : '',
-      message ?? '',
-      detail ? `detail=${detail}` : '',
-    ].filter(Boolean)
-
-    return parts.join(' | ') || '[unknown error]'
   }
 
   private isPureImagePlaceholder(content: string): boolean {

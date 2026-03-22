@@ -32,6 +32,7 @@ import { CONTINUATION_PROMPT, type QueuedMessage } from '../agent/queue'
 import { buildSnapshot } from '../agent/snapshot'
 import { TASK_CLOSURE_PROMPT } from '../agent/task-closure'
 import { loadBootstrapFiles } from '../bootstrap/loader'
+import { EMPTY_RESPONSE_RETRY_PROMPT } from '../constants'
 import { loadSkills } from '../skill/loader'
 import type { ToolRegistry } from '../tool/registry'
 
@@ -77,9 +78,6 @@ interface SnapshotContext {
   tools: string[]
   identityMemory?: string
 }
-
-const EMPTY_RESPONSE_RETRY_PROMPT =
-  'Your previous reply was empty. Continue the current task and provide the actual answer or the next required tool call. Do not return an empty response.'
 
 /**
  * Session — manages the lifecycle of a single conversation.

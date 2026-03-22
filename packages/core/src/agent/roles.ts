@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { readYaml } from '@zero-os/shared'
 import type { PromptMode } from '@zero-os/shared'
+import { readString, readStringArray } from '../utils/yaml'
 
 export interface RoleDefinition {
   name: string
@@ -123,32 +124,6 @@ function normalizeRoleDefinition(
     ...(model ? { model } : {}),
     promptMode,
   }
-}
-
-function readString(raw: Record<string, unknown>, ...keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = raw[key]
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim()
-    }
-  }
-  return undefined
-}
-
-function readStringArray(raw: Record<string, unknown>, ...keys: string[]): string[] | undefined {
-  for (const key of keys) {
-    const value = raw[key]
-    if (value === undefined) continue
-    if (!Array.isArray(value)) return undefined
-
-    const items = value
-      .filter((item): item is string => typeof item === 'string')
-      .map((item) => item.trim())
-      .filter(Boolean)
-
-    return items
-  }
-  return undefined
 }
 
 function readPromptMode(

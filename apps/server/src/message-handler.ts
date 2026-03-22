@@ -6,7 +6,15 @@ import type {
   Session,
   SessionManager,
 } from '@zero-os/core'
-import type { ChannelCapabilities, ImageBlock, Message, SessionSource } from '@zero-os/shared'
+import {
+  collectAssistantReply,
+  describeError,
+  extractAssistantText,
+  type ChannelCapabilities,
+  type ImageBlock,
+  type Message,
+  type SessionSource,
+} from '@zero-os/shared'
 import type { ChannelAdapter, StreamAdapter, TypingHandle } from './channel-adapter'
 
 export interface MessageHandlerDeps {
@@ -145,7 +153,7 @@ export async function handleChannelMessage(
           }
         : undefined,
       onProgress: (newMsg) => {
-        const text = extractAssistantText(newMsg)
+        const text = extractAssistantTextFromMessage(newMsg)
         if (!text) return
 
         if (streaming) {
@@ -352,47 +360,7 @@ function normalizeMessageId(msg: IncomingMessage): string | number | undefined {
   return undefined
 }
 
-function extractAssistantText(msg: Message): string {
+function extractAssistantTextFromMessage(msg: Message): string {
   if (msg.role !== 'assistant') return ''
-  return msg.content
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n')
-    .trim()
-}
-
-function collectAssistantReply(messages: Message[]): string {
-  return messages
-    .filter((m) => m.role === 'assistant')
-    .flatMap((m) => m.content)
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('\n')
-    .trim()
-}
-
-function describeError(err: unknown): string {
-  if (err instanceof Error) return err.message
-  if (typeof err === 'string') return err
-  if (!err || typeof err !== 'object') return String(err)
-
-  const record = err as Record<string, unknown>
-  const response =
-    typeof record.response === 'object' && record.response !== null
-      ? (record.response as Record<string, unknown>)
-      : undefined
-  const config =
-    typeof record.config === 'object' && record.config !== null
-      ? (record.config as Record<string, unknown>)
-      : undefined
-
-  const parts = [
-    typeof response?.status === 'number' ? `status=${response.status}` : '',
-    typeof config?.method === 'string' || typeof config?.url === 'string'
-      ? `${typeof config?.method === 'string' ? config.method.toUpperCase() : 'REQUEST'} ${typeof config?.url === 'string' ? config.url : ''}`.trim()
-      : '',
-    typeof record.message === 'string' ? record.message : '',
-  ].filter(Boolean)
-
-  return parts.join(' | ') || '[unknown error]'
+  return extractAssistantText(msg.content).trim()
 }

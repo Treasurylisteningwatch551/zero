@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { readYaml, readYamlOrDefault } from '@zero-os/shared'
 import type { ChannelInstanceConfig, FuseRule, SystemConfig } from '@zero-os/shared'
+import { readString } from '../utils/yaml'
 
 /**
  * Load ZeRo OS system configuration from .zero/config.yaml.
@@ -147,16 +148,6 @@ function normalizeEmbeddingConfig(
     model: readString(raw, 'model') ?? '',
     dimensions: readNumber(raw, 'dimensions'),
   }
-}
-
-function readString(raw: Record<string, unknown>, ...keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = raw[key]
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim()
-    }
-  }
-  return undefined
 }
 
 function readBoolean(raw: Record<string, unknown>, ...keys: string[]): boolean | undefined {

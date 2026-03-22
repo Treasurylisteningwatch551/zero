@@ -42,6 +42,8 @@ import {
   type Notification,
   type ScheduleConfig,
   type SessionSource,
+  collectAssistantReply,
+  describeError,
   installConsoleTimestamping,
 } from '@zero-os/shared'
 import { RepairEngine } from '@zero-os/supervisor'
@@ -481,41 +483,6 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     return notification
   }
 
-  function collectAssistantReply(messages: import('@zero-os/shared').Message[]): string {
-    return messages
-      .filter((m) => m.role === 'assistant')
-      .flatMap((m) => m.content)
-      .filter((b) => b.type === 'text')
-      .map((b) => (b as { type: 'text'; text: string }).text)
-      .join('\n')
-      .trim()
-  }
-
-  function describeError(err: unknown): string {
-    if (err instanceof Error) return err.message
-    if (typeof err === 'string') return err
-    if (!err || typeof err !== 'object') return String(err)
-
-    const record = err as Record<string, unknown>
-    const response =
-      typeof record.response === 'object' && record.response !== null
-        ? (record.response as Record<string, unknown>)
-        : undefined
-    const config =
-      typeof record.config === 'object' && record.config !== null
-        ? (record.config as Record<string, unknown>)
-        : undefined
-
-    const parts = [
-      typeof response?.status === 'number' ? `status=${response.status}` : '',
-      typeof config?.method === 'string' || typeof config?.url === 'string'
-        ? `${typeof config?.method === 'string' ? config.method.toUpperCase() : 'REQUEST'} ${typeof config?.url === 'string' ? config.url : ''}`.trim()
-        : '',
-      typeof record.message === 'string' ? record.message : '',
-    ].filter(Boolean)
-
-    return parts.join(' | ') || '[unknown error]'
-  }
   // 15. Channel registry (channels Map declared earlier with scheduler)
 
   // Web channel — always registered

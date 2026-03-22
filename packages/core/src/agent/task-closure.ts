@@ -113,12 +113,7 @@ export function parseTaskClosureDecision(response: string): TaskClosureDecision 
   }
 }
 
-export function extractAssistantText(content: ContentBlock[]): string {
-  return content
-    .filter((block) => block.type === 'text')
-    .map((block) => (block as { type: 'text'; text: string }).text)
-    .join('')
-}
+export { extractAssistantText } from '@zero-os/shared'
 
 export function extractAssistantTail(content: ContentBlock[], maxChars = 1200): string {
   const lastText = getLastTextBlockText(content)
