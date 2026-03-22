@@ -91,10 +91,14 @@ export function TimelineView({
                 durationMs={item.durationMs}
                 childToolCalls={item.childToolCalls}
                 selected={selectedToolId === item.spawnToolCallId}
+                selectedChildToolId={selectedToolId}
                 onSelect={() =>
                   onSelectTool(
                     selectedToolId === item.spawnToolCallId ? null : item.spawnToolCallId,
                   )
+                }
+                onSelectChildTool={(toolId) =>
+                  onSelectTool(selectedToolId === toolId ? null : toolId)
                 }
               />
             )

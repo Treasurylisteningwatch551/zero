@@ -295,22 +295,43 @@ export function SessionDetailScreen({
     [session, traces, taskClosureEvents],
   )
 
-  const toolCalls = useMemo(
-    () =>
-      timelineItems
-        .filter(
-          (item): item is Extract<typeof item, { type: 'tool-call' }> => item.type === 'tool-call',
-        )
-        .map((toolCall) => ({
-          id: toolCall.id,
-          name: toolCall.name,
-          input: toolCall.input,
-          result: toolCall.result,
-          isError: toolCall.isError,
-          durationMs: toolCall.durationMs,
-        })),
-    [timelineItems],
-  )
+  const toolCalls = useMemo(() => {
+    const calls: Array<{
+      id: string
+      name: string
+      input: Record<string, unknown>
+      result?: string
+      isError?: boolean
+      durationMs?: number
+    }> = []
+
+    for (const item of timelineItems) {
+      if (item.type === 'tool-call') {
+        calls.push({
+          id: item.id,
+          name: item.name,
+          input: item.input,
+          result: item.result,
+          isError: item.isError,
+          durationMs: item.durationMs,
+        })
+      } else if (item.type === 'sub-agent' && item.childToolCalls) {
+        // Include child tool calls so they can be selected in the right panel
+        for (const tc of item.childToolCalls) {
+          calls.push({
+            id: tc.id,
+            name: `${item.label}/${tc.name}`,
+            input: tc.input,
+            result: tc.result,
+            isError: tc.isError,
+            durationMs: tc.durationMs,
+          })
+        }
+      }
+    }
+
+    return calls
+  }, [timelineItems])
 
   const filesTouched = useMemo(() => extractFilesTouched(timelineItems), [timelineItems])
 

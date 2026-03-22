@@ -28,7 +28,9 @@ export interface SubAgentBlockProps {
   durationMs?: number
   childToolCalls?: SubAgentChildToolCall[]
   selected?: boolean
+  selectedChildToolId?: string | null
   onSelect?: (id: string) => void
+  onSelectChildTool?: (toolId: string) => void
 }
 
 const statusBorderColor: Record<SubAgentBlockProps['status'], string> = {
@@ -63,6 +65,8 @@ export function SubAgentBlock({
   childToolCalls,
   selected,
   onSelect,
+  selectedChildToolId,
+  onSelectChildTool,
 }: SubAgentBlockProps) {
   const [instructionExpanded, setInstructionExpanded] = useState(false)
   const [outputExpanded, setOutputExpanded] = useState(false)
@@ -151,7 +155,12 @@ export function SubAgentBlock({
           {childrenExpanded && (
             <div className="mt-1 pl-3 space-y-1 border-l border-white/[0.06]">
               {childToolCalls.map((tc) => (
-                <ChildToolCallItem key={tc.id} tc={tc} />
+                <ChildToolCallItem
+                  key={tc.id}
+                  tc={tc}
+                  selected={selectedChildToolId === tc.id}
+                  onSelect={onSelectChildTool}
+                />
               ))}
             </div>
           )}
@@ -189,17 +198,26 @@ export function SubAgentBlock({
 }
 
 /** Expandable child tool call — shows name/duration in header, input/result on expand */
-function ChildToolCallItem({ tc }: { tc: SubAgentChildToolCall }) {
+function ChildToolCallItem({
+  tc,
+  selected,
+  onSelect,
+}: {
+  tc: SubAgentChildToolCall
+  selected?: boolean
+  onSelect?: (toolId: string) => void
+}) {
   const [expanded, setExpanded] = useState(false)
 
   const inputSummary = formatInputSummary(tc.input)
 
   return (
-    <div className="rounded bg-white/[0.02]">
+    <div className={`rounded ${selected ? 'bg-teal-400/10 ring-1 ring-teal-400/30' : 'bg-white/[0.02]'}`}>
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation()
+          onSelect?.(tc.id)
           setExpanded(!expanded)
         }}
         className="flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-white/[0.03] rounded"

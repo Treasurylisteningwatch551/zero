@@ -322,7 +322,11 @@ export class Agent {
           decision: null,
           eventPayload: null,
         }
+        // Skip task closure for sub-agents — they complete a specific task and
+        // their "end_turn" is normal completion, not conversation closure.
+        const isSubAgent = !!this.toolContext.spawnedByRequestId
         const shouldEvaluateTaskClosure =
+          !isSubAgent &&
           response.stopReason === 'end_turn' &&
           !hadQueuedMessages &&
           hasAssistantText(response.content) &&
