@@ -34,6 +34,10 @@ export type { SessionDeps, HandleMessageOptions } from './session/session'
 export { SessionManager } from './session/manager'
 export type { InterruptedSessionRef } from './session/manager'
 
+// Command
+export { CommandRouter } from './command'
+export type { Command, CommandArgs, CommandContext, CommandResult } from './command'
+
 // Task
 export { TaskOrchestrator } from './task/orchestrator'
 export type { TaskNode, TaskResult } from './task/orchestrator'
