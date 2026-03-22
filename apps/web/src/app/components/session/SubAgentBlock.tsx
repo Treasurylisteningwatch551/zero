@@ -151,35 +151,14 @@ export function SubAgentBlock({
           {childrenExpanded && (
             <div className="mt-1 pl-3 space-y-1 border-l border-white/[0.06]">
               {childToolCalls.map((tc) => (
-                <div
-                  key={tc.id}
-                  className="flex items-center gap-2 px-2 py-1 rounded bg-white/[0.02]"
-                >
-                  <span className="text-[10px] font-mono font-semibold text-slate-400">
-                    {tc.name}
-                  </span>
-                  <span className="flex-1" />
-                  {tc.isError !== undefined &&
-                    (tc.isError ? (
-                      <XCircle size={10} weight="fill" className="text-red-400" />
-                    ) : (
-                      <CheckCircle size={10} weight="fill" className="text-emerald-400" />
-                    ))}
-                  {tc.durationMs !== undefined && (
-                    <span className="text-[9px] text-[var(--color-text-disabled)] font-mono">
-                      {tc.durationMs < 1000
-                        ? `${tc.durationMs}ms`
-                        : `${(tc.durationMs / 1000).toFixed(1)}s`}
-                    </span>
-                  )}
-                </div>
+                <ChildToolCallItem key={tc.id} tc={tc} />
               ))}
             </div>
           )}
         </div>
       )}
 
-      {/* Output (collapsible) */}
+      {/* Output (collapsible, no max-height limit) */}
       {output && (
         <div className="px-3 pb-2">
           <button
@@ -196,8 +175,8 @@ export function SubAgentBlock({
           {outputExpanded && (
             <>
               <div className="border-t border-white/[0.06] mx-0 mt-1" />
-              <div className="mt-1 max-h-[300px] overflow-y-auto">
-                <pre className="text-[11px] font-mono text-[var(--color-text-secondary)] whitespace-pre-wrap break-all">
+              <div className="mt-1 max-h-[600px] overflow-y-auto">
+                <pre className="text-[11px] font-mono text-[var(--color-text-secondary)] whitespace-pre-wrap break-words">
                   {output}
                 </pre>
               </div>
@@ -207,4 +186,100 @@ export function SubAgentBlock({
       )}
     </div>
   )
+}
+
+/** Expandable child tool call — shows name/duration in header, input/result on expand */
+function ChildToolCallItem({ tc }: { tc: SubAgentChildToolCall }) {
+  const [expanded, setExpanded] = useState(false)
+
+  const inputSummary = formatInputSummary(tc.input)
+
+  return (
+    <div className="rounded bg-white/[0.02]">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          setExpanded(!expanded)
+        }}
+        className="flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-white/[0.03] rounded"
+      >
+        {expanded ? <CaretDown size={8} className="text-slate-500 shrink-0" /> : <CaretRight size={8} className="text-slate-500 shrink-0" />}
+        <span className="text-[10px] font-mono font-semibold text-slate-400">
+          {tc.name}
+        </span>
+        {inputSummary && (
+          <span className="text-[9px] font-mono text-[var(--color-text-disabled)] truncate max-w-[300px]">
+            {inputSummary}
+          </span>
+        )}
+        <span className="flex-1" />
+        {tc.isError ? (
+          <XCircle size={10} weight="fill" className="text-red-400 shrink-0" />
+        ) : tc.isError === false ? (
+          <CheckCircle size={10} weight="fill" className="text-emerald-400 shrink-0" />
+        ) : null}
+        {tc.durationMs !== undefined && (
+          <span className="text-[9px] text-[var(--color-text-disabled)] font-mono shrink-0">
+            {tc.durationMs < 1000
+              ? `${tc.durationMs}ms`
+              : `${(tc.durationMs / 1000).toFixed(1)}s`}
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div className="px-4 pb-2 space-y-1.5">
+          {Object.keys(tc.input).length > 0 && (
+            <div>
+              <div className="text-[9px] font-mono text-[var(--color-text-disabled)] uppercase tracking-wide mb-0.5">Input</div>
+              <pre className="text-[10px] font-mono text-[var(--color-text-secondary)] bg-black/20 rounded px-2 py-1.5 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words">
+                {formatInput(tc.input)}
+              </pre>
+            </div>
+          )}
+          {tc.result && (
+            <div>
+              <div className="text-[9px] font-mono text-[var(--color-text-disabled)] uppercase tracking-wide mb-0.5">Result</div>
+              <pre className={`text-[10px] font-mono rounded px-2 py-1.5 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words ${
+                tc.isError ? 'text-red-400/80 bg-red-400/5' : 'text-[var(--color-text-secondary)] bg-black/20'
+              }`}>
+                {tc.result}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Short inline summary of tool input for the collapsed header */
+function formatInputSummary(input: Record<string, unknown>): string {
+  if ('command' in input) return String(input.command).slice(0, 80)
+  if ('path' in input) return String(input.path)
+  if ('url' in input) return String(input.url).slice(0, 80)
+  if ('instruction' in input) return String(input.instruction).slice(0, 60)
+  if ('query' in input) return String(input.query).slice(0, 60)
+  const first = Object.values(input)[0]
+  if (typeof first === 'string') return first.slice(0, 60)
+  return ''
+}
+
+/** Pretty-format tool input for the expanded view */
+function formatInput(input: Record<string, unknown>): string {
+  // For simple single-field inputs, show just the value
+  const keys = Object.keys(input)
+  if (keys.length === 1 && typeof input[keys[0]] === 'string') {
+    return input[keys[0]] as string
+  }
+  // For multi-field, show as compact YAML-ish format
+  return keys
+    .map((k) => {
+      const v = input[k]
+      if (typeof v === 'string') {
+        return v.includes('\n') ? `${k}:\n${v}` : `${k}: ${v}`
+      }
+      return `${k}: ${JSON.stringify(v)}`
+    })
+    .join('\n')
 }

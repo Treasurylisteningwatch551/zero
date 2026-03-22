@@ -733,7 +733,7 @@ function getSubAgentTraceInfo(
   return {
     durationMs: (data.durationMs as number) ?? span.durationMs ?? undefined,
     status,
-    output: (data.outputSummary as string) ?? undefined,
+    output: (data.output as string) ?? (data.outputSummary as string) ?? undefined,
   }
 }
 

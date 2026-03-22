@@ -454,6 +454,7 @@ export class AgentControl {
       data: {
         success: true,
         durationMs: this.getElapsedMs(entry),
+        output: entry.output?.slice(0, 8000) ?? '',
         outputSummary: entry.output?.slice(0, 200) ?? '',
       },
     })
