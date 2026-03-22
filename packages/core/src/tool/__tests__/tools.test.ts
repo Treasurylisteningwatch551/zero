@@ -120,6 +120,30 @@ describe('BashTool', () => {
     expect(result.output).toContain('hello from bash')
   })
 
+  test('injects session and channel env vars into subprocesses', async () => {
+    const tool = new BashTool([])
+    const result = await tool.run(
+      {
+        ...ctx,
+        projectRoot: '/tmp/project-root',
+        channelBinding: {
+          source: 'telegram',
+          channelName: 'telegram:ops',
+          channelId: 'chat-42',
+        },
+      },
+      {
+        command:
+          'printf "%s|%s|%s|%s|%s" "$ZERO_WORKSPACE" "$ZERO_PROJECT_ROOT" "$ZERO_SESSION_ID" "$ZERO_CHANNEL_NAME" "$ZERO_CHANNEL_ID"',
+      },
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.output).toContain(
+      `${ctx.workDir}|/tmp/project-root|test_session|telegram:ops|chat-42`,
+    )
+  })
+
   test('returns exit code on failure', async () => {
     const tool = new BashTool([])
     const result = await tool.run(ctx, { command: 'exit 1' })

@@ -91,6 +91,45 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_
     }
   })
 
+  test('injects session and channel env vars into codex subprocesses', async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), 'codex-tool-env-test-'))
+    tempDirs.push(fixtureDir)
+    const projectRoot = mkdtempSync(join(tmpdir(), 'codex-project-'))
+    tempDirs.push(projectRoot)
+
+    const scriptPath = join(fixtureDir, 'fake-codex-env')
+    writeFileSync(
+      scriptPath,
+      `#!/bin/sh
+cat >/dev/null
+printf '%s\\n' '{"type":"thread.started","thread_id":"thread_test"}'
+printf '{"type":"item.completed","item":{"id":"msg_1","type":"agent_message","text":"%s|%s|%s|%s|%s"}}\\n' "$ZERO_WORKSPACE" "$ZERO_PROJECT_ROOT" "$ZERO_SESSION_ID" "$ZERO_CHANNEL_NAME" "$ZERO_CHANNEL_ID"
+printf '%s\\n' '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":2}}'
+`,
+      'utf-8',
+    )
+    chmodSync(scriptPath, 0o755)
+
+    const tool = new CodexTool({ codexPath: scriptPath })
+    const result = await tool.run(
+      {
+        ...ctx,
+        projectRoot,
+        channelBinding: {
+          source: 'feishu',
+          channelName: 'feishu:ops',
+          channelId: 'chat-99',
+        },
+      },
+      {
+        instruction: 'Check env injection',
+      },
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.output).toContain(`${ctx.workDir}|${projectRoot}|test_session|feishu:ops|chat-99`)
+  })
+
   test('accepts custom codex path', () => {
     const tool = new CodexTool({ codexPath: '/usr/local/bin/codex' })
     expect(tool.toDefinition().name).toBe('codex')

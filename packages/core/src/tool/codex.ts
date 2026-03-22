@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
 import { BaseTool } from './base'
+import { buildToolProcessEnv } from './process-env'
 
 /**
  * Event and item types from Codex CLI's JSONL output.
@@ -150,7 +151,7 @@ export class CodexTool extends BaseTool {
     })
 
     try {
-      const result = await this.runCodex(args, isResume ? null : instruction, cwd)
+      const result = await this.runCodex(args, isResume ? null : instruction, cwd, ctx)
       ctx.logger.info('codex_complete', {
         fileChanges: result.fileChanges.length,
         commands: result.commands.length,
@@ -171,18 +172,12 @@ export class CodexTool extends BaseTool {
     args: string[],
     instruction: string | null,
     cwd: string,
+    ctx: ToolContext,
   ): Promise<CodexResult> {
     return new Promise((resolve, reject) => {
-      const env: Record<string, string> = {}
-      for (const [key, value] of Object.entries(process.env)) {
-        if (value !== undefined) {
-          env[key] = value
-        }
-      }
-
       const child = spawn(this.codexPath, args, {
         cwd,
-        env,
+        env: buildToolProcessEnv(ctx),
         stdio: ['pipe', 'pipe', 'pipe'],
       })
 

@@ -302,6 +302,7 @@ describe('buildRuntimeBlock', () => {
   test('renders compact key=value runtime info', () => {
     const result = buildRuntimeBlock({
       agentId: 'zero',
+      sessionId: 'sess_123',
       host: 'mac-mini',
       os: 'darwin',
       arch: 'arm64',
@@ -313,6 +314,7 @@ describe('buildRuntimeBlock', () => {
     expect(result).toContain('<runtime>')
     expect(result).toContain('</runtime>')
     expect(result).toContain('agent=zero')
+    expect(result).toContain('session=sess_123')
     expect(result).toContain('host=mac-mini')
     expect(result).toContain('os=darwin (arm64)')
     expect(result).toContain('model=gpt-5.3-codex-medium')

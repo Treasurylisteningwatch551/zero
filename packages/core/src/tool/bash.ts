@@ -1,6 +1,7 @@
 import type { FuseRule, ToolContext, ToolResult } from '@zero-os/shared'
 import { FuseListChecker } from '../config/fuse-list'
 import { BaseTool } from './base'
+import { buildToolProcessEnv } from './process-env'
 
 interface BashInput {
   command: string
@@ -38,11 +39,7 @@ export class BashTool extends BaseTool {
       cwd: ctx.workDir,
       stdout: 'pipe',
       stderr: 'pipe',
-      env: {
-        ...process.env,
-        ZERO_WORKSPACE: ctx.workDir,
-        ZERO_PROJECT_ROOT: ctx.projectRoot ?? process.cwd(),
-      },
+      env: buildToolProcessEnv(ctx),
     })
 
     const timeoutId = setTimeout(() => {

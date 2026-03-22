@@ -351,6 +351,7 @@ export class Session {
 
       const runtimeInfo = {
         agentId: agentName,
+        sessionId: this.data.id,
         host: hostname(),
         os: `${process.platform} (${process.arch})`,
         model: currentModel ? this.modelRouter.getModelLabel(currentModel) : undefined,

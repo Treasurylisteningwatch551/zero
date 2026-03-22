@@ -60,6 +60,7 @@ export interface ChannelCapabilities {
  */
 export interface RuntimeInfo {
   agentId?: string
+  sessionId?: string
   host?: string
   os?: string
   arch?: string

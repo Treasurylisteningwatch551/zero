@@ -269,6 +269,7 @@ export function buildSkillReminder(skills: SkillDefinition[]): string {
 export function buildRuntimeBlock(info: RuntimeInfo): string {
   const parts = [
     info.agentId ? `agent=${info.agentId}` : '',
+    info.sessionId ? `session=${info.sessionId}` : '',
     info.host ? `host=${info.host}` : '',
     info.projectRoot ? `repo=${info.projectRoot}` : '',
     info.os ? `os=${info.os}${info.arch ? ` (${info.arch})` : ''}` : '',

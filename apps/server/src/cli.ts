@@ -12,6 +12,7 @@ import {
   uninstallSupervisorLaunchAgent,
 } from './launchd'
 import { startZeroOS } from './main'
+import { writeRestartTrigger } from './restart-trigger'
 import { rebuildWebBundle } from './web-build'
 
 const ZERO_DIR = join(process.cwd(), '.zero')
@@ -496,6 +497,12 @@ async function restart() {
     }
 
     const pid = data.pid as number
+    writeRestartTrigger(ZERO_DIR, {
+      source: 'cli',
+      sessionId: process.env.ZERO_SESSION_ID,
+      channelName: process.env.ZERO_CHANNEL_NAME,
+      channelId: process.env.ZERO_CHANNEL_ID,
+    })
     process.kill(pid, 'SIGTERM')
     console.log(`[ZeRo OS] Sent SIGTERM to PID ${pid}. Supervisor will restart the process.`)
   } catch (err) {

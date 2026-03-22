@@ -49,6 +49,12 @@ import { HeartbeatWriter } from '@zero-os/supervisor'
 import { globalBus } from './bus'
 import { FeishuAdapter } from './feishu-adapter'
 import { handleChannelMessage } from './message-handler'
+import {
+  consumeRestartTrigger,
+  formatRestartTriggerLog,
+  type RestartTrigger,
+  writeRestartTrigger,
+} from './restart-trigger'
 import { syncTelegramCommandMenu } from './telegram-menu'
 import { TelegramAdapter } from './telegram-adapter'
 import { rebuildWebBundle } from './web-build'
@@ -109,6 +115,7 @@ interface RestartSentinelEntry {
 
 interface RestartSentinelFile {
   ts: string
+  trigger?: RestartTrigger
   sessions: RestartSentinelEntry[]
 }
 
@@ -585,20 +592,23 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     console.log('[ZeRo OS] Scheduler stopped')
 
     const interruptedSessions = await sessionManager.drainAndCollectInterrupted(30_000)
-    if (interruptedSessions.length > 0) {
-      const sentinel: RestartSentinelFile = {
-        ts: new Date().toISOString(),
-        sessions: interruptedSessions.filter(
-          (session): session is RestartSentinelEntry =>
-            typeof session.channelId === 'string' && session.source !== 'scheduler',
-        ),
-      }
-      if (sentinel.sessions.length > 0) {
-        writeFileSync(restartSentinelPath, JSON.stringify(sentinel))
-        console.log(
-          `[ZeRo OS] Restart sentinel recorded ${sentinel.sessions.length} interrupted session(s)`,
-        )
+    const trigger = consumeRestartTrigger(ZERO_DIR)
+    const sentinel: RestartSentinelFile = {
+      ts: new Date().toISOString(),
+      trigger,
+      sessions: interruptedSessions.filter(
+        (session): session is RestartSentinelEntry =>
+          typeof session.channelId === 'string' && session.source !== 'scheduler',
+      ),
+    }
 
+    if (trigger || sentinel.sessions.length > 0) {
+      writeFileSync(restartSentinelPath, JSON.stringify(sentinel))
+      console.log(
+        `[ZeRo OS] Restart sentinel recorded ${sentinel.sessions.length} interrupted session(s)`,
+      )
+
+      if (sentinel.sessions.length > 0) {
         await Promise.allSettled(
           sentinel.sessions.map(async (entry) => {
             const channel = entry.channelName ? channels.get(entry.channelName) : undefined
@@ -715,6 +725,21 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
         return { handled: true }
       }
 
+      if (ctx.source === 'feishu' || ctx.source === 'telegram') {
+        try {
+          writeRestartTrigger(ZERO_DIR, {
+            source: 'chat',
+            channelName: ctx.channelName,
+            channelId: ctx.chatId,
+          })
+        } catch (error) {
+          await ctx.reply(
+            `Failed to record restart trigger, restart cancelled: ${describeError(error)}`,
+          )
+          return { handled: true }
+        }
+      }
+
       setTimeout(() => {
         void shutdown()
       }, 500)
@@ -817,6 +842,10 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     try {
       const sentinel = JSON.parse(readFileSync(restartSentinelPath, 'utf-8')) as RestartSentinelFile
       unlinkSync(restartSentinelPath)
+
+      if (sentinel.trigger) {
+        console.log(formatRestartTriggerLog(sentinel.trigger))
+      }
 
       if (Array.isArray(sentinel.sessions) && sentinel.sessions.length > 0) {
         console.log(
