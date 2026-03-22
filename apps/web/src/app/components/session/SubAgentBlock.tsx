@@ -197,7 +197,7 @@ export function SubAgentBlock({
   )
 }
 
-/** Expandable child tool call — shows name/duration in header, input/result on expand */
+/** Child tool call row — click to select in right panel */
 function ChildToolCallItem({
   tc,
   selected,
@@ -207,67 +207,41 @@ function ChildToolCallItem({
   selected?: boolean
   onSelect?: (toolId: string) => void
 }) {
-  const [expanded, setExpanded] = useState(false)
-
   const inputSummary = formatInputSummary(tc.input)
 
   return (
-    <div className={`rounded ${selected ? 'bg-teal-400/10 ring-1 ring-teal-400/30' : 'bg-white/[0.02]'}`}>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          onSelect?.(tc.id)
-          setExpanded(!expanded)
-        }}
-        className="flex items-center gap-2 px-2 py-1 w-full text-left hover:bg-white/[0.03] rounded"
-      >
-        {expanded ? <CaretDown size={8} className="text-slate-500 shrink-0" /> : <CaretRight size={8} className="text-slate-500 shrink-0" />}
-        <span className="text-[10px] font-mono font-semibold text-slate-400">
-          {tc.name}
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        onSelect?.(tc.id)
+      }}
+      className={`flex items-center gap-2 px-2 py-1 w-full text-left rounded ${
+        selected ? 'bg-teal-400/10 ring-1 ring-teal-400/30' : 'bg-white/[0.02] hover:bg-white/[0.03]'
+      }`}
+    >
+      <span className="text-[10px] font-mono font-semibold text-slate-400">
+        {tc.name}
+      </span>
+      {inputSummary && (
+        <span className="text-[9px] font-mono text-[var(--color-text-disabled)] truncate max-w-[300px]">
+          {inputSummary}
         </span>
-        {inputSummary && (
-          <span className="text-[9px] font-mono text-[var(--color-text-disabled)] truncate max-w-[300px]">
-            {inputSummary}
-          </span>
-        )}
-        <span className="flex-1" />
-        {tc.isError ? (
-          <XCircle size={10} weight="fill" className="text-red-400 shrink-0" />
-        ) : tc.isError === false ? (
-          <CheckCircle size={10} weight="fill" className="text-emerald-400 shrink-0" />
-        ) : null}
-        {tc.durationMs !== undefined && (
-          <span className="text-[9px] text-[var(--color-text-disabled)] font-mono shrink-0">
-            {tc.durationMs < 1000
-              ? `${tc.durationMs}ms`
-              : `${(tc.durationMs / 1000).toFixed(1)}s`}
-          </span>
-        )}
-      </button>
-      {expanded && (
-        <div className="px-4 pb-2 space-y-1.5">
-          {Object.keys(tc.input).length > 0 && (
-            <div>
-              <div className="text-[9px] font-mono text-[var(--color-text-disabled)] uppercase tracking-wide mb-0.5">Input</div>
-              <pre className="text-[10px] font-mono text-[var(--color-text-secondary)] bg-black/20 rounded px-2 py-1.5 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words">
-                {formatInput(tc.input)}
-              </pre>
-            </div>
-          )}
-          {tc.result && (
-            <div>
-              <div className="text-[9px] font-mono text-[var(--color-text-disabled)] uppercase tracking-wide mb-0.5">Result</div>
-              <pre className={`text-[10px] font-mono rounded px-2 py-1.5 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words ${
-                tc.isError ? 'text-red-400/80 bg-red-400/5' : 'text-[var(--color-text-secondary)] bg-black/20'
-              }`}>
-                {tc.result}
-              </pre>
-            </div>
-          )}
-        </div>
       )}
-    </div>
+      <span className="flex-1" />
+      {tc.isError ? (
+        <XCircle size={10} weight="fill" className="text-red-400 shrink-0" />
+      ) : tc.isError === false ? (
+        <CheckCircle size={10} weight="fill" className="text-emerald-400 shrink-0" />
+      ) : null}
+      {tc.durationMs !== undefined && (
+        <span className="text-[9px] text-[var(--color-text-disabled)] font-mono shrink-0">
+          {tc.durationMs < 1000
+            ? `${tc.durationMs}ms`
+            : `${(tc.durationMs / 1000).toFixed(1)}s`}
+        </span>
+      )}
+    </button>
   )
 }
 
@@ -283,21 +257,4 @@ function formatInputSummary(input: Record<string, unknown>): string {
   return ''
 }
 
-/** Pretty-format tool input for the expanded view */
-function formatInput(input: Record<string, unknown>): string {
-  // For simple single-field inputs, show just the value
-  const keys = Object.keys(input)
-  if (keys.length === 1 && typeof input[keys[0]] === 'string') {
-    return input[keys[0]] as string
-  }
-  // For multi-field, show as compact YAML-ish format
-  return keys
-    .map((k) => {
-      const v = input[k]
-      if (typeof v === 'string') {
-        return v.includes('\n') ? `${k}:\n${v}` : `${k}: ${v}`
-      }
-      return `${k}: ${JSON.stringify(v)}`
-    })
-    .join('\n')
-}
+
