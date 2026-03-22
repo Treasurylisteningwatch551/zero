@@ -218,10 +218,16 @@ export function buildTimeline(
             const instruction = (toolInput.instruction as string | undefined) ?? ''
 
             const waitInfo = findWaitAgentResult(messages, agentId, toolResults)
-            const childToolCalls = extractSubAgentChildToolCalls(traces, agentId)
+            const traceInfo = getSubAgentTraceInfo(traces, agentId, toolId)
+            const childToolCalls = extractSubAgentChildToolCalls(traces, agentId, toolId)
 
             handledSubAgentIds.add(agentId)
             spawnToolCallIds.add(toolId)
+
+            // Prefer trace-based duration (actual agent runtime) over wait_agent or tool span duration
+            const resolvedDurationMs = traceInfo?.durationMs ?? waitInfo?.durationMs
+            const resolvedStatus = traceInfo?.status ?? waitInfo?.status ?? (result?.isError ? 'errored' : 'running')
+            const resolvedOutput = waitInfo?.output ?? traceInfo?.output
 
             items.push({
               type: 'sub-agent',
@@ -229,9 +235,9 @@ export function buildTimeline(
               label,
               role,
               instruction,
-              status: waitInfo?.status ?? (result?.isError ? 'errored' : 'running'),
-              output: waitInfo?.output,
-              durationMs: waitInfo?.durationMs ?? toolDurations.get(toolId),
+              status: resolvedStatus,
+              output: resolvedOutput,
+              durationMs: resolvedDurationMs,
               spawnToolCallId: toolId,
               childToolCalls,
               createdAt: msg.createdAt,
@@ -640,20 +646,52 @@ function findWaitAgentResult(
   return null
 }
 
+/**
+ * Find the sub_agent span associated with a spawn_agent call.
+ * Strategy 1: match by agentId in sub_agent span data/metadata
+ * Strategy 2: find tool:spawn_agent span by toolUseId, then take its sub_agent child
+ */
+function findSubAgentSpan(
+  traces: TraceSpan[],
+  agentId: string,
+  spawnToolCallId?: string,
+): TraceSpan | null {
+  const allSpans = flattenTraceSpans(traces)
+
+  // Strategy 1: match by agentId
+  for (const span of allSpans) {
+    const metadata = span.metadata ?? {}
+    const data = span.data ?? {}
+    const isSubAgent = span.name === 'sub_agent' || span.name.startsWith('sub_agent:') ||
+      metadata.kind === 'sub_agent' || data.kind === 'sub_agent'
+    if (isSubAgent && (metadata.agentId === agentId || data.agentId === agentId)) {
+      return span
+    }
+  }
+
+  // Strategy 2: find via spawn_agent tool span → child sub_agent span
+  if (spawnToolCallId) {
+    for (const span of allSpans) {
+      const meta = span.metadata ?? {}
+      if (span.name === 'tool:spawn_agent' && meta.toolUseId === spawnToolCallId) {
+        for (const child of span.children ?? []) {
+          if (child.name === 'sub_agent' || child.name.startsWith('sub_agent:') || (child.data ?? {}).kind === 'sub_agent') {
+            return child
+          }
+        }
+      }
+    }
+  }
+
+  return null
+}
+
 function extractSubAgentChildToolCalls(
   traces: TraceSpan[],
   agentId: string,
+  spawnToolCallId?: string,
 ): SubAgentChildToolCall[] {
-  const allSpans = flattenTraceSpans(traces)
-  const agentSpan = allSpans.find((span) => {
-    const metadata = span.metadata ?? {}
-    const data = span.data ?? {}
-    return (
-      (span.name === 'sub_agent' || metadata.kind === 'sub_agent') &&
-      (metadata.agentId === agentId || data.agentId === agentId)
-    )
-  })
-
+  const agentSpan = findSubAgentSpan(traces, agentId, spawnToolCallId)
   if (!agentSpan) return []
 
   const childCalls: SubAgentChildToolCall[] = []
@@ -671,6 +709,32 @@ function extractSubAgentChildToolCalls(
     })
   }
   return childCalls
+}
+
+/**
+ * Extract the real duration and status from the sub_agent trace span.
+ * This is the actual agent execution time, not just the spawn call time.
+ */
+function getSubAgentTraceInfo(
+  traces: TraceSpan[],
+  agentId: string,
+  spawnToolCallId?: string,
+): { durationMs?: number; status?: 'completed' | 'errored' | 'running' | 'closed'; output?: string } | null {
+  const span = findSubAgentSpan(traces, agentId, spawnToolCallId)
+  if (!span) return null
+
+  const data = span.data ?? {}
+  const status = span.status === 'success'
+    ? 'completed' as const
+    : span.status === 'error'
+      ? 'errored' as const
+      : 'running' as const
+
+  return {
+    durationMs: (data.durationMs as number) ?? span.durationMs ?? undefined,
+    status,
+    output: (data.outputSummary as string) ?? undefined,
+  }
 }
 
 function isHandledSubAgentTool(
