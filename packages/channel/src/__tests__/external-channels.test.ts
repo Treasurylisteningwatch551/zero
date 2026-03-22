@@ -101,8 +101,13 @@ interface FeishuTestHarness {
         get?: (payload: FeishuMessageResourcePayload) => Promise<FeishuBinaryResponseLike>
       }
       message?: {
-        create?: (payload: FeishuMessageCreatePayload) => Promise<void>
-        reply?: (payload: FeishuMessageReplyPayload) => Promise<void>
+        create?: (
+          payload: FeishuMessageCreatePayload,
+        ) => Promise<void | { data?: { message_id?: string } }>
+        reply?: (
+          payload: FeishuMessageReplyPayload,
+        ) => Promise<void | { data?: { message_id?: string } }>
+        delete?: (payload: { path: { message_id: string } }) => Promise<void>
       }
     }
   } | null
@@ -983,5 +988,47 @@ describe('FeishuChannel contract', () => {
         ],
       },
     })
+  })
+
+  test('streaming dismiss deletes the attached message without finalizing the card', async () => {
+    const channel = new FeishuChannel({ appId: 'test-id', appSecret: 'test-secret' })
+    const deletedMessageIds: string[] = []
+    const finalCards: string[] = []
+
+    getFeishuHarness(channel).client = {
+      im: {
+        message: {
+          create: async () => ({
+            data: { message_id: 'om_stream' },
+          }),
+          delete: async (payload: { path: { message_id: string } }) => {
+            deletedMessageIds.push(payload.path.message_id)
+          },
+        },
+      },
+      cardkit: {
+        v1: {
+          card: {
+            create: async () => ({
+              data: { card_id: 'card_stream' },
+            }),
+            update: async (payload: {
+              data: { card: { data: string } }
+            }) => {
+              finalCards.push(payload.data.card.data)
+            },
+          },
+          cardElement: {
+            content: async () => undefined,
+          },
+        },
+      },
+    } as any
+
+    const session = await channel.sendStreaming('chat-1')
+    await session.dismiss()
+
+    expect(deletedMessageIds).toEqual(['om_stream'])
+    expect(finalCards).toEqual([])
   })
 })

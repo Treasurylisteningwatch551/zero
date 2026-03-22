@@ -20,6 +20,8 @@ export interface FeishuStreamingSession {
   complete(finalText: string): Promise<void>
   /** Abort the streaming card (e.g. on error). */
   abort(errorMessage?: string): Promise<void>
+  /** Delete the attached streaming card message without showing an error state. */
+  dismiss(): Promise<void>
   /** The card's message_id in the chat (available after first update). */
   readonly messageId: string | null
 }
@@ -566,6 +568,13 @@ export class FeishuChannel implements Channel {
     }
   }
 
+  private async deleteMessage(messageId: string): Promise<void> {
+    if (!this.client) return
+    await this.client.im.message.delete({
+      path: { message_id: messageId },
+    })
+  }
+
   /**
    * Detect if text content is a complete Feishu card JSON.
    * Supports v1 (Message Card), v2 (CardKit), and template cards.
@@ -1060,12 +1069,18 @@ export class FeishuChannel implements Channel {
       }, delay)
     }
 
-    const finalizeCard = async (content: string, logLabel: string) => {
-      if (closed) return
-      closed = true
-      pendingText = null
-      clearFlushTimer()
-      markScheduledFlushDone()
+    const finalizeCard = async (
+      content: string,
+      logLabel: string,
+      options?: { alreadyClosed?: boolean },
+    ) => {
+      if (!options?.alreadyClosed) {
+        if (closed) return
+        closed = true
+        pendingText = null
+        clearFlushTimer()
+        markScheduledFlushDone()
+      }
 
       try {
         await flushChain
@@ -1083,6 +1098,15 @@ export class FeishuChannel implements Channel {
       } catch (error) {
         console.warn(`[FeishuChannel] ${logLabel}:`, this.describeError(error))
       }
+    }
+
+    const teardown = () => {
+      if (closed) return false
+      closed = true
+      pendingText = null
+      clearFlushTimer()
+      markScheduledFlushDone()
+      return true
     }
 
     return {
@@ -1108,11 +1132,24 @@ export class FeishuChannel implements Channel {
         await this.deliverUnresolvedInlineImages(unresolvedImages, fallbackTarget, 'streaming')
       },
       abort: async (errorMessage?: string) => {
+        if (!teardown()) return
         let rendered = renderMarkdownForFeishu(
           errorMessage?.trim() || 'An error occurred while generating the response.',
         )
         rendered = imageResolver.resolveSync(rendered)
-        await finalizeCard(rendered, 'streaming abort failed')
+        await finalizeCard(rendered, 'streaming abort failed', { alreadyClosed: true })
+      },
+      dismiss: async () => {
+        if (!teardown()) return
+
+        try {
+          await flushChain
+          if (messageId) {
+            await this.deleteMessage(messageId)
+          }
+        } catch (error) {
+          console.warn('[FeishuChannel] streaming dismiss failed:', this.describeError(error))
+        }
       },
     }
   }

@@ -559,6 +559,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
   heartbeat.write()
 
   let shuttingDown = false
+  const allActiveStreamingSessions: Set<FeishuStreamingSession>[] = []
   const restartSentinelPath = join(ZERO_DIR, 'restart-sentinel.json')
   const shouldPersistBusEvent = (payload: { topic: string; data: Record<string, unknown> }) => {
     switch (payload.topic) {
@@ -634,6 +635,27 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
       }
     }
 
+    const activeStreamingCount = allActiveStreamingSessions.reduce(
+      (count, sessions) => count + sessions.size,
+      0,
+    )
+    if (activeStreamingCount > 0) {
+      await Promise.allSettled(
+        allActiveStreamingSessions.flatMap((sessions) =>
+          Array.from(sessions).map(async (streaming) => {
+            try {
+              await streaming.abort('ZeRo OS is restarting...')
+            } finally {
+              sessions.delete(streaming)
+            }
+          }),
+        ),
+      )
+      console.log(
+        `[ZeRo OS] Aborted ${activeStreamingCount} active Feishu streaming session(s) during shutdown`,
+      )
+    }
+
     globalBus.off('*', wildcardLogListener)
     globalBus.off('repair:end', repairMetricsListener)
     globalBus.off('tool:call', toolMetricsListener)
@@ -702,6 +724,8 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
       if (definition.credentials) {
         const channelName = definition.name
         const agentName = buildAgentName(channelName)
+        const activeStreamingSessions = new Set<FeishuStreamingSession>()
+        allActiveStreamingSessions.push(activeStreamingSessions)
 
         feishuChannel.setMessageHandler(async (msg) => {
           const chatId = (msg.metadata?.chatId as string) ?? msg.senderId
@@ -709,6 +733,10 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
           let activeSessionId: string | null = null
           let typingReactionId: string | null = null
           let streaming: FeishuStreamingSession | null = null
+          const trackStreamingSession = (session: FeishuStreamingSession) => {
+            activeStreamingSessions.add(session)
+            return session
+          }
 
           try {
             if (shuttingDown) {
@@ -789,7 +817,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
             const startStreaming = createFeishuStreamingStarter(feishuChannel, chatId, messageId)
 
             try {
-              streaming = await startStreaming()
+              streaming = trackStreamingSession(await startStreaming())
             } catch (err) {
               console.warn(
                 `[ZeRo OS] ${channelName} streaming init failed, falling back to static:`,
@@ -817,30 +845,36 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
                     // New turn → complete current card, start a new one
                     if (lastTurnId && lastTurnId !== meta.turnId && streamText) {
                       const prevText = streamText
+                      const previousStreaming = streaming
                       streamText = ''
                       turnRotateChain = turnRotateChain.then(async () => {
+                        if (!previousStreaming) return
                         try {
-                          await streaming!.complete(prevText)
-                          streaming = await startStreaming()
+                          await previousStreaming.complete(prevText)
+                          activeStreamingSessions.delete(previousStreaming)
+                          streaming = trackStreamingSession(await startStreaming())
                         } catch (err) {
+                          activeStreamingSessions.delete(previousStreaming)
                           console.error(
                             `[ZeRo OS] ${channelName} streaming turn rotate error:`,
                             describeError(err),
                           )
+                          streaming = null
                         }
                       })
                     }
                     lastTurnId = meta.turnId
                     streamText += delta
                     const textSnapshot = streamText
-                    turnRotateChain = turnRotateChain.then(() =>
-                      streaming!.update(textSnapshot).catch((err) =>
+                    turnRotateChain = turnRotateChain.then(() => {
+                      if (!streaming) return
+                      return streaming.update(textSnapshot).catch((err) =>
                         console.error(
                           `[ZeRo OS] ${channelName} streaming update error:`,
                           describeError(err),
                         ),
-                      ),
-                    )
+                      )
+                    })
                   }
                 : undefined,
               onProgress: (newMsg) => {
@@ -856,14 +890,15 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
                     lastProgressText = text
                     streamText = streamText ? `${streamText}\n\n${text}` : text
                     const textSnapshot = streamText
-                    turnRotateChain = turnRotateChain.then(() =>
-                      streaming!.update(textSnapshot).catch((err) =>
+                    turnRotateChain = turnRotateChain.then(() => {
+                      if (!streaming) return
+                      return streaming.update(textSnapshot).catch((err) =>
                         console.error(
                           `[ZeRo OS] ${channelName} streaming update error:`,
                           describeError(err),
                         ),
-                      ),
-                    )
+                      )
+                    })
                   }
                   return
                 }
@@ -940,7 +975,12 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
               const finalText = (streamText || collectAssistantReply(replies)) + imageMarkdownSuffix
               if (finalText) {
                 await streaming.complete(finalText)
+                activeStreamingSessions.delete(streaming)
+              } else {
+                await streaming.dismiss()
+                activeStreamingSessions.delete(streaming)
               }
+              streaming = null
             } else if (!lastSentMsgId) {
               const replyText = collectAssistantReply(replies) + imageMarkdownSuffix
               if (replyText && messageId) {
@@ -1003,16 +1043,23 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
                 : 'An error occurred processing your message.'
 
             try {
-              if (streaming) {
-                streaming.abort(userReply).catch(() => {})
+              const activeStreaming = streaming
+              if (activeStreaming) {
+                streaming = null
+                activeStreaming
+                  .abort(userReply)
+                  .finally(() => {
+                    activeStreamingSessions.delete(activeStreaming)
+                  })
+                  .catch(() => {})
               }
               if (messageId) {
                 if (typingReactionId)
                   feishuChannel.removeReaction(messageId, typingReactionId).catch(() => {})
-                if (!streaming) {
+                if (!activeStreaming) {
                   await feishuChannel.reply(messageId, userReply)
                 }
-              } else if (!streaming) {
+              } else if (!activeStreaming) {
                 await feishuChannel.send(chatId, userReply)
               }
             } catch {}

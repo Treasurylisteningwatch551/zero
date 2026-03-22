@@ -7,6 +7,7 @@ function createStreamingSession(label: string) {
     update: async () => {},
     complete: async () => {},
     abort: async () => {},
+    dismiss: async () => {},
   }
 }
 
