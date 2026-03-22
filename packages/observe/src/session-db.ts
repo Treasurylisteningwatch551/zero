@@ -65,11 +65,16 @@ export class SessionDB {
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath, { create: true })
+    this.configureConnection()
     this.initSchema()
   }
 
   static createInMemory(): SessionDB {
     return new SessionDB(':memory:')
+  }
+
+  private configureConnection(): void {
+    this.db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;')
   }
 
   private initSchema(): void {
