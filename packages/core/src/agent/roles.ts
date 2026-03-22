@@ -21,8 +21,8 @@ const BUILTIN_ROLES: Record<string, RoleDefinition> = {
   coder: {
     name: 'Coder',
     agentInstruction:
-      'You are a Coder SubAgent for ZeRo OS. Write, modify, and test code. Make minimal, correct changes.',
-    defaultTools: ['read', 'write', 'edit', 'bash'],
+      'You are a Coder SubAgent for ZeRo OS. Write, modify, and test code. Make minimal, correct changes. For multi-file refactors or complex code changes, prefer using the codex tool to delegate the work.',
+    defaultTools: ['read', 'write', 'edit', 'bash', 'codex'],
   },
   reviewer: {
     name: 'Reviewer',
