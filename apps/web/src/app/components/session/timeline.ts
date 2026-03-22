@@ -571,11 +571,12 @@ function extractSubAgentChildToolCalls(
   for (const child of flattenTraceSpans(agentSpan.children ?? [])) {
     if (!child.name.startsWith('tool:')) continue
     const meta = child.metadata ?? {}
+    const data = child.data ?? {}
     childCalls.push({
       id: (meta.toolUseId as string) ?? child.id,
       name: child.name.replace('tool:', ''),
       input: (meta.input as Record<string, unknown>) ?? {},
-      result: meta.result as string | undefined,
+      result: (meta.result as string) ?? (meta.outputSummary as string) ?? (data.outputSummary as string) ?? undefined,
       isError: child.status === 'error' ? true : undefined,
       durationMs: child.durationMs,
     })

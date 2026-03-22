@@ -540,6 +540,8 @@ export class Agent {
             metadata: {
               toolUseId: block.id,
               toolName: block.name,
+              input: this.filterToolInput(block.input),
+              result: result.outputSummary ?? result.output?.slice(0, 500),
               outputSummary: result.outputSummary,
             },
           })
