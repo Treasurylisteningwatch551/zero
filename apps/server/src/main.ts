@@ -717,12 +717,24 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
             }
 
             if (isRestartCommand(msg.content)) {
-              const reply = 'Restarting ZeRo OS...'
+              const reply = 'Rebuilding web UI and restarting ZeRo OS...'
               if (messageId) {
                 await feishuChannel.reply(messageId, reply)
               } else {
                 await feishuChannel.send(chatId, reply)
               }
+
+              const build = rebuildWebBundle()
+              if (!build.ok) {
+                const failureReply = `Web rebuild failed, restart cancelled: ${build.error ?? 'unknown error'}`
+                if (messageId) {
+                  await feishuChannel.reply(messageId, failureReply)
+                } else {
+                  await feishuChannel.send(chatId, failureReply)
+                }
+                return
+              }
+
               setTimeout(() => shutdown(), 500)
               return
             }
