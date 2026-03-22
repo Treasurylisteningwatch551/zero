@@ -13,7 +13,7 @@ function parseNewSessionArgs(content: string): NewSessionArgs | null {
   return modelArg ? { modelArg } : {}
 }
 
-function buildNewSessionReply(
+export function buildNewSessionReply(
   currentModel: string,
   modelResult?: { success: boolean; message: string },
 ): string {

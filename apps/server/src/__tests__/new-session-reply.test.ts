@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { buildNewSessionReply } from '../main'
+import { buildNewSessionReply } from '@zero-os/core'
 
 describe('buildNewSessionReply', () => {
   test('shows current model when /new is used without a model argument', () => {

@@ -1,30 +1,6 @@
-/**
- * Channel capability hints — tells agents what the channel supports.
- * Injected into system prompt automatically so agents adapt their output
- * without per-channel hard-coding.
- */
-export interface ChannelCapabilities {
-  /** Channel supports streaming output (e.g. CardKit 2.0 typing effect) */
-  streaming?: boolean
-  /** Channel supports inline images in messages (image + text in one message) */
-  inlineImages?: boolean
-  /** Channel supports sending standalone image messages */
-  imageMessages?: boolean
-  /** Channel supports sending file attachments */
-  fileMessages?: boolean
-  /** Channel supports interactive cards / rich messages */
-  interactiveCards?: boolean
-  /** Channel supports @mention syntax */
-  mentions?: boolean
-  /** Channel supports emoji reactions on messages */
-  reactions?: boolean
-  /** Channel supports reply/quote to specific messages */
-  threadReply?: boolean
-  /** Markdown dialect notes (e.g. "no H1-H3, no external image URLs") */
-  markdownNotes?: string
-  /** Max message length in characters (if limited) */
-  maxMessageLength?: number
-}
+import type { ChannelCapabilities } from '@zero-os/shared'
+
+export type { ChannelCapabilities } from '@zero-os/shared'
 
 /**
  * Channel interface — defines the contract for all communication channels.

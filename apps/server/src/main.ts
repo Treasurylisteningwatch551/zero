@@ -138,20 +138,6 @@ export interface ZeroOS {
   shutdown(): Promise<void>
 }
 
-/** @deprecated Use `newSessionCommand` reply from `CommandRouter` instead. */
-export function buildNewSessionReply(
-  currentModel: string,
-  modelResult?: { success: boolean; message: string },
-): string {
-  if (!modelResult) {
-    return `New conversation started with model: ${currentModel}`
-  }
-  if (modelResult.success) {
-    return `New conversation started with model: ${currentModel}`
-  }
-  return `New conversation started. ${modelResult.message}`
-}
-
 /**
  * Initialize and start ZeRo OS.
  */
