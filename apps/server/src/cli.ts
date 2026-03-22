@@ -16,6 +16,7 @@ import { rebuildWebBundle } from './web-build'
 
 const ZERO_DIR = join(process.cwd(), '.zero')
 const SECRETS_PATH = join(ZERO_DIR, 'secrets.enc')
+const RESTART_GRACE_PERIOD_S = 15
 
 const command = process.argv[2]
 
@@ -474,15 +475,26 @@ async function restart() {
     process.exit(1)
   }
 
-  console.log('[ZeRo OS] Rebuilding web UI before restart...')
-  const build = rebuildWebBundle()
-  if (!build.ok) {
-    console.error('[ZeRo OS] Web rebuild failed:', build.error)
-    process.exit(1)
-  }
-
   try {
-    const data = JSON.parse(readFileSync(heartbeatPath, 'utf-8'))
+    const data = JSON.parse(readFileSync(heartbeatPath, 'utf-8')) as {
+      pid: number
+      uptime?: number
+    }
+
+    if (typeof data.uptime === 'number' && data.uptime < RESTART_GRACE_PERIOD_S) {
+      console.error(
+        `[ZeRo OS] Refusing restart: process just started and is still in the startup grace period (${data.uptime.toFixed(1)}s < ${RESTART_GRACE_PERIOD_S}s).`,
+      )
+      process.exit(1)
+    }
+
+    console.log('[ZeRo OS] Rebuilding web UI before restart...')
+    const build = rebuildWebBundle()
+    if (!build.ok) {
+      console.error('[ZeRo OS] Web rebuild failed:', build.error)
+      process.exit(1)
+    }
+
     const pid = data.pid as number
     process.kill(pid, 'SIGTERM')
     console.log(`[ZeRo OS] Sent SIGTERM to PID ${pid}. Supervisor will restart the process.`)
