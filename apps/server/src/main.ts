@@ -45,6 +45,7 @@ import {
   collectAssistantReply,
   describeError,
   installConsoleTimestamping,
+  toErrorMessage,
 } from '@zero-os/shared'
 import { RepairEngine } from '@zero-os/supervisor'
 import { HeartbeatWriter } from '@zero-os/supervisor'
@@ -265,7 +266,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
         console.warn(
           '[ZeRo OS] Memory vector index unavailable, falling back to keyword retrieval',
           {
-            message: error instanceof Error ? error.message : String(error),
+            message: toErrorMessage(error),
           },
         )
       }

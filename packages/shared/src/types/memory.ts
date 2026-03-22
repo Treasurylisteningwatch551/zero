@@ -7,6 +7,16 @@ export type MemoryType =
   | 'preference'
   | 'inbox'
 
+export const ALL_MEMORY_TYPES: MemoryType[] = [
+  'note',
+  'decision',
+  'preference',
+  'runbook',
+  'incident',
+  'session',
+  'inbox',
+]
+
 export type MemoryStatus = 'draft' | 'verified' | 'archived' | 'conflict'
 
 export interface Memory {

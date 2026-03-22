@@ -1,4 +1,4 @@
-import type { MemoryType, ToolContext, ToolResult } from '@zero-os/shared'
+import { ALL_MEMORY_TYPES, type MemoryType, type ToolContext, type ToolResult } from '@zero-os/shared'
 import { BaseTool } from './base'
 
 interface MemorySearchInput {
@@ -6,15 +6,7 @@ interface MemorySearchInput {
   maxResults?: number
 }
 
-const DEFAULT_TYPES: MemoryType[] = [
-  'session',
-  'incident',
-  'runbook',
-  'decision',
-  'note',
-  'preference',
-  'inbox',
-]
+const DEFAULT_TYPES = ALL_MEMORY_TYPES
 
 export class MemorySearchTool extends BaseTool {
   name = 'memory_search'

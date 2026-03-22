@@ -1,3 +1,4 @@
+import { toErrorMessage } from '@zero-os/shared'
 import type { AgentConfig } from '../agent/agent'
 
 export interface TaskNode {
@@ -79,7 +80,7 @@ export class TaskOrchestrator {
             failed.add(node.id)
           }
         } catch (error) {
-          const errorMsg = error instanceof Error ? error.message : String(error)
+          const errorMsg = toErrorMessage(error)
           results.set(node.id, {
             nodeId: node.id,
             success: false,

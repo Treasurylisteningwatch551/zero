@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DEFAULT_TEMPLATES } from '@zero-os/core'
 import { Vault, generateMasterKey, getMasterKey, setMasterKey } from '@zero-os/secrets'
-import { installConsoleTimestamping } from '@zero-os/shared'
+import { installConsoleTimestamping, toErrorMessage } from '@zero-os/shared'
 import { ChatGptOAuthBroker } from './chatgpt-oauth'
 import { ensureChatgptProviderConfig, getChatgptOAuthTokenRef } from './chatgpt-provider'
 import {
@@ -115,7 +115,7 @@ async function init() {
       console.log(`  LaunchAgent: installed at ${launchAgent.plistPath}`)
     } catch (err) {
       console.log(
-        `  LaunchAgent: not installed automatically (${err instanceof Error ? err.message : err})`,
+        `  LaunchAgent: not installed automatically (${toErrorMessage(err)})`,
       )
       console.log('               Run `bun zero launchctl install` after fixing the issue.')
     }
@@ -227,7 +227,7 @@ async function provider() {
   } catch (error) {
     console.error(
       '[ZeRo OS] Failed to prepare ChatGPT provider config:',
-      error instanceof Error ? error.message : error,
+      toErrorMessage(error),
     )
     process.exit(1)
   }
@@ -249,7 +249,7 @@ async function provider() {
       return
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = toErrorMessage(error)
     if (!message.toLowerCase().includes('timed out')) {
       console.log(`[ZeRo OS] Browser callback not completed automatically: ${message}`)
     }
@@ -272,7 +272,7 @@ async function provider() {
   } catch (error) {
     console.error(
       '[ZeRo OS] ChatGPT OAuth login failed:',
-      error instanceof Error ? error.message : error,
+      toErrorMessage(error),
     )
     process.exit(1)
   }
@@ -386,7 +386,7 @@ async function launchctl() {
         process.exit(1)
     }
   } catch (err) {
-    console.error('[ZeRo OS] launchctl command failed:', err instanceof Error ? err.message : err)
+    console.error('[ZeRo OS] launchctl command failed:', toErrorMessage(err))
     process.exit(1)
   }
 }
@@ -506,7 +506,7 @@ async function restart() {
     process.kill(pid, 'SIGTERM')
     console.log(`[ZeRo OS] Sent SIGTERM to PID ${pid}. Supervisor will restart the process.`)
   } catch (err) {
-    console.error('[ZeRo OS] Failed to restart:', err instanceof Error ? err.message : err)
+    console.error('[ZeRo OS] Failed to restart:', toErrorMessage(err))
     process.exit(1)
   }
 }

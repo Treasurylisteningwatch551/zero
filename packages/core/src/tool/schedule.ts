@@ -1,5 +1,5 @@
 import type { ScheduleConfig, SessionSource, ToolContext, ToolResult } from '@zero-os/shared'
-import { generateId } from '@zero-os/shared'
+import { generateId, toErrorMessage } from '@zero-os/shared'
 import { BaseTool } from './base'
 
 interface ScheduleInput {
@@ -124,7 +124,7 @@ export class ScheduleTool extends BaseTool {
       schedulerHandle.addAndStart(config)
       ctx.scheduleStore?.save(config)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
+      const msg = toErrorMessage(err)
       return {
         success: false,
         output: `Failed to create schedule: ${msg}`,

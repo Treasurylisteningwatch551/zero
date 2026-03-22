@@ -21,7 +21,7 @@ import type {
   ToolDefinition,
   ToolResult,
 } from '@zero-os/shared'
-import { generateId, generatePrefixedId, now } from '@zero-os/shared'
+import { generateId, generatePrefixedId, now, toErrorMessage } from '@zero-os/shared'
 import { EMPTY_RESPONSE_RETRY_PROMPT } from '../constants'
 import type { ToolRegistry } from '../tool/registry'
 import { allocateBudget, shouldCompress } from './budget'
@@ -262,7 +262,7 @@ export class Agent {
           if (llmSpan) {
             this.obs.tracer?.updateSpan(llmSpan.id, {
               metadata: {
-                error: error instanceof Error ? error.message : String(error),
+                error: toErrorMessage(error),
               },
             })
             this.obs.tracer?.endSpan(llmSpan.id, 'error')
@@ -526,7 +526,7 @@ export class Agent {
         try {
           result = await tool.run(toolContext, block.input)
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
+          const errorMessage = toErrorMessage(error)
           result = {
             success: false,
             output: errorMessage,
@@ -663,7 +663,7 @@ export class Agent {
           if (finalLlmSpan) {
             this.obs.tracer?.updateSpan(finalLlmSpan.id, {
               metadata: {
-                error: error instanceof Error ? error.message : String(error),
+                error: toErrorMessage(error),
               },
             })
             this.obs.tracer?.endSpan(finalLlmSpan.id, 'error')
@@ -708,7 +708,7 @@ export class Agent {
     } catch (error) {
       if (rootSpan) {
         this.obs.tracer?.endSpan(rootSpan.id, 'error', {
-          error: error instanceof Error ? error.message : String(error),
+          error: toErrorMessage(error),
           messageCount: newMessages.length,
         })
       }
@@ -1115,9 +1115,9 @@ export class Agent {
     } catch (error) {
       this.toolContext.logger.warn('task_closure_classifier_failed', {
         sessionId: this.toolContext.sessionId,
-        error: error instanceof Error ? error.message : String(error),
+        error: toErrorMessage(error),
       })
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorMessage = toErrorMessage(error)
       if (taskClosureSpan) {
         this.obs.tracer?.updateSpan(taskClosureSpan.id, {
           kind: 'closure_failed',
@@ -1296,7 +1296,7 @@ export class Agent {
     errorType?: string
   } {
     const data = this.toRecord(streamErr)
-    const message = streamErr instanceof Error ? streamErr.message : String(streamErr)
+    const message = toErrorMessage(streamErr)
     const anthropicPayload = this.parseAnthropicStreamErrorPayload(message)
     return {
       message,

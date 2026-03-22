@@ -1,6 +1,11 @@
-import type { RequestLogEntry, SnapshotEntry, TraceSpan } from '@zero-os/observe'
+import {
+  flattenTraceSpans,
+  type RequestLogEntry,
+  type SnapshotEntry,
+  type TraceSpan,
+} from '@zero-os/observe'
 import type { CompletionResponse, Message } from '@zero-os/shared'
-import { now } from '@zero-os/shared'
+import { now, toErrorMessage } from '@zero-os/shared'
 import type { ZeroOS } from '../../../server/src/main'
 import type {
   SessionJudgeArtifacts,
@@ -356,7 +361,7 @@ async function parseOrRepairJudgeResponse(
 }
 
 function buildJudgeRepairPrompt(raw: string, parseError: unknown): string {
-  const detail = parseError instanceof Error ? parseError.message : String(parseError)
+  const detail = toErrorMessage(parseError)
   return [
     'Repair this malformed session-judge JSON into valid JSON.',
     'Keep the original intent and values whenever possible.',
@@ -901,8 +906,4 @@ function unique(values: string[]): string[] {
 function clampInteger(value: unknown, min: number, max: number): number {
   const numeric = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : min
   return Math.max(min, Math.min(max, numeric))
-}
-
-function flattenTraceSpans(traces: TraceSpan[]): TraceSpan[] {
-  return traces.flatMap((trace) => [trace, ...flattenTraceSpans(trace.children ?? [])])
 }

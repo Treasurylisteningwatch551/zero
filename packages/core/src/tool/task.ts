@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ModelRouter } from '@zero-os/model'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
+import { toErrorMessage } from '@zero-os/shared'
 import { Agent, type AgentConfig, type AgentContext, type AgentObservability } from '../agent/agent'
 import { buildSubAgentPrompt } from '../agent/prompt'
 import { getBuiltinRoles, loadRoles, resolveRole, type RoleDefinition } from '../agent/roles'
@@ -233,7 +234,7 @@ export class TaskTool extends BaseTool {
           durationMs: Date.now() - startTime,
         }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error)
+        const errorMessage = toErrorMessage(error)
         if (subAgentSpan) {
           ctx.tracer?.updateSpan(subAgentSpan.id, {
             data: {

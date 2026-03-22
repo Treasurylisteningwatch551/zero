@@ -1,6 +1,6 @@
 import { existsSync, readdirSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
-import { readYaml } from '@zero-os/shared'
+import { readYaml, toErrorMessage } from '@zero-os/shared'
 import type { PromptMode } from '@zero-os/shared'
 import { readString, readStringArray } from '../utils/yaml'
 
@@ -65,7 +65,7 @@ export async function loadRoles(projectRoot: string): Promise<Record<string, Rol
       roles[roleId] = normalized
     } catch (error) {
       console.warn(`[roles] Failed to load role file: ${filePath}`, {
-        message: error instanceof Error ? error.message : String(error),
+        message: toErrorMessage(error),
       })
     }
   }

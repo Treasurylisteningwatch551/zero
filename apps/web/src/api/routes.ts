@@ -1,5 +1,6 @@
 import { loadConfig } from '@zero-os/core'
 import type { MemoryStatus, MemoryType, ModelPricing, SessionStatus } from '@zero-os/shared'
+import { toErrorMessage } from '@zero-os/shared'
 import { GitOps } from '@zero-os/supervisor'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -508,7 +509,7 @@ export function createRoutes(zero: ZeroOS) {
 
         return c.json(result.run)
       } catch (error) {
-        return c.json({ error: error instanceof Error ? error.message : String(error) }, 500)
+        return c.json({ error: toErrorMessage(error) }, 500)
       }
     })
 
@@ -761,7 +762,7 @@ export function createRoutes(zero: ZeroOS) {
         const result = await chatgptOAuth.start()
         return c.json({ ...result, status: chatgptOAuth.getStatus() })
       } catch (error) {
-        return c.json({ error: error instanceof Error ? error.message : String(error) }, 500)
+        return c.json({ error: toErrorMessage(error) }, 500)
       }
     })
 

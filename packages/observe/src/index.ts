@@ -37,3 +37,4 @@ export {
   projectSessionSnapshotsFromTraceEntries,
 } from './trace-projections'
 export { createFilteredWriter, filterLogEntry } from './secret-filter'
+export { asRecord, asString, flattenTraceSpans } from './utils'

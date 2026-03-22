@@ -1,5 +1,5 @@
 import type { ToolContext, ToolResult } from '@zero-os/shared'
-import { now } from '@zero-os/shared'
+import { now, toErrorMessage } from '@zero-os/shared'
 
 /**
  * Abstract base class for all ZeRo OS tools.
@@ -73,7 +73,7 @@ export abstract class BaseTool {
       await this.afterExecute(ctx, result, durationMs)
       return result
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
+      const errorMessage = toErrorMessage(error)
       const durationMs = Date.now() - startTime
       const result: ToolResult = {
         success: false,

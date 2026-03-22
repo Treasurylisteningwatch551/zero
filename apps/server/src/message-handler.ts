@@ -14,6 +14,7 @@ import {
   type ImageBlock,
   type Message,
   type SessionSource,
+  toErrorMessage,
 } from '@zero-os/shared'
 import type { ChannelAdapter, StreamAdapter, TypingHandle } from './channel-adapter'
 
@@ -285,7 +286,7 @@ export async function handleChannelMessage(
   } catch (err) {
     console.error(`[ZeRo OS] ${deps.channelName} message handler error:`, describeError(err))
 
-    const errorMessage = err instanceof Error ? err.message : String(err)
+    const errorMessage = toErrorMessage(err)
     let sessionWasArchived = false
 
     if (activeSessionId && errorMessage.includes('No tool output found for function call')) {

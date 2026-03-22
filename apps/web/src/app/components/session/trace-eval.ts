@@ -1,7 +1,7 @@
+import { type TraceSpan as ObserveTraceSpan, flattenTraceSpans } from '@zero-os/observe'
 import {
   type SessionTaskClosureEvent,
   type TraceSpan,
-  flattenTraceSpans,
   getTaskClosureTraceDetails,
 } from './timeline'
 
@@ -79,7 +79,7 @@ export function evaluateTraceSession({
   taskClosureEvents?: SessionTaskClosureEvent[]
   llmRequests?: TraceEvalRequestEntry[]
 }): TraceEvalReport {
-  const flattened = flattenTraceSpans(traces)
+  const flattened = flattenTraceSpans(traces as ObserveTraceSpan[]) as TraceSpan[]
   const llmRequestSpans = flattened.filter((span) => span.name === 'llm_request')
   const toolCallSpans = flattened.filter((span) => span.name.startsWith('tool:'))
   const turnSpans = flattened.filter((span) => span.name.startsWith('turn:'))

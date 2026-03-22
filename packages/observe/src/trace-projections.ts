@@ -8,17 +8,7 @@ import type {
   SnapshotEntry,
 } from './observability-store'
 import type { TraceEntry } from './trace'
-
-type JsonRecord = Record<string, unknown>
-
-function asRecord(value: unknown): JsonRecord | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  return value as JsonRecord
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined
-}
+import { asRecord, asString } from './utils'
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined

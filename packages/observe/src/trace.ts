@@ -294,14 +294,21 @@ export class Tracer {
   }
 
   private readJsonlFile<T>(filePath: string): T[] {
+    if (!existsSync(filePath)) return []
     const content = readFileSync(filePath, 'utf-8')
     if (content.trim().length === 0) return []
 
-    return content
-      .trim()
-      .split('\n')
-      .filter((line) => line.length > 0)
-      .map((line) => JSON.parse(line) as T)
+    const entries: T[] = []
+
+    for (const line of content.split('\n')) {
+      if (line.trim().length === 0) continue
+
+      try {
+        entries.push(JSON.parse(line) as T)
+      } catch {}
+    }
+
+    return entries
   }
 
   private toTraceEntry(span: TraceSpan): TraceEntry {

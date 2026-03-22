@@ -1,5 +1,5 @@
 import type { Message, SecretFilter, ToolLogger, ToolTracer } from '@zero-os/shared'
-import { generatePrefixedId } from '@zero-os/shared'
+import { generatePrefixedId, toErrorMessage } from '@zero-os/shared'
 import type { AgentContext } from './agent'
 import type { QueuedMessage } from './queue'
 
@@ -380,7 +380,7 @@ export class AgentControl {
       if (entry.state !== 'closed') {
         entry.error = this.filterSensitive(
           entry,
-          error instanceof Error ? error.message : String(error),
+          toErrorMessage(error),
         )
         entry.state = 'failed'
         entry.endedAt = Date.now()

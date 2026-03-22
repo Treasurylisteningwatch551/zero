@@ -1,5 +1,6 @@
 import { Readability } from '@mozilla/readability'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
+import { toErrorMessage } from '@zero-os/shared'
 import { parseHTML } from 'linkedom'
 import TurndownService from 'turndown'
 import { BaseTool } from './base'
@@ -164,7 +165,7 @@ export class FetchTool extends BaseTool {
       }
     } catch (error) {
       clearTimeout(timer)
-      const msg = error instanceof Error ? error.message : String(error)
+      const msg = toErrorMessage(error)
       if (msg.includes('abort')) {
         return {
           success: false,

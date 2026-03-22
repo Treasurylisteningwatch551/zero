@@ -1,4 +1,4 @@
-import type { Memory, MemoryType } from '@zero-os/shared'
+import { ALL_MEMORY_TYPES, type Memory, type MemoryType } from '@zero-os/shared'
 import type { EmbeddingProvider } from './embedding'
 import type { MemoryRepository } from './store'
 import type { MemoryVectorMeta, VectorIndexLike } from './vector-index'
@@ -86,15 +86,7 @@ export class IndexedMemoryStore implements MemoryRepository {
   }
 
   async deleteBySessionId(sessionId: string): Promise<number> {
-    const allTypes: MemoryType[] = [
-      'session',
-      'incident',
-      'runbook',
-      'decision',
-      'note',
-      'preference',
-      'inbox',
-    ]
+    const allTypes = ALL_MEMORY_TYPES
     let deleted = 0
 
     for (const type of allTypes) {
@@ -119,15 +111,7 @@ export class IndexedMemoryStore implements MemoryRepository {
   async reindexAll(): Promise<number> {
     await this.vectorIndex.ensureIndex()
 
-    const allTypes: MemoryType[] = [
-      'session',
-      'incident',
-      'runbook',
-      'decision',
-      'note',
-      'preference',
-      'inbox',
-    ]
+    const allTypes = ALL_MEMORY_TYPES
     const memories: Memory[] = []
 
     for (const type of allTypes) {

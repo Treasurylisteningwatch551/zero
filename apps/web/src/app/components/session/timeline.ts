@@ -1,3 +1,5 @@
+import { asRecord, asString, flattenTraceSpans } from '@zero-os/observe'
+
 export interface ContentBlock {
   type: string
   [key: string]: unknown
@@ -362,10 +364,6 @@ function mapTaskClosureFailed(span: TraceSpan): TimelineItem {
   }
 }
 
-export function flattenTraceSpans(traces: TraceSpan[]): TraceSpan[] {
-  return traces.flatMap((span) => [span, ...flattenTraceSpans(span.children ?? [])])
-}
-
 function extractToolDurations(traces: TraceSpan[]): Map<string, number> {
   const toolDurations = new Map<string, number>()
 
@@ -473,16 +471,6 @@ function resolveClassifierRequest(
   if (isClassifierRequest(value)) return value
   if (isClassifierRequest(fallback)) return fallback
   return undefined
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined
 }
 
 function asBoolean(value: unknown): boolean | undefined {

@@ -7,8 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
-import type { Memory, MemoryType } from '@zero-os/shared'
-import { generatePrefixedId, now } from '@zero-os/shared'
+import { ALL_MEMORY_TYPES, generatePrefixedId, now, type Memory, type MemoryType } from '@zero-os/shared'
 import matter from 'gray-matter'
 
 export interface MemoryRepository {
@@ -116,7 +115,7 @@ export class MemoryStore implements MemoryRepository {
    * Search memories by tags.
    */
   searchByTags(tags: string[], types?: MemoryType[]): Memory[] {
-    const targetTypes = types ?? ['session', 'incident', 'runbook', 'decision', 'note']
+    const targetTypes = types ?? ALL_MEMORY_TYPES
     const results: Memory[] = []
 
     for (const type of targetTypes) {
@@ -180,15 +179,7 @@ export class MemoryStore implements MemoryRepository {
    * Delete all memory files associated with a session.
    */
   async deleteBySessionId(sessionId: string): Promise<number> {
-    const allTypes: MemoryType[] = [
-      'session',
-      'incident',
-      'runbook',
-      'decision',
-      'note',
-      'preference',
-      'inbox',
-    ]
+    const allTypes = ALL_MEMORY_TYPES
     let deleted = 0
 
     for (const type of allTypes) {

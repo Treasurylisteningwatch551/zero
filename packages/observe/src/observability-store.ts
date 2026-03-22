@@ -258,7 +258,7 @@ export class ObservabilityStore {
    * Read all entries from a JSONL file.
    */
   readEntries<T = unknown>(file: string): T[] {
-    return this.readJsonlFile<T>(join(this.basePath, file))
+    return this.readJsonlFileSafely<T>(join(this.basePath, file))
   }
 
   /**
@@ -266,10 +266,7 @@ export class ObservabilityStore {
    */
   readSessionEntries<T = unknown>(sessionId: string, file: string): T[] {
     const filePath = join(this.basePath, getSessionLogRelativeDir(sessionId), file)
-    if (existsSync(filePath)) {
-      return this.readJsonlFile<T>(filePath)
-    }
-    return []
+    return this.readJsonlFileSafely<T>(filePath)
   }
 
   appendSessionJudge(sessionId: string, entry: unknown): void {
@@ -337,7 +334,9 @@ export class ObservabilityStore {
 
     for (const sessionDir of this.listSessionDirectories()) {
       entries.push(
-        ...collapseTraceEntries(this.readJsonlFile<TraceEntry>(join(sessionDir, 'trace.jsonl'))),
+        ...collapseTraceEntries(
+          this.readJsonlFileSafely<TraceEntry>(join(sessionDir, 'trace.jsonl')),
+        ),
       )
     }
 
@@ -359,6 +358,9 @@ export class ObservabilityStore {
     return Array.from(deduped.values()).sort((left, right) => left.ts.localeCompare(right.ts))
   }
 
+  /**
+   * @deprecated Use readJsonlFileSafely instead.
+   */
   private readJsonlFile<T>(filePath: string): T[] {
     if (!existsSync(filePath)) return []
     const content = readFileSync(filePath, 'utf-8')

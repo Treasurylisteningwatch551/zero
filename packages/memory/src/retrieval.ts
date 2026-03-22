@@ -1,22 +1,16 @@
-import type {
+import {
+  ALL_MEMORY_TYPES,
   Memory,
   MemoryScoreBreakdown,
   MemorySearchOptions,
   ScoredMemoryMatch,
+  toErrorMessage,
 } from '@zero-os/shared'
 import type { EmbeddingProvider } from './embedding'
 import type { MemoryRepository } from './store'
 import type { VectorIndexLike } from './vector-index'
 
-const DEFAULT_TYPES: Memory['type'][] = [
-  'session',
-  'incident',
-  'runbook',
-  'decision',
-  'note',
-  'inbox',
-  'preference',
-]
+const DEFAULT_TYPES = ALL_MEMORY_TYPES
 
 export interface MemoryRetrieverConfig {
   vectorWeight?: number
@@ -77,7 +71,7 @@ export class MemoryRetriever {
         vectorScores = new Map(vectorResults.map((result) => [result.memoryId, result.score]))
       } catch (error) {
         console.warn('[memory] vector retrieval failed, falling back to keyword search', {
-          message: error instanceof Error ? error.message : String(error),
+          message: toErrorMessage(error),
         })
       }
     }

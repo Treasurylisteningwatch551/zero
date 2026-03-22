@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import type { BotCommand, File, MenuButton, MessageEntity, ReactionType } from '@telegraf/types'
 import { Telegraf } from 'telegraf'
+import { toErrorMessage } from '@zero-os/shared'
 import type { Channel, ImageAttachment, IncomingMessage, MessageHandler } from '../base'
 import {
   type TelegramRichText,
@@ -209,7 +210,7 @@ export class TelegramChannel implements Channel {
         entities: first.entities as TelegramEntities,
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = toErrorMessage(err)
       // Ignore no-op edits during throttled streaming updates.
       if (!message.includes('message is not modified')) {
         throw err

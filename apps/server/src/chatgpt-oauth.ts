@@ -6,6 +6,7 @@ import {
   decodeChatGptAccountId,
   serializeChatGptOAuthSession,
 } from '@zero-os/model'
+import { toErrorMessage } from '@zero-os/shared'
 import type { Vault } from '@zero-os/secrets'
 import { getChatgptOAuthTokenRef } from './chatgpt-provider'
 
@@ -294,7 +295,7 @@ export class ChatGptOAuthBroker {
         provider: 'chatgpt',
         state: 'error',
         authorized: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: toErrorMessage(error),
         attemptId: attempt.id,
         requiresRestart: false,
       })

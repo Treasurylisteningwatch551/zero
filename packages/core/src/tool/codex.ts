@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { ToolContext, ToolResult } from '@zero-os/shared'
+import { toErrorMessage } from '@zero-os/shared'
 import { BaseTool } from './base'
 import { buildToolProcessEnv } from './process-env'
 
@@ -159,7 +160,7 @@ export class CodexTool extends BaseTool {
       })
       return this.formatResult(result)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = toErrorMessage(error)
       return {
         success: false,
         output: `Codex execution failed: ${message}`,

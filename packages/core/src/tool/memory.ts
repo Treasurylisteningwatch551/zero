@@ -1,4 +1,4 @@
-import type { MemoryType, ToolContext, ToolResult } from '@zero-os/shared'
+import { ALL_MEMORY_TYPES, type MemoryType, type ToolContext, type ToolResult } from '@zero-os/shared'
 import { BaseTool } from './base'
 
 type MemoryAction = 'create' | 'update' | 'delete' | 'list'
@@ -30,7 +30,7 @@ export class MemoryTool extends BaseTool {
       },
       type: {
         type: 'string',
-        enum: ['note', 'decision', 'preference', 'runbook', 'incident', 'session', 'inbox'],
+        enum: ALL_MEMORY_TYPES,
         description: 'Memory type',
       },
       title: { type: 'string', description: 'Memory title (required for create)' },
