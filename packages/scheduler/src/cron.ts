@@ -205,6 +205,9 @@ export class CronScheduler {
       entry.running = false
     }
 
+    // Schedule was removed during execution (e.g. agent cancelled it in onTrigger)
+    if (!this.entries.has(name)) return
+
     // oneShot: remove after single execution
     if (entry.config.oneShot) {
       this.remove(name)

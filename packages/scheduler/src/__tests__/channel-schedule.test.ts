@@ -275,4 +275,40 @@ describe('CronScheduler — new methods', () => {
       scheduler.stop()
     }
   })
+
+  test('removing a schedule inside onTrigger prevents further triggers', async () => {
+    const scheduler = new CronScheduler()
+    let triggerCount = 0
+
+    scheduler.setTriggerHandler(async (config) => {
+      triggerCount++
+      // Remove the schedule from within the trigger handler
+      scheduler.remove(config.name)
+    })
+
+    scheduler.add({
+      name: 'self_remove',
+      cron: '* * * * * *',
+      instruction: 'self removing job',
+    })
+
+    const entry = expectDefined(scheduler.getEntry('self_remove'))
+    const testableScheduler = scheduler as unknown as TestableCronScheduler
+
+    // Directly fire the entry
+    await testableScheduler.fire('self_remove', entry)
+
+    // Trigger handler ran exactly once
+    expect(triggerCount).toBe(1)
+
+    // Entry should be gone from the scheduler
+    expect(scheduler.getEntry('self_remove')).toBeUndefined()
+    expect(scheduler.getStatus()).toHaveLength(0)
+
+    // Wait a bit and verify no further triggers happen
+    await new Promise((r) => setTimeout(r, 100))
+    expect(triggerCount).toBe(1)
+
+    scheduler.stop()
+  })
 })
