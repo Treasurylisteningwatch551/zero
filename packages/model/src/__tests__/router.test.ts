@@ -3,6 +3,7 @@ import type { SystemConfig } from '@zero-os/shared'
 import { ModelRouter } from '../router'
 
 const API_KEY = 'sk-c6c02cbd0c25473f97f9be0da6070f6d'
+const RUN_REAL_API = process.env.ZERO_RUN_MODEL_REAL_API === '1'
 
 const config: SystemConfig = {
   providers: {
@@ -29,7 +30,7 @@ const config: SystemConfig = {
 
 const secrets = new Map([['openai_codex_api_key', API_KEY]])
 
-describe('ModelRouter (Real API)', () => {
+describe.skipIf(!RUN_REAL_API)('ModelRouter (Real API)', () => {
   test('init selects the default model', () => {
     const router = new ModelRouter(config, secrets)
     const result = router.init()

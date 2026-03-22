@@ -8,6 +8,7 @@ import { collectStream } from '../stream'
 const API_KEY = 'sk-c6c02cbd0c25473f97f9be0da6070f6d'
 const BASE_URL = 'https://www.right.codes/codex'
 const MODEL_ID = 'gpt-5.3-codex-medium'
+const RUN_REAL_API = process.env.ZERO_RUN_MODEL_REAL_API === '1'
 
 const adapter = new OpenAIChatAdapter({
   baseUrl: BASE_URL,
@@ -67,7 +68,7 @@ function makeMessage(role: 'user' | 'assistant', text: string): Message {
   }
 }
 
-describe('OpenAI Chat Completions Adapter (Real API)', () => {
+describe.skipIf(!RUN_REAL_API)('OpenAI Chat Completions Adapter (Real API)', () => {
   test('complete returns a valid response', async () => {
     const response = await adapter.complete({
       messages: [makeMessage('user', 'Say "hello world" and nothing else.')],
