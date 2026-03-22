@@ -7,6 +7,7 @@ import { Agent, type AgentConfig, type AgentContext, type AgentObservability } f
 import { buildSubAgentPrompt } from '../agent/prompt'
 import { loadRoles, resolveRole } from '../agent/roles'
 import { BaseTool } from './base'
+import { SUB_AGENT_BLOCKED_TOOLS } from './constants'
 import { ToolRegistry } from './registry'
 
 interface SpawnAgentInput {
@@ -19,8 +20,6 @@ interface SpawnAgentInput {
   tools?: string[]
   model?: string
 }
-
-const BLOCKED_TOOLS = new Set(['task', 'spawn_agent', 'wait_agent', 'close_agent', 'send_input'])
 
 export class SpawnAgentTool extends BaseTool {
   name = 'spawn_agent'
@@ -261,10 +260,10 @@ export class SpawnAgentTool extends BaseTool {
         : this.baseToolRegistry
             .list()
             .map((tool) => tool.name)
-            .filter((toolName) => !BLOCKED_TOOLS.has(toolName))
+            .filter((toolName) => !SUB_AGENT_BLOCKED_TOOLS.has(toolName))
 
     for (const toolName of selectedNames) {
-      if (BLOCKED_TOOLS.has(toolName)) continue
+      if (SUB_AGENT_BLOCKED_TOOLS.has(toolName)) continue
       const tool = this.baseToolRegistry.get(toolName)
       if (tool) {
         scopedRegistry.register(tool)

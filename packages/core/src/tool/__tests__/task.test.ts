@@ -6,10 +6,16 @@ import { Tracer } from '@zero-os/observe'
 import type {
   CompletionRequest,
   CompletionResponse,
+  ObservabilityHandle,
+  ToolContext,
+  ToolResult,
   StreamEvent,
   SystemConfig,
 } from '@zero-os/shared'
+import { Agent } from '../../agent/agent'
 import { BashTool } from '../bash'
+import { BaseTool } from '../base'
+import { SUB_AGENT_BLOCKED_TOOLS } from '../constants'
 import { ReadTool } from '../read'
 import { ToolRegistry } from '../registry'
 import { TaskTool } from '../task'
@@ -108,6 +114,23 @@ function createToolRegistry(): ToolRegistry {
   return registry
 }
 
+class NamedTool extends BaseTool {
+  description = 'test tool'
+  parameters = { type: 'object', properties: {} }
+
+  constructor(public name: string) {
+    super()
+  }
+
+  protected async execute(_ctx: ToolContext, _input: unknown): Promise<ToolResult> {
+    return {
+      success: true,
+      output: this.name,
+      outputSummary: this.name,
+    }
+  }
+}
+
 describe('TaskTool', () => {
   test('returns error for empty tasks array', async () => {
     const registry = createToolRegistry()
@@ -148,6 +171,155 @@ describe('TaskTool', () => {
     // If we could access buildScopedRegistry directly we'd verify, but the
     // class is internal. The safety rule is enforced in the implementation.
     expect(taskTool.name).toBe('task')
+  })
+
+  test('inherits parent tool context and clears agent control for subagents', async () => {
+    const registry = createToolRegistry()
+    const taskTool = new TaskTool(createStubRouter(new StaticResponseAdapter()), registry)
+    const observability: ObservabilityHandle = {
+      recordOperation: () => {},
+      logEvent: () => {},
+    }
+    const memoryStore = {
+      create: async () => ({}) as never,
+      update: async () => undefined,
+      delete: async () => true,
+      list: () => [],
+      get: () => undefined,
+    }
+    const memoryRetriever = {
+      retrieve: async () => [],
+    }
+    const secretResolver = () => 'secret'
+    const channelBinding = {
+      source: 'test',
+      channelName: 'channel',
+      channelId: 'channel-1',
+    }
+    const schedulerHandle = {
+      addAndStart: () => {},
+      remove: () => true,
+      getStatus: () => [],
+    }
+    const scheduleStore = {
+      save: () => {},
+      delete: () => true,
+    }
+    const agentControl = {
+      spawn: () => ({ error: 'not used' }),
+      waitAny: async () => ({ statuses: {}, timedOut: false }),
+      waitAll: async () => ({ statuses: {}, timedOut: false }),
+      getStatus: () => undefined,
+      getOutput: () => undefined,
+      sendInput: () => ({ success: true }),
+      getTraceSpanId: () => undefined,
+      getAgentInfo: () => undefined,
+      close: () => undefined,
+      listAgents: () => [],
+      activeAgentCount: 0,
+    }
+
+    let capturedToolContext: ToolContext | undefined
+    const originalRun = Agent.prototype.run
+    Agent.prototype.run = async function () {
+      capturedToolContext = (this as any).toolContext as ToolContext
+      return [
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'subagent complete' }],
+        },
+      ] as never
+    }
+
+    try {
+      const result = await taskTool.run(
+        {
+          ...ctx,
+          currentRequestId: 'req_parent_001',
+          currentTraceSpanId: 'trace_parent_001',
+          observability,
+          memoryStore,
+          memoryRetriever,
+          secretResolver,
+          channelBinding,
+          schedulerHandle,
+          scheduleStore,
+          agentControl,
+        },
+        {
+          tasks: [
+            {
+              id: 'custom',
+              name: 'CustomBot',
+              agentInstruction: 'Return once the task is done.',
+              instruction: 'confirm completion',
+              tools: ['read'],
+            },
+          ],
+        },
+      )
+
+      expect(result.success).toBe(true)
+      expect(capturedToolContext).toBeDefined()
+      expect(capturedToolContext?.observability).toBe(observability)
+      expect(capturedToolContext?.memoryStore).toBe(memoryStore)
+      expect(capturedToolContext?.memoryRetriever).toBe(memoryRetriever)
+      expect(capturedToolContext?.secretResolver).toBe(secretResolver)
+      expect(capturedToolContext?.channelBinding).toBe(channelBinding)
+      expect(capturedToolContext?.schedulerHandle).toBe(schedulerHandle)
+      expect(capturedToolContext?.scheduleStore).toBe(scheduleStore)
+      expect(capturedToolContext?.spawnedByRequestId).toBe('req_parent_001')
+      expect(capturedToolContext?.currentRequestId).toBeUndefined()
+      expect(capturedToolContext?.currentTraceSpanId).toBe('trace_parent_001')
+      expect(capturedToolContext?.agentControl).toBeUndefined()
+      expect(capturedToolContext?.workDir).toBe(join(TEST_WORK_DIR, 'CustomBot'))
+    } finally {
+      Agent.prototype.run = originalRun
+    }
+  })
+
+  test('filters all blocked sub-agent tools from explicit tool lists', () => {
+    const registry = createToolRegistry()
+    registry.register(new NamedTool('spawn_agent'))
+    registry.register(new NamedTool('wait_agent'))
+    registry.register(new NamedTool('close_agent'))
+    registry.register(new NamedTool('send_input'))
+
+    const taskTool = new TaskTool(createStubRouter(new StaticResponseAdapter()), registry)
+    const scopedRegistry = (taskTool as any).buildScopedRegistry(
+      {
+        tools: ['read', 'task', 'spawn_agent', 'wait_agent', 'close_agent', 'send_input', 'bash'],
+      },
+      undefined,
+    ) as ToolRegistry
+
+    expect(scopedRegistry.list().map((tool: BaseTool) => tool.name)).toEqual(['read', 'bash'])
+    expect(
+      scopedRegistry.list().every((tool: BaseTool) => !SUB_AGENT_BLOCKED_TOOLS.has(tool.name)),
+    ).toBe(true)
+  })
+
+  test('filters all blocked sub-agent tools from role defaults', () => {
+    const registry = createToolRegistry()
+    registry.register(new NamedTool('spawn_agent'))
+    registry.register(new NamedTool('wait_agent'))
+    registry.register(new NamedTool('close_agent'))
+    registry.register(new NamedTool('send_input'))
+
+    const taskTool = new TaskTool(createStubRouter(new StaticResponseAdapter()), registry)
+    const scopedRegistry = (taskTool as any).buildScopedRegistry(undefined, {
+      defaultTools: ['read', 'task', 'spawn_agent', 'wait_agent', 'close_agent', 'send_input', 'bash'],
+    }) as ToolRegistry
+
+    expect(scopedRegistry.list().map((tool: BaseTool) => tool.name)).toEqual(['read', 'bash'])
+  })
+
+  test('preserves the lightweight default tool set when no tools are provided', () => {
+    const registry = createToolRegistry()
+    const taskTool = new TaskTool(createStubRouter(new StaticResponseAdapter()), registry)
+    const scopedRegistry = (taskTool as any).buildScopedRegistry(undefined, undefined) as ToolRegistry
+
+    expect(scopedRegistry.list().map((tool: BaseTool) => tool.name)).toEqual(['read', 'bash'])
   })
 
   test('single task with preset runs successfully', async () => {

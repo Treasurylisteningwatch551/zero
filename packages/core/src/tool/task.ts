@@ -7,6 +7,7 @@ import { buildSubAgentPrompt } from '../agent/prompt'
 import { getBuiltinRoles, loadRoles, resolveRole, type RoleDefinition } from '../agent/roles'
 import { type TaskNode, TaskOrchestrator, type TaskResult } from '../task/orchestrator'
 import { BaseTool } from './base'
+import { SUB_AGENT_BLOCKED_TOOLS } from './constants'
 import { ToolRegistry } from './registry'
 
 interface SubAgentSpec {
@@ -165,17 +166,16 @@ export class TaskTool extends BaseTool {
         },
       )
       const toolContext: ToolContext = {
+        ...ctx,
         sessionId: ctx.sessionId,
+        workDir: subWorkDir,
         currentModel: resolvedModel
           ? this.modelRouter.getModelLabel(resolvedModel)
           : ctx.currentModel,
-        currentTraceSpanId: subAgentSpan?.id,
+        currentRequestId: undefined,
+        currentTraceSpanId: subAgentSpan?.id ?? ctx.currentTraceSpanId,
         spawnedByRequestId: ctx.currentRequestId,
-        workDir: subWorkDir,
-        projectRoot: ctx.projectRoot,
-        logger: ctx.logger,
-        tracer: ctx.tracer,
-        secretFilter: ctx.secretFilter,
+        agentControl: undefined,
       }
 
       const agentObs: AgentObservability = {
@@ -302,11 +302,11 @@ export class TaskTool extends BaseTool {
     role: RoleDefinition | undefined,
   ): ToolRegistry {
     const scopedRegistry = new ToolRegistry()
-    const toolNames = spec?.tools ?? role?.defaultTools ?? ['read', 'bash']
+    const requestedToolNames = spec?.tools ?? role?.defaultTools
+    const toolNames = requestedToolNames ?? ['read', 'bash']
 
     for (const toolName of toolNames) {
-      // Never include 'task' in SubAgent registry to prevent recursion
-      if (toolName === 'task') continue
+      if (SUB_AGENT_BLOCKED_TOOLS.has(toolName)) continue
 
       const tool = this.baseToolRegistry.get(toolName)
       if (tool) {
