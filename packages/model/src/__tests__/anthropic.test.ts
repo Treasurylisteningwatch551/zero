@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { join } from 'node:path'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { CompletionRequest, ContentBlock, Message } from '@zero-os/shared'
 import { generateId, now } from '@zero-os/shared'
@@ -6,14 +7,45 @@ import { AnthropicAdapter } from '../adapters/anthropic'
 
 /**
  * Anthropic adapter tests.
- * Real API tests are skipped when ANTHROPIC_API_KEY is not set or invalid.
- * Pure logic tests (convertMessages, convertTools, mapStopReason) always run.
+ * Real API tests run when either:
+ *   1. ANTHROPIC_API_KEY env var is set (API Key mode), or
+ *   2. Vault contains CLAUDE_CODE_OAUTH_TOKEN (OAuth mode, matches project provider config)
+ * Pure logic tests always run.
  */
 
-const ANTHROPIC_TOKEN = process.env.ANTHROPIC_API_KEY ?? ''
-const HAS_KEY = ANTHROPIC_TOKEN.length > 0
+// --- credential resolution: env var API key OR vault OAuth token ---
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? ''
+
+let ANTHROPIC_OAUTH_TOKEN = ''
+try {
+  const { getMasterKey } = await import('../../../secrets/src/keychain.ts')
+  const { Vault } = await import('../../../secrets/src/vault.ts')
+  const masterKey = await getMasterKey()
+  const vault = new Vault(masterKey, join(__dirname, '../../../../.zero/secrets.enc'))
+  vault.load()
+  ANTHROPIC_OAUTH_TOKEN = vault.get('CLAUDE_CODE_OAUTH_TOKEN')?.trim() ?? ''
+} catch {
+  // vault unavailable — rely on env var
+}
+
+const HAS_KEY = ANTHROPIC_API_KEY.length > 0 || ANTHROPIC_OAUTH_TOKEN.length > 0
 
 function createAdapter(): AnthropicAdapter {
+  // prefer OAuth if available (matches project provider config), fall back to API key
+  if (ANTHROPIC_OAUTH_TOKEN) {
+    return new AnthropicAdapter({
+      baseUrl: 'https://api.anthropic.com',
+      auth: { type: 'oauth2', oauthTokenRef: 'CLAUDE_CODE_OAUTH_TOKEN' },
+      modelConfig: {
+        modelId: 'claude-sonnet-4-20250514',
+        maxContext: 200000,
+        maxOutput: 8192,
+        capabilities: ['tools', 'vision'],
+        tags: ['balanced'],
+      },
+      oauthToken: ANTHROPIC_OAUTH_TOKEN,
+    })
+  }
   return new AnthropicAdapter({
     baseUrl: 'https://api.anthropic.com',
     auth: { type: 'api_key', apiKeyRef: 'anthropic' },
@@ -24,11 +56,27 @@ function createAdapter(): AnthropicAdapter {
       capabilities: ['tools', 'vision'],
       tags: ['balanced'],
     },
-    apiKey: ANTHROPIC_TOKEN || 'dummy',
+    apiKey: ANTHROPIC_API_KEY || 'dummy',
   })
 }
 
 const adapter = createAdapter()
+
+/** API-key-mode adapter for pure logic tests that must not have OAuth identity prepended. */
+function createApiKeyAdapter(): AnthropicAdapter {
+  return new AnthropicAdapter({
+    baseUrl: 'https://api.anthropic.com',
+    auth: { type: 'api_key', apiKeyRef: 'anthropic' },
+    modelConfig: {
+      modelId: 'claude-sonnet-4-20250514',
+      maxContext: 200000,
+      maxOutput: 8192,
+      capabilities: ['tools', 'vision'],
+      tags: ['balanced'],
+    },
+    apiKey: 'dummy',
+  })
+}
 
 type ConvertedAnthropicMessage = {
   role: string
@@ -421,7 +469,7 @@ describe('Anthropic Adapter (Pure Logic)', () => {
   })
 
   test('complete uses top-level automatic prompt caching', async () => {
-    const cachingAdapter = createAdapter()
+    const cachingAdapter = createApiKeyAdapter()
     const calls: Array<Record<string, unknown>> = []
     getAnthropicHarness(cachingAdapter).client = {
       messages: {
@@ -480,7 +528,7 @@ describe('Anthropic Adapter (Pure Logic)', () => {
   })
 
   test('stream reuses the same automatic prompt caching request shape', async () => {
-    const cachingAdapter = createAdapter()
+    const cachingAdapter = createApiKeyAdapter()
     const calls: Array<Record<string, unknown>> = []
     getAnthropicHarness(cachingAdapter).client = {
       messages: {
@@ -553,7 +601,7 @@ describe('Anthropic Adapter (Pure Logic)', () => {
   })
 
   test('applies automatic prompt caching even when system and tools are absent', async () => {
-    const cachingAdapter = createAdapter()
+    const cachingAdapter = createApiKeyAdapter()
     const calls: Array<Record<string, unknown>> = []
     getAnthropicHarness(cachingAdapter).client = {
       messages: {
