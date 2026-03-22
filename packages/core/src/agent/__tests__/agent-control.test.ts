@@ -478,6 +478,7 @@ describe('AgentControl', () => {
         data: {
           success: true,
           durationMs: expect.any(Number),
+          output: 'final output',
           outputSummary: 'final output',
         },
       },

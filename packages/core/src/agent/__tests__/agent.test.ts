@@ -85,6 +85,17 @@ function expectDefined<T>(value: T | null | undefined): NonNullable<T> {
   return value
 }
 
+type TraceSpan = ReturnType<Tracer['getSessionTraces']>[number]
+
+function findSpanDeep(spans: TraceSpan[], name: string): TraceSpan | undefined {
+  for (const span of spans) {
+    if (span.name === name) return span
+    const found = findSpanDeep(span.children, name)
+    if (found) return found
+  }
+  return undefined
+}
+
 describe('Agent', () => {
   test('run: simple question returns user + assistant messages', async () => {
     const { agent, registry } = createAgent()
@@ -284,7 +295,7 @@ describe('Agent', () => {
     expect(spans.length).toBeGreaterThanOrEqual(1)
 
     const rootSpan = spans[0]
-    expect(rootSpan.name).toContain('agent.run')
+    expect(rootSpan.name).toContain('turn')
     expect(rootSpan.status).toBe('success')
     expect(rootSpan.endTime).toBeDefined()
   }, 30000)
@@ -302,7 +313,7 @@ describe('Agent', () => {
 
     const spans = tracer.getSessionTraces('test-session')
     const rootSpan = expectDefined(spans[0])
-    const toolSpan = rootSpan.children.find((span) => span.name === 'tool:read')
+    const toolSpan = findSpanDeep(rootSpan.children, 'tool:read')
 
     expect(toolSpan).toBeDefined()
     expect(toolSpan?.metadata?.toolUseId).toBeTypeOf('string')
