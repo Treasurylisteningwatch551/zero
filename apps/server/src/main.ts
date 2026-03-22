@@ -632,6 +632,22 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
         console.log(
           `[ZeRo OS] Restart sentinel recorded ${sentinel.sessions.length} interrupted session(s)`,
         )
+
+        await Promise.allSettled(
+          sentinel.sessions.map(async (entry) => {
+            const channel = entry.channelName ? channels.get(entry.channelName) : undefined
+            if (!channel || !channel.isConnected()) return
+
+            try {
+              await channel.send(entry.channelId, '🔄 ZeRo OS 正在重启...')
+            } catch (error) {
+              console.warn(
+                `[ZeRo OS] Failed to send restart notice to ${entry.channelName ?? 'unknown'}:${entry.channelId}:`,
+                describeError(error),
+              )
+            }
+          }),
+        )
       }
     }
 
@@ -1335,6 +1351,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
             try {
               session.setChannelCapabilities(channel.getCapabilities() as Record<string, unknown>)
+              await channel.send(entry.channelId, '✅ ZeRo OS 已重启完成')
               const replies = await session.handleMessage(
                 '[System] The process restarted while your previous turn was still running. Continue the interrupted task from the existing conversation context. If the task is already complete, briefly confirm completion.',
               )
