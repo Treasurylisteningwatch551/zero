@@ -125,10 +125,28 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
     })
 
     const reasoningBuffers = new Map<string, string>()
+    const toolCallBuffers = new Map<string, { name: string; arguments: string; itemId?: string }>()
+    let hadToolUse = false
 
     for await (const event of stream) {
       if (event.type === 'response.output_text.delta') {
         yield { type: 'text_delta', data: { text: event.delta } }
+      } else if (event.type === 'response.output_item.added') {
+        const item = event.item ?? {}
+        if (item.type === 'function_call') {
+          const callId = typeof item.call_id === 'string' ? item.call_id : undefined
+          if (!callId) continue
+          const itemId = typeof item.id === 'string' ? item.id : undefined
+          const name = typeof item.name === 'string' ? item.name : 'unknown_tool'
+          const compositeId = joinToolCallId(callId, itemId)
+          toolCallBuffers.set(callId, {
+            name,
+            arguments: typeof item.arguments === 'string' ? item.arguments : '',
+            itemId,
+          })
+          hadToolUse = true
+          yield { type: 'tool_use_start', data: { id: compositeId, name } }
+        }
       } else if (event.type === 'response.reasoning_summary_text.delta') {
         const key = this.getReasoningSummaryKey(event)
         const delta = typeof event.delta === 'string' ? event.delta : ''
@@ -147,13 +165,39 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
         }
         yield { type: 'reasoning_delta', data: { text } }
       } else if (event.type === 'response.function_call_arguments.delta') {
-        yield { type: 'tool_use_delta', data: { arguments: event.delta } }
+        const callId = typeof event.call_id === 'string' ? event.call_id : undefined
+        const delta = typeof event.delta === 'string' ? event.delta : ''
+        const toolCall = callId ? toolCallBuffers.get(callId) : undefined
+        if (toolCall) {
+          toolCall.arguments += delta
+        }
+        const compositeId = callId
+          ? joinToolCallId(callId, toolCallBuffers.get(callId)?.itemId)
+          : undefined
+        yield {
+          type: 'tool_use_delta',
+          data: { ...(compositeId ? { id: compositeId } : {}), arguments: delta },
+        }
+      } else if (event.type === 'response.function_call_arguments.done') {
+        const callId = typeof event.call_id === 'string' ? event.call_id : undefined
+        const toolCall = callId ? toolCallBuffers.get(callId) : undefined
+        if (toolCall && typeof event.arguments === 'string') {
+          toolCall.arguments = event.arguments
+        }
+      } else if (event.type === 'response.output_item.done') {
+        const item = event.item ?? {}
+        if (item.type === 'function_call') {
+          const callId = typeof item.call_id === 'string' ? item.call_id : undefined
+          if (!callId) continue
+          const itemId = typeof item.id === 'string' ? item.id : toolCallBuffers.get(callId)?.itemId
+          yield { type: 'tool_use_end', data: { id: joinToolCallId(callId, itemId) } }
+        }
       } else if (event.type === 'response.completed') {
         const usage = event.response?.usage
         yield {
           type: 'done',
           data: {
-            finishReason: event.response?.status === 'completed' ? 'stop' : 'tool_calls',
+            finishReason: hadToolUse ? 'tool_calls' : 'stop',
             model: event.response?.model,
             usage: usage ? this.parseUsage(usage) : undefined,
           },
@@ -396,7 +440,7 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
       store: false,
       stream: true,
       instructions: req.system?.trim() || DEFAULT_CHATGPT_INSTRUCTIONS,
-      input: this.buildInput(req),
+      input: this.buildInput({ ...req, system: undefined }),
       ...(tools ? { tools, tool_choice: 'auto', parallel_tool_calls: true } : {}),
       reasoning: this.buildReasoningConfig(),
       text: { verbosity: 'medium' },
