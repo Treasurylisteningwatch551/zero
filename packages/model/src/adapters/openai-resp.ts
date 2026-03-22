@@ -165,7 +165,10 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
         }
         yield { type: 'reasoning_delta', data: { text } }
       } else if (event.type === 'response.function_call_arguments.delta') {
-        const callId = typeof event.call_id === 'string' ? event.call_id : undefined
+        const callId =
+          typeof (event as ChatGptSseEvent).call_id === 'string'
+            ? (event as ChatGptSseEvent).call_id
+            : undefined
         const delta = typeof event.delta === 'string' ? event.delta : ''
         const toolCall = callId ? toolCallBuffers.get(callId) : undefined
         if (toolCall) {
@@ -179,7 +182,10 @@ export class OpenAIResponsesAdapter implements ProviderAdapter {
           data: { ...(compositeId ? { id: compositeId } : {}), arguments: delta },
         }
       } else if (event.type === 'response.function_call_arguments.done') {
-        const callId = typeof event.call_id === 'string' ? event.call_id : undefined
+        const callId =
+          typeof (event as ChatGptSseEvent).call_id === 'string'
+            ? (event as ChatGptSseEvent).call_id
+            : undefined
         const toolCall = callId ? toolCallBuffers.get(callId) : undefined
         if (toolCall && typeof event.arguments === 'string') {
           toolCall.arguments = event.arguments

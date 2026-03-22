@@ -18,8 +18,8 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? ''
 
 let ANTHROPIC_OAUTH_TOKEN = ''
 try {
-  const { getMasterKey } = await import('../../../secrets/src/keychain.ts')
-  const { Vault } = await import('../../../secrets/src/vault.ts')
+  const { getMasterKey } = await import('../../../secrets/src/keychain')
+  const { Vault } = await import('../../../secrets/src/vault')
   const masterKey = await getMasterKey()
   const vault = new Vault(masterKey, join(__dirname, '../../../../.zero/secrets.enc'))
   vault.load()
