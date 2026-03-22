@@ -35,7 +35,7 @@ export { SessionManager } from './session/manager'
 export type { InterruptedSessionRef } from './session/manager'
 
 // Command
-export { CommandRouter } from './command'
+export { CommandRouter, newSessionCommand, modelCommand, registerBuiltinCommands } from './command'
 export type { Command, CommandArgs, CommandContext, CommandResult } from './command'
 
 // Task

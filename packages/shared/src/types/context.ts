@@ -30,6 +30,32 @@ export interface BootstrapFile {
 }
 
 /**
+ * Channel capability hints — tells agents what the channel supports.
+ */
+export interface ChannelCapabilities {
+  /** Channel supports streaming output (e.g. typing effect) */
+  streaming?: boolean
+  /** Channel supports inline images in text messages */
+  inlineImages?: boolean
+  /** Channel supports sending standalone image messages */
+  imageMessages?: boolean
+  /** Channel supports sending file attachments */
+  fileMessages?: boolean
+  /** Channel supports interactive cards / rich messages */
+  interactiveCards?: boolean
+  /** Channel supports @mention syntax */
+  mentions?: boolean
+  /** Channel supports emoji reactions on messages */
+  reactions?: boolean
+  /** Channel supports reply/quote to specific messages */
+  threadReply?: boolean
+  /** Markdown dialect notes for the channel */
+  markdownNotes?: string
+  /** Max message length in characters (if limited) */
+  maxMessageLength?: number
+}
+
+/**
  * Compact runtime information injected as a single key=value line.
  */
 export interface RuntimeInfo {
@@ -42,7 +68,7 @@ export interface RuntimeInfo {
   channel?: string
   projectRoot?: string
   /** Channel capability hints — auto-injected into system prompt */
-  channelCapabilities?: Record<string, unknown>
+  channelCapabilities?: ChannelCapabilities
 }
 
 /**

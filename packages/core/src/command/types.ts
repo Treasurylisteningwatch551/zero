@@ -1,4 +1,4 @@
-import type { SessionSource } from '@zero-os/shared'
+import type { ChannelCapabilities, SessionSource } from '@zero-os/shared'
 import type { SessionManager } from '../session/manager'
 
 /** Parsed command arguments - flexible key-value */
@@ -20,6 +20,13 @@ export interface CommandContext {
   metadata?: Record<string, unknown>
   /** Session manager */
   sessionManager: SessionManager
+  /** Agent configuration for session initialization */
+  agentConfig?: {
+    name: string
+    agentInstruction: string
+  }
+  /** Channel capabilities to set on new sessions */
+  channelCapabilities?: ChannelCapabilities
   /** Send a reply to the user */
   reply(text: string): Promise<void>
 }

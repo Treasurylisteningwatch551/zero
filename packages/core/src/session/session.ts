@@ -13,6 +13,7 @@ import type {
 } from '@zero-os/observe'
 import type {
   CompressionResult,
+  ChannelCapabilities,
   Message,
   SecretFilter,
   Session as SessionData,
@@ -105,7 +106,7 @@ export class Session {
   private lastSnapshotContext: SnapshotContext | null = null
   private nextTurnIndex = 1
   /** Channel capabilities for system prompt injection */
-  private channelCapabilities?: Record<string, unknown>
+  private channelCapabilities?: ChannelCapabilities
 
   constructor(
     source: SessionSource,
@@ -173,7 +174,7 @@ export class Session {
    * Set channel capabilities to be injected into the agent's system prompt.
    * Call before initAgent() or handleMessage() so the agent knows what the channel supports.
    */
-  setChannelCapabilities(capabilities: Record<string, unknown>): void {
+  setChannelCapabilities(capabilities: ChannelCapabilities): void {
     this.channelCapabilities = capabilities
     this.cachedSystemPrompt = null // Force re-build on next turn
   }
@@ -680,6 +681,13 @@ export class Session {
     return result
   }
 
+  listModels(): string[] {
+    return this.modelRouter
+      .getRegistry()
+      .listModels()
+      .map((model) => `${model.providerName}/${model.modelName}`)
+  }
+
   private async handleCommand(command: string): Promise<Message[]> {
     const parts = command.trim().split(/\s+/)
     const cmd = parts[0].toLowerCase()
@@ -691,10 +699,8 @@ export class Session {
           return [this.makeSystemMessage(`Current model: ${this.data.currentModel}`)]
         }
         if (args.toLowerCase() === 'list') {
-          const available = this.modelRouter
-            .getRegistry()
-            .listModels()
-            .map((model) => `- ${model.providerName}/${model.modelName}`)
+          const available = this.listModels()
+            .map((model) => `- ${model}`)
             .join('\n')
           return [this.makeSystemMessage(`Available models:\n${available}`)]
         }
