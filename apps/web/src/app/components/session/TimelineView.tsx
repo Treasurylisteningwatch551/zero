@@ -1,6 +1,7 @@
 import { ArrowsClockwise, Warning } from '@phosphor-icons/react'
 import { useMemo } from 'react'
 import { AgentMessageBlock } from './AgentMessageBlock'
+import { SubAgentBlock } from './SubAgentBlock'
 import { ToolCallBlock } from './ToolCallBlock'
 import { UserMessageBlock } from './UserMessageBlock'
 import {
@@ -16,8 +17,11 @@ interface Props {
   traces?: TraceSpan[]
   taskClosureEvents?: SessionTaskClosureEvent[]
   selectedToolId: string | null
+  selectedSubAgentId?: string | null
   highlightedAssistantMessageId?: string | null
+  highlightedSubAgentId?: string | null
   onSelectTool: (id: string | null) => void
+  onSelectSubAgent?: (id: string | null) => void
 }
 
 export function TimelineView({
@@ -25,8 +29,11 @@ export function TimelineView({
   traces,
   taskClosureEvents,
   selectedToolId,
+  selectedSubAgentId,
   highlightedAssistantMessageId,
+  highlightedSubAgentId,
   onSelectTool,
+  onSelectSubAgent,
 }: Props) {
   const items = useMemo(
     () => buildTimeline(messages, traces, taskClosureEvents),
@@ -71,6 +78,26 @@ export function TimelineView({
                 onSelect={(id) => onSelectTool(selectedToolId === id ? null : id)}
               />
             )
+          case 'sub-agent':
+            return (
+              <SubAgentBlock
+                key={`sub-agent-${item.agentId}`}
+                agentId={item.agentId}
+                label={item.label}
+                role={item.role}
+                instruction={item.instruction}
+                status={item.status}
+                output={item.output}
+                durationMs={item.durationMs}
+                childToolCalls={item.childToolCalls}
+                selected={selectedToolId === item.spawnToolCallId}
+                onSelect={() =>
+                  onSelectTool(
+                    selectedToolId === item.spawnToolCallId ? null : item.spawnToolCallId,
+                  )
+                }
+              />
+            )
           case 'system-event':
             return (
               <SystemEventBanner
@@ -95,6 +122,8 @@ function getTimelineItemKey(item: TimelineItem): string {
       return `assistant-${item.messageId}`
     case 'tool-call':
       return `tool-${item.id}`
+    case 'sub-agent':
+      return `sub-agent-${item.agentId}`
     case 'system-event':
       return `event-${item.createdAt}-${item.variant}-${item.text.slice(0, 32)}`
   }

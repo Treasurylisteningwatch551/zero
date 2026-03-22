@@ -165,8 +165,9 @@ export function buildToolRulesBlock(tools: ToolDefinition[]): string {
     spawn_agent:
       'Spawn Agent：用于创建并行执行的子 agent。spawn 立即返回 agent_id，不会阻塞。可同时 spawn 多个 agent 并行工作。',
     wait_agent:
-      'Wait Agent：等待子 agent 完成。默认等待任意一个完成即返回（Promise.race 语义），设置 wait_all=true 等待全部完成。',
-    close_agent: 'Close Agent：关闭不再需要的子 agent，释放资源。',
+      'Wait Agent：等待子 agent 完成。默认等待任意一个完成即返回（Promise.race 语义），设置 waitAll=true 等待全部完成。',
+    close_agent:
+      'Close Agent：关闭不再需要的子 agent，传入 spawn_agent 返回的 agent_id（兼容 id/agentId）。',
     send_input:
       'Send Input：向运行中的子 agent 发送追加消息。设置 interrupt=true 可在下一个安全点中断当前流程处理新消息。',
   }

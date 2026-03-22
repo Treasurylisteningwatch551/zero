@@ -381,3 +381,211 @@ test('does not render tool-result carrier messages as duplicate user messages', 
     queued: true,
   })
 })
+
+describe('sub-agent timeline items', () => {
+  test('converts spawn_agent tool call into a sub-agent timeline item', () => {
+    const messages: Message[] = [
+      {
+        id: 'msg_1',
+        role: 'assistant',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_spawn',
+            name: 'spawn_agent',
+            input: {
+              label: 'count-ts-files',
+              role: 'explorer',
+              instruction: 'Count all TypeScript files',
+            },
+          },
+        ],
+        createdAt: '2026-03-08T00:00:00.000Z',
+      },
+      {
+        id: 'msg_spawn_result',
+        role: 'user',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_result',
+            toolUseId: 'call_spawn',
+            content: '{"agentId":"agent_1"}',
+          },
+        ],
+        createdAt: '2026-03-08T00:00:00.100Z',
+      },
+      {
+        id: 'msg_2',
+        role: 'assistant',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_wait',
+            name: 'wait_agent',
+            input: { agentId: 'agent_1' },
+          },
+        ],
+        createdAt: '2026-03-08T00:00:01.000Z',
+      },
+      {
+        id: 'msg_wait_result',
+        role: 'user',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_result',
+            toolUseId: 'call_wait',
+            content: '{"status":"completed","output":"Found 42 files","durationMs":1500}',
+          },
+        ],
+        createdAt: '2026-03-08T00:00:01.100Z',
+      },
+    ]
+
+    const items = buildTimeline(messages)
+    const subAgent = items.find((item) => item.type === 'sub-agent')
+
+    expect(subAgent).toBeDefined()
+    if (subAgent?.type === 'sub-agent') {
+      expect(subAgent.agentId).toBe('agent_1')
+      expect(subAgent.label).toBe('count-ts-files')
+      expect(subAgent.role).toBe('explorer')
+      expect(subAgent.instruction).toBe('Count all TypeScript files')
+      expect(subAgent.status).toBe('completed')
+      expect(subAgent.output).toBe('Found 42 files')
+      expect(subAgent.durationMs).toBe(1500)
+    }
+
+    const waitToolCall = items.find(
+      (item) => item.type === 'tool-call' && item.name === 'wait_agent',
+    )
+    expect(waitToolCall).toBeUndefined()
+  })
+
+  test('sub-agent shows running status when no wait_agent result exists', () => {
+    const messages: Message[] = [
+      {
+        id: 'msg_1',
+        role: 'assistant',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_spawn',
+            name: 'spawn_agent',
+            input: {
+              label: 'running-agent',
+              instruction: 'Do something',
+            },
+          },
+        ],
+        createdAt: '2026-03-08T00:00:00.000Z',
+      },
+      {
+        id: 'msg_spawn_result',
+        role: 'user',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_result',
+            toolUseId: 'call_spawn',
+            content: '{"agentId":"agent_2"}',
+          },
+        ],
+        createdAt: '2026-03-08T00:00:00.100Z',
+      },
+    ]
+
+    const items = buildTimeline(messages)
+    const subAgent = items.find((item) => item.type === 'sub-agent')
+
+    expect(subAgent).toBeDefined()
+    if (subAgent?.type === 'sub-agent') {
+      expect(subAgent.status).toBe('running')
+      expect(subAgent.output).toBeUndefined()
+    }
+  })
+
+  test('sub-agent extracts child tool calls from traces', () => {
+    const messages: Message[] = [
+      {
+        id: 'msg_1',
+        role: 'assistant',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_use',
+            id: 'call_spawn',
+            name: 'spawn_agent',
+            input: {
+              label: 'reader-agent',
+              instruction: 'Read files',
+            },
+          },
+        ],
+        createdAt: '2026-03-08T00:00:00.000Z',
+      },
+      {
+        id: 'msg_spawn_result',
+        role: 'user',
+        messageType: 'message',
+        content: [
+          {
+            type: 'tool_result',
+            toolUseId: 'call_spawn',
+            content: '{"agentId":"agent_3"}',
+          },
+        ],
+        createdAt: '2026-03-08T00:00:00.100Z',
+      },
+    ]
+
+    const traces: TraceSpan[] = [
+      {
+        id: 'span_root',
+        sessionId: 'sess_1',
+        name: 'agent.run:main',
+        startTime: '2026-03-08T00:00:00.000Z',
+        status: 'success',
+        children: [
+          {
+            id: 'span_sub',
+            parentId: 'span_root',
+            sessionId: 'sess_1',
+            name: 'sub_agent',
+            startTime: '2026-03-08T00:00:00.000Z',
+            status: 'success',
+            metadata: { agentId: 'agent_3' },
+            children: [
+              {
+                id: 'span_child_tool',
+                parentId: 'span_sub',
+                sessionId: 'sess_1',
+                name: 'tool:read',
+                startTime: '2026-03-08T00:00:00.200Z',
+                endTime: '2026-03-08T00:00:00.350Z',
+                durationMs: 150,
+                status: 'success',
+                metadata: { toolUseId: 'child_call_1' },
+                children: [],
+              },
+            ],
+          },
+        ],
+      },
+    ]
+
+    const items = buildTimeline(messages, traces)
+    const subAgent = items.find((item) => item.type === 'sub-agent')
+
+    expect(subAgent).toBeDefined()
+    if (subAgent?.type === 'sub-agent') {
+      expect(subAgent.childToolCalls).toHaveLength(1)
+      expect(subAgent.childToolCalls[0].name).toBe('read')
+      expect(subAgent.childToolCalls[0].durationMs).toBe(150)
+    }
+  })
+})

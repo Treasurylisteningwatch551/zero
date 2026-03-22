@@ -129,9 +129,11 @@ export function SessionDetailScreen({
   const [loading, setLoading] = useState(true)
   const [traceLoading, setTraceLoading] = useState(true)
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null)
+  const [selectedSubAgentId, setSelectedSubAgentId] = useState<string | null>(null)
   const [highlightedAssistantMessageId, setHighlightedAssistantMessageId] = useState<string | null>(
     null,
   )
+  const [highlightedSubAgentId, setHighlightedSubAgentId] = useState<string | null>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
   const lastKeyRef = useRef<string>('')
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -231,7 +233,9 @@ export function SessionDetailScreen({
     if (previousSessionIdRef.current === sessionId) return
     previousSessionIdRef.current = sessionId
     setSelectedToolId(null)
+    setSelectedSubAgentId(null)
     setHighlightedAssistantMessageId(null)
+    setHighlightedSubAgentId(null)
   }, [sessionId])
 
   useEffect(() => {
@@ -310,6 +314,10 @@ export function SessionDetailScreen({
 
   const filesTouched = useMemo(() => extractFilesTouched(timelineItems), [timelineItems])
 
+  const handleSelectSubAgent = useCallback((subAgentId: string | null) => {
+    setSelectedSubAgentId(subAgentId)
+  }, [])
+
   const jumpToAssistantMessage = useCallback((messageId: string) => {
     setHighlightedAssistantMessageId(messageId)
 
@@ -322,11 +330,29 @@ export function SessionDetailScreen({
     })
   }, [])
 
+  const handleJumpToSubAgentInTimeline = useCallback((subAgentId: string) => {
+    setHighlightedSubAgentId(subAgentId)
+
+    requestAnimationFrame(() => {
+      const container = timelineRef.current
+      const target = container?.querySelector(
+        `[data-sub-agent-id="${subAgentId}"]`,
+      ) as HTMLElement | null
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  }, [])
+
   useEffect(() => {
     if (!highlightedAssistantMessageId) return
     const timer = setTimeout(() => setHighlightedAssistantMessageId(null), 3000)
     return () => clearTimeout(timer)
   }, [highlightedAssistantMessageId])
+
+  useEffect(() => {
+    if (!highlightedSubAgentId) return
+    const timer = setTimeout(() => setHighlightedSubAgentId(null), 3000)
+    return () => clearTimeout(timer)
+  }, [highlightedSubAgentId])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const el = timelineRef.current
@@ -475,8 +501,11 @@ export function SessionDetailScreen({
               traces={traces}
               taskClosureEvents={taskClosureEvents}
               selectedToolId={selectedToolId}
+              selectedSubAgentId={selectedSubAgentId}
               highlightedAssistantMessageId={highlightedAssistantMessageId}
+              highlightedSubAgentId={highlightedSubAgentId}
               onSelectTool={setSelectedToolId}
+              onSelectSubAgent={handleSelectSubAgent}
             />
           )}
         </div>
@@ -501,10 +530,12 @@ export function SessionDetailScreen({
           netSavings={session.netSavings}
           llmRequests={llmRequests}
           selectedToolId={selectedToolId}
+          selectedSubAgentId={selectedSubAgentId}
           traces={traces}
           taskClosureEvents={taskClosureEvents}
           traceLoading={traceLoading}
           onJumpToAssistantMessage={jumpToAssistantMessage}
+          onJumpToSubAgentInTimeline={handleJumpToSubAgentInTimeline}
         />
       </div>
     </div>

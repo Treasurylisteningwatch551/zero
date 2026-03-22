@@ -64,6 +64,9 @@ export interface TraceEvalReport {
     runningSpanCount: number
     latestAction?: SessionTaskClosureEvent['action']
     latestReason?: string
+    subAgentCount: number
+    subAgentSuccessRate: number
+    subAgentTotalDurationMs: number
   }
 }
 
@@ -81,6 +84,22 @@ export function evaluateTraceSession({
   const toolCallSpans = flattened.filter((span) => span.name.startsWith('tool:'))
   const turnSpans = flattened.filter((span) => span.name.startsWith('turn:'))
   const runningSpanCount = flattened.filter((span) => span.status === 'running').length
+  const subAgentSpans = flattened.filter(
+    (span) =>
+      span.name === 'sub_agent' ||
+      span.name.startsWith('sub_agent:') ||
+      span.data?.kind === 'sub_agent' ||
+      span.metadata?.kind === 'sub_agent',
+  )
+  const subAgentCount = subAgentSpans.length
+  const subAgentSuccessCount = subAgentSpans.filter(
+    (span) => span.status === 'success' || span.data?.success === true,
+  ).length
+  const subAgentSuccessRate = subAgentCount > 0 ? subAgentSuccessCount / subAgentCount : 0
+  const subAgentTotalDurationMs = subAgentSpans.reduce(
+    (sum, span) => sum + ((span.data?.durationMs as number | undefined) ?? span.durationMs ?? 0),
+    0,
+  )
   const llmErrorCount = llmRequestSpans.filter((span) => span.status === 'error').length
   const toolErrorCount = toolCallSpans.filter((span) => span.status === 'error').length
   const requestCoverage =
@@ -189,6 +208,9 @@ export function evaluateTraceSession({
       runningSpanCount,
       latestAction: latestClosure?.action,
       latestReason: latestClosure?.reason,
+      subAgentCount,
+      subAgentSuccessRate,
+      subAgentTotalDurationMs,
     },
   }
 }

@@ -59,6 +59,15 @@ interface TaskClosureTraceDetails {
   error?: string
 }
 
+export interface SubAgentChildToolCall {
+  id: string
+  name: string
+  input: Record<string, unknown>
+  result?: string
+  isError?: boolean
+  durationMs?: number
+}
+
 export type TimelineItem =
   | {
       type: 'user-message'
@@ -79,6 +88,19 @@ export type TimelineItem =
       createdAt: string
     }
   | { type: 'system-event'; variant: 'warning' | 'info'; text: string; createdAt: string }
+  | {
+      type: 'sub-agent'
+      agentId: string
+      label: string
+      role?: string
+      instruction: string
+      status: 'running' | 'completed' | 'errored' | 'closed'
+      output?: string
+      durationMs?: number
+      spawnToolCallId: string
+      childToolCalls: SubAgentChildToolCall[]
+      createdAt: string
+    }
 
 export function buildTimeline(
   messages: Message[],
@@ -88,6 +110,8 @@ export function buildTimeline(
   const items: TimelineItem[] = []
   const toolResults = new Map<string, { content: string; isError: boolean }>()
   const toolDurations = extractToolDurations(traces)
+  const handledSubAgentIds = new Set<string>()
+  const spawnToolCallIds = new Set<string>()
 
   for (const msg of messages) {
     if (msg.role === 'user' || msg.role === 'system') {
@@ -161,17 +185,61 @@ export function buildTimeline(
             createdAt: msg.createdAt,
           })
         } else if (block.type === 'tool_use') {
-          const result = toolResults.get(block.id as string)
-          items.push({
-            type: 'tool-call',
-            id: block.id as string,
-            name: block.name as string,
-            input: (block.input as Record<string, unknown>) ?? {},
-            result: result?.content,
-            isError: result?.isError,
-            durationMs: toolDurations.get(block.id as string),
-            createdAt: msg.createdAt,
-          })
+          const toolName = block.name as string
+          const toolId = block.id as string
+          const toolInput = (block.input as Record<string, unknown>) ?? {}
+          const result = toolResults.get(toolId)
+
+          if (toolName === 'spawn_agent') {
+            const agentId =
+              (result?.content ? tryParseJsonField(result.content, 'agentId') : null) ??
+              (toolInput.agentId as string | undefined) ??
+              toolId
+            const label =
+              (toolInput.label as string | undefined) ??
+              (toolInput.name as string | undefined) ??
+              agentId
+            const role = toolInput.role as string | undefined
+            const instruction = (toolInput.instruction as string | undefined) ?? ''
+
+            const waitInfo = findWaitAgentResult(messages, agentId, toolResults)
+            const childToolCalls = extractSubAgentChildToolCalls(traces, agentId)
+
+            handledSubAgentIds.add(agentId)
+            spawnToolCallIds.add(toolId)
+
+            items.push({
+              type: 'sub-agent',
+              agentId,
+              label,
+              role,
+              instruction,
+              status: waitInfo?.status ?? (result?.isError ? 'errored' : 'running'),
+              output: waitInfo?.output,
+              durationMs: waitInfo?.durationMs ?? toolDurations.get(toolId),
+              spawnToolCallId: toolId,
+              childToolCalls,
+              createdAt: msg.createdAt,
+            })
+          } else if (
+            (toolName === 'wait_agent' ||
+              toolName === 'close_agent' ||
+              toolName === 'send_input') &&
+            isHandledSubAgentTool(toolInput, handledSubAgentIds)
+          ) {
+            // Skip — already represented by the sub-agent block
+          } else {
+            items.push({
+              type: 'tool-call',
+              id: toolId,
+              name: toolName,
+              input: toolInput,
+              result: result?.content,
+              isError: result?.isError,
+              durationMs: toolDurations.get(toolId),
+              createdAt: msg.createdAt,
+            })
+          }
         }
       }
     }
@@ -422,4 +490,103 @@ function isClassifierRequest(
     typeof candidate.prompt === 'string' &&
     typeof candidate.maxTokens === 'number'
   )
+}
+
+function tryParseJsonField(json: string, field: string): string | null {
+  try {
+    const parsed = JSON.parse(json)
+    if (parsed && typeof parsed === 'object' && typeof parsed[field] === 'string') {
+      return parsed[field]
+    }
+  } catch {
+    // not valid JSON
+  }
+  return null
+}
+
+function findWaitAgentResult(
+  messages: Message[],
+  agentId: string,
+  toolResults: Map<string, { content: string; isError: boolean }>,
+): { status: 'completed' | 'errored' | 'closed'; output?: string; durationMs?: number } | null {
+  for (const msg of messages) {
+    if (msg.role !== 'assistant') continue
+    for (const block of msg.content) {
+      if (block.type !== 'tool_use') continue
+      const name = block.name as string
+      if (name !== 'wait_agent' && name !== 'close_agent') continue
+      const input = (block.input as Record<string, unknown>) ?? {}
+      const targetId = (input.agentId as string | undefined) ?? (input.agent_id as string | undefined)
+      if (targetId !== agentId) continue
+      const result = toolResults.get(block.id as string)
+      if (!result) continue
+
+      let status: 'completed' | 'errored' | 'closed' =
+        name === 'close_agent' ? 'closed' : 'completed'
+      let output: string | undefined
+      let durationMs: number | undefined
+
+      try {
+        const parsed = JSON.parse(result.content)
+        if (parsed && typeof parsed === 'object') {
+          if (parsed.status === 'errored' || parsed.status === 'error') status = 'errored'
+          else if (parsed.status === 'closed') status = 'closed'
+          else if (parsed.status === 'completed') status = 'completed'
+          output =
+            typeof parsed.output === 'string'
+              ? parsed.output
+              : typeof parsed.result === 'string'
+                ? parsed.result
+                : undefined
+          if (typeof parsed.durationMs === 'number') durationMs = parsed.durationMs
+        }
+      } catch {
+        output = result.content
+      }
+
+      if (result.isError) status = 'errored'
+      return { status, output, durationMs }
+    }
+  }
+  return null
+}
+
+function extractSubAgentChildToolCalls(
+  traces: TraceSpan[],
+  agentId: string,
+): SubAgentChildToolCall[] {
+  const allSpans = flattenTraceSpans(traces)
+  const agentSpan = allSpans.find((span) => {
+    const metadata = span.metadata ?? {}
+    const data = span.data ?? {}
+    return (
+      (span.name === 'sub_agent' || metadata.kind === 'sub_agent') &&
+      (metadata.agentId === agentId || data.agentId === agentId)
+    )
+  })
+
+  if (!agentSpan) return []
+
+  const childCalls: SubAgentChildToolCall[] = []
+  for (const child of flattenTraceSpans(agentSpan.children ?? [])) {
+    if (!child.name.startsWith('tool:')) continue
+    const meta = child.metadata ?? {}
+    childCalls.push({
+      id: (meta.toolUseId as string) ?? child.id,
+      name: child.name.replace('tool:', ''),
+      input: (meta.input as Record<string, unknown>) ?? {},
+      result: meta.result as string | undefined,
+      isError: child.status === 'error' ? true : undefined,
+      durationMs: child.durationMs,
+    })
+  }
+  return childCalls
+}
+
+function isHandledSubAgentTool(
+  input: Record<string, unknown>,
+  handledSubAgentIds: Set<string>,
+): boolean {
+  const targetId = (input.agentId as string | undefined) ?? (input.agent_id as string | undefined)
+  return targetId !== undefined && handledSubAgentIds.has(targetId)
 }

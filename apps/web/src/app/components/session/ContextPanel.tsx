@@ -13,6 +13,7 @@ import {
   getTaskClosureTraceDetails,
 } from './timeline'
 import { evaluateTraceSession } from './trace-eval'
+import { SubAgentSpanCard } from './SubAgentSpanCard'
 
 interface ModelHistoryEntry {
   model: string
@@ -100,10 +101,12 @@ interface Props {
   netSavings?: number
   llmRequests?: LlmRequestEntry[]
   selectedToolId: string | null
+  selectedSubAgentId?: string | null
   traces?: TraceSpan[]
   taskClosureEvents?: SessionTaskClosureEvent[]
   traceLoading?: boolean
   onJumpToAssistantMessage?: (messageId: string) => void
+  onJumpToSubAgentInTimeline?: (subAgentId: string) => void
 }
 
 export function ContextPanel({
@@ -126,10 +129,12 @@ export function ContextPanel({
   netSavings,
   llmRequests = [],
   selectedToolId,
+  selectedSubAgentId,
   traces = [],
   taskClosureEvents = [],
   traceLoading = false,
   onJumpToAssistantMessage,
+  onJumpToSubAgentInTimeline,
 }: Props) {
   const [tab, setTab] = useState<'summary' | 'trace'>('summary')
   const [promptExpanded, setPromptExpanded] = useState(false)
@@ -599,9 +604,23 @@ export function ContextPanel({
               </p>
             ) : (
               <div className="space-y-2">
-                {traces.map((span) => (
-                  <TraceTree key={span.id} span={span} depth={0} />
-                ))}
+                {traces.map((span) =>
+                  isSubAgentSpan(span) ? (
+                    <SubAgentSpanCard
+                      key={span.id}
+                      span={span}
+                      depth={0}
+                      onJumpToTimeline={onJumpToSubAgentInTimeline}
+                    />
+                  ) : (
+                    <TraceTreeWithSubAgents
+                      key={span.id}
+                      span={span}
+                      depth={0}
+                      onJumpToSubAgentInTimeline={onJumpToSubAgentInTimeline}
+                    />
+                  ),
+                )}
               </div>
             )}
           </Section>
@@ -1296,6 +1315,79 @@ function getJudgeFindingClass(
   if (severity === 'info') return 'border-cyan-400/20 bg-cyan-400/5 text-cyan-100'
   if (severity === 'bad') return 'border-rose-400/20 bg-rose-400/5 text-rose-100'
   return 'border-amber-400/20 bg-amber-400/5 text-amber-100'
+}
+
+function isSubAgentSpan(span: TraceSpan): boolean {
+  return (
+    span.name === 'sub_agent' ||
+    span.name.startsWith('sub_agent:') ||
+    span.data?.kind === 'sub_agent' ||
+    span.metadata?.kind === 'sub_agent'
+  )
+}
+
+function TraceTreeWithSubAgents({
+  span,
+  depth,
+  onJumpToSubAgentInTimeline,
+}: {
+  span: TraceSpan
+  depth: number
+  onJumpToSubAgentInTimeline?: (agentId: string) => void
+}) {
+  return (
+    <div className="space-y-2">
+      <div
+        className="rounded border border-white/8 bg-white/[0.02] p-3"
+        style={{ marginLeft: `${depth * 14}px` }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <code className="text-[11px] text-[var(--color-text-secondary)] truncate">
+              {span.name}
+            </code>
+            <StatusBadge status={span.status} />
+          </div>
+          <span className="text-[10px] font-mono text-[var(--color-text-disabled)]">
+            {span.durationMs !== undefined ? `${span.durationMs}ms` : 'running'}
+          </span>
+        </div>
+        {span.metadata && Object.keys(span.metadata).length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {Object.entries(span.metadata)
+              .slice(0, 6)
+              .map(([key, value]) => (
+                <span
+                  key={key}
+                  className="rounded bg-black/20 px-2 py-1 text-[10px] text-[var(--color-text-muted)]"
+                  title={`${key}: ${String(value)}`}
+                >
+                  {key}: {formatMetadataValue(value)}
+                </span>
+              ))}
+          </div>
+        )}
+      </div>
+
+      {span.children.map((child) =>
+        isSubAgentSpan(child) ? (
+          <SubAgentSpanCard
+            key={child.id}
+            span={child}
+            depth={depth + 1}
+            onJumpToTimeline={onJumpToSubAgentInTimeline}
+          />
+        ) : (
+          <TraceTreeWithSubAgents
+            key={child.id}
+            span={child}
+            depth={depth + 1}
+            onJumpToSubAgentInTimeline={onJumpToSubAgentInTimeline}
+          />
+        ),
+      )}
+    </div>
+  )
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

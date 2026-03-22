@@ -184,4 +184,83 @@ describe('evaluateTraceSession', () => {
       true,
     )
   })
+
+  test('computes sub_agent metrics correctly', () => {
+    const traces: TraceSpan[] = [
+      {
+        id: 'turn_1',
+        sessionId: 'sess_1',
+        name: 'turn:zero',
+        startTime: '2026-03-08T00:00:00.000Z',
+        endTime: '2026-03-08T00:00:10.000Z',
+        durationMs: 10000,
+        status: 'success',
+        children: [
+          {
+            id: 'sub_1',
+            parentId: 'turn_1',
+            sessionId: 'sess_1',
+            name: 'sub_agent:coder',
+            startTime: '2026-03-08T00:00:01.000Z',
+            endTime: '2026-03-08T00:00:04.000Z',
+            durationMs: 3000,
+            status: 'success',
+            data: { kind: 'sub_agent', role: 'coder', success: true, durationMs: 3000 },
+            children: [],
+          },
+          {
+            id: 'sub_2',
+            parentId: 'turn_1',
+            sessionId: 'sess_1',
+            name: 'sub_agent:researcher',
+            startTime: '2026-03-08T00:00:04.000Z',
+            endTime: '2026-03-08T00:00:07.000Z',
+            durationMs: 3000,
+            status: 'error',
+            data: { kind: 'sub_agent', role: 'researcher', success: false, durationMs: 3000 },
+            children: [],
+          },
+          {
+            id: 'sub_3',
+            parentId: 'turn_1',
+            sessionId: 'sess_1',
+            name: 'sub_agent',
+            startTime: '2026-03-08T00:00:07.000Z',
+            endTime: '2026-03-08T00:00:09.000Z',
+            durationMs: 2000,
+            status: 'success',
+            data: { kind: 'sub_agent', success: true, durationMs: 2000 },
+            children: [],
+          },
+        ],
+      },
+    ]
+
+    const report = evaluateTraceSession({ traces })
+
+    expect(report.metrics.subAgentCount).toBe(3)
+    expect(report.metrics.subAgentSuccessRate).toBeCloseTo(2 / 3)
+    expect(report.metrics.subAgentTotalDurationMs).toBe(8000)
+  })
+
+  test('sub_agent metrics are zero when no sub agents exist', () => {
+    const traces: TraceSpan[] = [
+      {
+        id: 'turn_1',
+        sessionId: 'sess_1',
+        name: 'turn:zero',
+        startTime: '2026-03-08T00:00:00.000Z',
+        endTime: '2026-03-08T00:00:05.000Z',
+        durationMs: 5000,
+        status: 'success',
+        children: [],
+      },
+    ]
+
+    const report = evaluateTraceSession({ traces })
+
+    expect(report.metrics.subAgentCount).toBe(0)
+    expect(report.metrics.subAgentSuccessRate).toBe(0)
+    expect(report.metrics.subAgentTotalDurationMs).toBe(0)
+  })
 })

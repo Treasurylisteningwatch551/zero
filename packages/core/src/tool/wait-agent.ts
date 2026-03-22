@@ -5,6 +5,7 @@ interface WaitAgentInput {
   ids: string[]
   timeoutMs?: number
   waitAll?: boolean
+  wait_all?: boolean
 }
 
 export class WaitAgentTool extends BaseTool {
@@ -28,6 +29,10 @@ export class WaitAgentTool extends BaseTool {
         description:
           'If true, waits for all agents. Otherwise returns when any requested agent reaches a terminal state.',
       },
+      wait_all: {
+        type: 'boolean',
+        description: 'Backward-compatible alias for waitAll.',
+      },
     },
     required: ['ids'],
   }
@@ -42,9 +47,10 @@ export class WaitAgentTool extends BaseTool {
       }
     }
 
-    const { ids, timeoutMs, waitAll } = input as WaitAgentInput
+    const { ids, timeoutMs, waitAll, wait_all } = input as WaitAgentInput
+    const shouldWaitAll = waitAll ?? wait_all ?? false
     const traceSpanIds = Object.fromEntries(ids.map((id) => [id, control.getTraceSpanId(id)]))
-    const result = waitAll
+    const result = shouldWaitAll
       ? await control.waitAll(ids, timeoutMs)
       : await control.waitAny(ids, timeoutMs)
 
@@ -53,13 +59,13 @@ export class WaitAgentTool extends BaseTool {
         data: {
           observedAgentIds: ids,
           observedSubAgentSpanIds: traceSpanIds,
-          waitAll: waitAll ?? false,
+          waitAll: shouldWaitAll,
           timedOut: result.timedOut,
         },
         metadata: {
           observedAgentIds: ids,
           observedSubAgentSpanIds: traceSpanIds,
-          waitAll: waitAll ?? false,
+          waitAll: shouldWaitAll,
           timedOut: result.timedOut,
         },
       })

@@ -2,7 +2,9 @@ import type { ToolContext, ToolResult } from '@zero-os/shared'
 import { BaseTool } from './base'
 
 interface CloseAgentInput {
-  agentId: string
+  agentId?: string
+  id?: string
+  agent_id?: string
 }
 
 export class CloseAgentTool extends BaseTool {
@@ -15,8 +17,15 @@ export class CloseAgentTool extends BaseTool {
         type: 'string',
         description: 'The spawned agent_id to close.',
       },
+      id: {
+        type: 'string',
+        description: 'Alias for agentId.',
+      },
+      agent_id: {
+        type: 'string',
+        description: 'Alias for agentId matching spawn_agent output.',
+      },
     },
-    required: ['agentId'],
   }
 
   protected async execute(ctx: ToolContext, input: unknown): Promise<ToolResult> {
@@ -28,20 +37,28 @@ export class CloseAgentTool extends BaseTool {
       }
     }
 
-    const { agentId } = input as CloseAgentInput
-    const traceSpanId = ctx.agentControl.getTraceSpanId(agentId)
-    const status = ctx.agentControl.close(agentId)
+    const { agentId, id, agent_id } = input as CloseAgentInput
+    const resolvedAgentId = agentId ?? id ?? agent_id
+    if (!resolvedAgentId?.trim()) {
+      return {
+        success: false,
+        output: 'agentId is required.',
+        outputSummary: 'Missing agentId',
+      }
+    }
+    const traceSpanId = ctx.agentControl.getTraceSpanId(resolvedAgentId)
+    const status = ctx.agentControl.close(resolvedAgentId)
 
     if (ctx.currentTraceSpanId) {
       ctx.tracer?.updateSpan(ctx.currentTraceSpanId, {
         data: {
-          targetAgentId: agentId,
+          targetAgentId: resolvedAgentId,
           targetSubAgentSpanId: traceSpanId,
           closeSucceeded: Boolean(status),
           resultingState: status?.state,
         },
         metadata: {
-          targetAgentId: agentId,
+          targetAgentId: resolvedAgentId,
           targetSubAgentSpanId: traceSpanId,
           closeSucceeded: Boolean(status),
           resultingState: status?.state,
@@ -52,7 +69,7 @@ export class CloseAgentTool extends BaseTool {
     if (!status) {
       return {
         success: false,
-        output: `Sub-agent "${agentId}" was not found.`,
+        output: `Sub-agent "${resolvedAgentId}" was not found.`,
         outputSummary: 'Sub-agent not found',
       }
     }
@@ -60,7 +77,7 @@ export class CloseAgentTool extends BaseTool {
     return {
       success: true,
       output: JSON.stringify(status, null, 2),
-      outputSummary: `Closed sub-agent "${agentId}"`,
+      outputSummary: `Closed sub-agent "${resolvedAgentId}"`,
     }
   }
 }
