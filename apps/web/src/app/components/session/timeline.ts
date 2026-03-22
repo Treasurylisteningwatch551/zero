@@ -191,12 +191,27 @@ export function buildTimeline(
           const result = toolResults.get(toolId)
 
           if (toolName === 'spawn_agent') {
+            // Try multiple sources for agentId:
+            // 1. Parse from tool result JSON (may be artifactized to non-JSON)
+            // 2. Look in trace spans for spawn_agent tool span metadata
+            // 3. Fall back to toolId
+            const agentIdFromResult =
+              (result?.content ? tryParseJsonField(result.content, 'agent_id') : null) ??
+              (result?.content ? tryParseJsonField(result.content, 'agentId') : null)
+            const agentIdFromTrace = findAgentIdFromTraceSpan(traces, toolId)
             const agentId =
-              (result?.content ? tryParseJsonField(result.content, 'agentId') : null) ??
+              agentIdFromResult ??
+              agentIdFromTrace ??
+              (toolInput.agent_id as string | undefined) ??
               (toolInput.agentId as string | undefined) ??
               toolId
+
+            const labelFromResult = result?.content ? tryParseJsonField(result.content, 'label') : null
+            const labelFromTrace = findLabelFromTraceSpan(traces, toolId)
             const label =
               (toolInput.label as string | undefined) ??
+              labelFromResult ??
+              labelFromTrace ??
               (toolInput.name as string | undefined) ??
               agentId
             const role = toolInput.role as string | undefined
@@ -501,6 +516,80 @@ function tryParseJsonField(json: string, field: string): string | null {
   } catch {
     // not valid JSON
   }
+  return null
+}
+
+/**
+ * Find agentId from trace spans by matching the spawn_agent tool call ID.
+ * The spawn_agent tool span's metadata contains spawnedAgentId.
+ * Alternatively, the sub_agent span's data contains spawnedByRequestId or agentId.
+ */
+function findAgentIdFromTraceSpan(traces: TraceSpan[], toolUseId: string): string | null {
+  const allSpans = flattenTraceSpans(traces)
+
+  // Strategy 1: Find spawn_agent tool span with matching toolUseId in metadata
+  for (const span of allSpans) {
+    const meta = span.metadata ?? {}
+    if (
+      span.name === 'tool:spawn_agent' &&
+      meta.toolUseId === toolUseId &&
+      typeof meta.spawnedAgentId === 'string'
+    ) {
+      return meta.spawnedAgentId
+    }
+  }
+
+  // Strategy 2: Find sub_agent span that is a child of the spawn_agent tool span
+  for (const span of allSpans) {
+    if (span.name === 'tool:spawn_agent') {
+      const meta = span.metadata ?? {}
+      if (meta.toolUseId === toolUseId) {
+        // Look at children for sub_agent span
+        for (const child of span.children ?? []) {
+          if (child.name.startsWith('sub_agent:')) {
+            const childData = child.data ?? {}
+            const childMeta = child.metadata ?? {}
+            return (childData.agentId as string) ?? (childMeta.agentId as string) ?? child.id
+          }
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Find label from trace spans by matching the spawn_agent tool call ID.
+ */
+function findLabelFromTraceSpan(traces: TraceSpan[], toolUseId: string): string | null {
+  const allSpans = flattenTraceSpans(traces)
+
+  for (const span of allSpans) {
+    const meta = span.metadata ?? {}
+    if (
+      span.name === 'tool:spawn_agent' &&
+      meta.toolUseId === toolUseId &&
+      typeof meta.spawnedAgentLabel === 'string'
+    ) {
+      return meta.spawnedAgentLabel
+    }
+  }
+
+  // Try extracting from sub_agent span name: "sub_agent:label"
+  for (const span of allSpans) {
+    if (span.name === 'tool:spawn_agent') {
+      const meta = span.metadata ?? {}
+      if (meta.toolUseId === toolUseId) {
+        for (const child of span.children ?? []) {
+          if (child.name.startsWith('sub_agent:')) {
+            return child.name.replace('sub_agent:', '')
+          }
+        }
+      }
+    }
+  }
+
   return null
 }
 
