@@ -1,7 +1,13 @@
 import type { Readable } from 'node:stream'
 import * as lark from '@larksuiteoapi/node-sdk'
 import { describeError } from '@zero-os/shared'
-import type { Channel, ImageAttachment, IncomingMessage, MessageHandler } from '../base'
+import type {
+  Channel,
+  FileAttachment,
+  ImageAttachment,
+  IncomingMessage,
+  MessageHandler,
+} from '../base'
 import { renderMarkdownForFeishu } from '../richtext/feishu'
 import type { FeishuImageReference } from './image-resolver'
 import { FeishuImageResolver } from './image-resolver'
@@ -12,6 +18,8 @@ export interface FeishuChannelConfig {
   appSecret: string
   encryptKey?: string
   verificationToken?: string
+  /** Directory for saving downloaded file attachments. */
+  downloadsDir?: string
 }
 
 export interface FeishuStreamingSession {
@@ -314,6 +322,7 @@ export class FeishuChannel implements Channel {
     const messageId = typeof msg.message_id === 'string' ? msg.message_id : ''
     let content = ''
     const images: ImageAttachment[] = []
+    const files: FileAttachment[] = []
 
     if (msg.message_type === 'text') {
       try {
@@ -384,6 +393,35 @@ export class FeishuChannel implements Channel {
         )
         content = '[图片下载失败]'
       }
+    } else if (msg.message_type === 'file') {
+      try {
+        const parsed = JSON.parse(msg.content ?? '{}') as {
+          file_key?: unknown
+          file_name?: unknown
+        }
+        const fileKey = typeof parsed.file_key === 'string' ? parsed.file_key : ''
+        const fileName =
+          typeof parsed.file_name === 'string' && parsed.file_name.trim()
+            ? parsed.file_name
+            : 'unknown-file'
+        const file =
+          fileKey && messageId
+            ? await this.downloadMessageFile(messageId, fileKey, fileName)
+            : null
+
+        if (file) {
+          files.push(file)
+          content = `[文件: ${file.fileName}]`
+        } else {
+          content = `[文件: ${fileName}] 下载失败`
+        }
+      } catch (parseErr) {
+        console.error(
+          '[FeishuChannel] Failed to parse file message content:',
+          describeError(parseErr),
+        )
+        content = '[文件消息解析失败]'
+      }
     } else {
       content = `[${msg.message_type} message]`
     }
@@ -417,6 +455,7 @@ export class FeishuChannel implements Channel {
         parentId: msg.parent_id,
       },
       images: images.length > 0 ? images : undefined,
+      files: files.length > 0 ? files : undefined,
     }
   }
 
@@ -1470,15 +1509,61 @@ export class FeishuChannel implements Channel {
     }
   }
 
-  private async readBinaryResponse(response: FeishuBinaryResponse): Promise<ImageAttachment> {
+  private async downloadMessageFile(
+    messageId: string,
+    fileKey: string,
+    fileName: string,
+  ): Promise<FileAttachment | null> {
+    if (!this.client) return null
+
+    try {
+      const response = await this.client.im.messageResource.get({
+        path: { message_id: messageId, file_key: fileKey },
+        params: { type: 'file' },
+      })
+
+      const buffer = await this.readResponseBuffer(response as FeishuBinaryResponse)
+
+      const { mkdirSync, writeFileSync } = await import('node:fs')
+      const { join } = await import('node:path')
+      const uploadsDir =
+        this.config.downloadsDir ?? join(process.cwd(), '.zero', 'workspace', 'uploads')
+      mkdirSync(uploadsDir, { recursive: true })
+
+      const timestamp = Date.now()
+      const safeFileName = fileName.replace(/[^a-zA-Z0-9._\-\u4e00-\u9fff]/g, '_')
+      const localPath = join(uploadsDir, `${timestamp}_${safeFileName}`)
+      writeFileSync(localPath, buffer)
+
+      console.log(
+        `[FeishuChannel] File "${fileName}" downloaded to ${localPath} (${buffer.length} bytes)`,
+      )
+
+      return {
+        fileName,
+        localPath,
+        size: buffer.length,
+      }
+    } catch (error) {
+      console.error(
+        `[FeishuChannel] Failed to download file "${fileName}":`,
+        describeError(error),
+      )
+      return null
+    }
+  }
+
+  private async readResponseBuffer(response: FeishuBinaryResponse): Promise<Buffer> {
     const stream = response.getReadableStream()
     const chunks: Buffer[] = []
-
     for await (const chunk of stream) {
       chunks.push(Buffer.from(chunk))
     }
+    return Buffer.concat(chunks)
+  }
 
-    const buffer = Buffer.concat(chunks)
+  private async readBinaryResponse(response: FeishuBinaryResponse): Promise<ImageAttachment> {
+    const buffer = await this.readResponseBuffer(response)
     return {
       mediaType: this.getResponseMediaType(response.headers),
       data: buffer.toString('base64'),

@@ -1,10 +1,14 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import type { IncomingMessage } from '../base'
 import { FeishuChannel } from '../feishu/index'
 import { TelegramChannel } from '../telegram/index'
 
 type RecordedArgs = unknown[]
+const tempDirs: string[] = []
 
 interface TelegramIncomingPayload {
   from?: { id?: number; username?: string; first_name?: string }
@@ -60,7 +64,7 @@ interface FeishuIncomingPayload {
 
 interface FeishuMessageResourcePayload {
   path: { message_id: string; file_key: string }
-  params: { type: 'image' }
+  params: { type: 'image' | 'file' }
 }
 
 interface FeishuMessageCreatePayload {
@@ -125,6 +129,15 @@ function getTelegramHarness(channel: TelegramChannel): TelegramTestHarness {
 function getFeishuHarness(channel: FeishuChannel): FeishuTestHarness {
   return channel as unknown as FeishuTestHarness
 }
+
+afterEach(() => {
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop()
+    if (dir) {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+})
 
 describe('TelegramChannel contract', () => {
   test('name is telegram and type is telegram', () => {
@@ -553,6 +566,68 @@ describe('FeishuChannel contract', () => {
         data: Buffer.from('fake-image').toString('base64'),
       },
     ])
+  })
+
+  test('buildIncomingMessage downloads file messages into agent workspace uploads', async () => {
+    const uploadsDir = mkdtempSync(join(tmpdir(), 'feishu-uploads-'))
+    tempDirs.push(uploadsDir)
+
+    const channel = new FeishuChannel({
+      appId: 'test-id',
+      appSecret: 'test-secret',
+      downloadsDir: uploadsDir,
+    })
+    const calls: FeishuMessageResourcePayload[] = []
+    getFeishuHarness(channel).client = {
+      im: {
+        messageResource: {
+          get: async (payload: FeishuMessageResourcePayload) => {
+            calls.push(payload)
+            return {
+              getReadableStream: () => Readable.from([Buffer.from('fake-pdf-content')]),
+            }
+          },
+        },
+      },
+    }
+
+    const msg = await getFeishuHarness(channel).buildIncomingMessage({
+      sender: { sender_id: { open_id: 'ou_file' } },
+      message: {
+        message_id: 'om_file',
+        chat_id: 'chat_file',
+        chat_type: 'p2p',
+        message_type: 'file',
+        create_time: '1710000000',
+        content: JSON.stringify({
+          file_key: 'file_v3_test',
+          file_name: 'Quarterly Report.pdf',
+        }),
+      },
+    })
+    if (!msg) {
+      throw new Error('expected Feishu message')
+    }
+
+    expect(calls).toEqual([
+      {
+        path: { message_id: 'om_file', file_key: 'file_v3_test' },
+        params: { type: 'file' },
+      },
+    ])
+    expect(msg.files).toHaveLength(1)
+    expect(msg.files?.[0]?.fileName).toBe('Quarterly Report.pdf')
+    expect(msg.files?.[0]?.size).toBe(Buffer.from('fake-pdf-content').length)
+
+    const localPath = msg.files?.[0]?.localPath
+    if (!localPath) {
+      throw new Error('expected downloaded local path')
+    }
+
+    expect(localPath.startsWith(uploadsDir)).toBe(true)
+    expect(existsSync(localPath)).toBe(true)
+    expect(readFileSync(localPath, 'utf8')).toBe('fake-pdf-content')
+    expect(msg.content).toBe('[文件: Quarterly Report.pdf]')
   })
 
   test('buildIncomingMessage marks image download failure explicitly', async () => {
