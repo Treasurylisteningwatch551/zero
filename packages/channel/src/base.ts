@@ -49,6 +49,15 @@ export interface ImageAttachment {
   data: string // base64
 }
 
+export interface FileAttachment {
+  /** Original file name */
+  fileName: string
+  /** Local path where the file was saved */
+  localPath: string
+  /** File size in bytes */
+  size: number
+}
+
 export interface IncomingMessage {
   channelType: string
   senderId: string
@@ -56,6 +65,7 @@ export interface IncomingMessage {
   timestamp: string
   metadata?: Record<string, unknown>
   images?: ImageAttachment[]
+  files?: FileAttachment[]
 }
 
 /**
