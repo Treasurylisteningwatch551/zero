@@ -10,7 +10,8 @@
     "types": ["bun-types"],
     "paths": {
       "@/*": ["./src/app/*"],
-      "@zero-os/shared": ["../../packages/shared/src"]
+      "@zero-os/shared": ["../../packages/shared/src/browser.ts"],
+      "@zero-os/observe": ["../../packages/observe/src/browser.ts"]
     }
   },
   "include": ["src"]

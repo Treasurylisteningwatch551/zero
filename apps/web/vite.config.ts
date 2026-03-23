@@ -8,6 +8,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src/app'),
+      '@zero-os/shared': resolve(__dirname, '../../packages/shared/src/browser.ts'),
+      '@zero-os/observe': resolve(__dirname, '../../packages/observe/src/browser.ts'),
     },
   },
   server: {
