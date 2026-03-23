@@ -814,6 +814,21 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
       if (sentinel.trigger) {
         console.log(formatRestartTriggerLog(sentinel.trigger))
+
+        // Notify the channel that triggered the restart
+        if (sentinel.trigger.channelName && sentinel.trigger.channelId) {
+          const triggerChannel = channels.get(sentinel.trigger.channelName)
+          if (triggerChannel?.isConnected()) {
+            try {
+              await triggerChannel.send(sentinel.trigger.channelId, '✅ ZeRo OS 已重启完成')
+            } catch (error) {
+              console.warn(
+                `[ZeRo OS] Failed to send restart completion notice:`,
+                describeError(error),
+              )
+            }
+          }
+        }
       }
 
       if (Array.isArray(sentinel.sessions) && sentinel.sessions.length > 0) {
@@ -821,6 +836,7 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
           `[ZeRo OS] Restart sentinel found ${sentinel.sessions.length} interrupted session(s)`,
         )
 
+        const triggerChannelId = sentinel.trigger?.channelId
         for (const entry of sentinel.sessions) {
           void (async () => {
             const session = sessionManager.get(entry.sessionId)
@@ -838,7 +854,10 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
 
             try {
               session.setChannelCapabilities(channel.getCapabilities() as Record<string, unknown>)
-              await channel.send(entry.channelId, '✅ ZeRo OS 已重启完成')
+              // Skip duplicate restart notice if trigger already notified this chat
+              if (entry.channelId !== triggerChannelId) {
+                await channel.send(entry.channelId, '✅ ZeRo OS 已重启完成')
+              }
               const replies = await session.handleMessage(
                 '[System] The process restarted while your previous turn was still running. Continue the interrupted task from the existing conversation context. If the task is already complete, briefly confirm completion.',
               )

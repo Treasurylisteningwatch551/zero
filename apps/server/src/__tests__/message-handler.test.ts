@@ -1,0 +1,83 @@
+import { describe, expect, test } from 'bun:test'
+import type { IncomingMessage } from '@zero-os/channel'
+import { CommandRouter } from '@zero-os/core'
+import type { ChannelAdapter } from '../channel-adapter'
+import { handleChannelMessage, type MessageHandlerDeps } from '../message-handler'
+
+describe('handleChannelMessage', () => {
+  test('appends downloaded file info before passing content to the session', async () => {
+    let handledContent: string | null = null
+    let handledImages: IncomingMessage['images'] | undefined
+
+    const session = {
+      data: { id: 'sess_test' },
+      isAgentInitialized: () => true,
+      setChannelCapabilities: () => {},
+      initAgent: () => {},
+      handleMessage: async (
+        content: string,
+        options?: { images?: IncomingMessage['images'] },
+      ) => {
+        handledContent = content
+        handledImages = options?.images
+        return []
+      },
+    }
+
+    const sessionManager = {
+      getOrCreateForChannel: () => ({ session, isNew: false }),
+    }
+
+    const channelAdapter: ChannelAdapter = {
+      reply: async () => {},
+      showTyping: async () => ({
+        clear: async () => {},
+      }),
+    }
+
+    const commandRouter = new CommandRouter()
+
+    await handleChannelMessage(
+      {
+        channelType: 'feishu',
+        senderId: 'ou_test',
+        content: '[文件: report.pdf] 已下载到: /tmp/report.pdf',
+        timestamp: new Date('2026-03-23T00:00:00.000Z').toISOString(),
+        metadata: {
+          chatId: 'chat_test',
+          messageId: 'msg_test',
+        },
+        images: [{ mediaType: 'image/png', data: 'abc123' }],
+        files: [
+          {
+            fileName: 'report.pdf',
+            localPath: '/tmp/report.pdf',
+            size: 2048,
+          },
+        ],
+      },
+      {
+        channelType: 'feishu',
+        channelName: 'feishu',
+        agentName: 'ZeRo OS',
+        agentInstruction: 'test instruction',
+        sessionManager: sessionManager as unknown as MessageHandlerDeps['sessionManager'],
+        commandRouter: commandRouter as MessageHandlerDeps['commandRouter'],
+        channelAdapter,
+        isShuttingDown: () => false,
+      },
+    )
+
+    if (!handledContent) {
+      throw new Error('expected session.handleMessage content')
+    }
+
+    const actualContent = handledContent
+
+    expect(
+      actualContent ===
+        '[文件: report.pdf] 已下载到: /tmp/report.pdf\n\n📎 文件「report.pdf」已下载到: /tmp/report.pdf (2.0 KB)',
+    ).toBe(true)
+    expect(handledImages).toEqual([{ mediaType: 'image/png', data: 'abc123' }])
+  })
+})
