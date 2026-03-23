@@ -109,7 +109,20 @@ export async function handleChannelMessage(
     let lastTurnId: string | null = null
     let turnRotateChain: Promise<void> = Promise.resolve()
 
-    const replies = await session.handleMessage(msg.content, {
+    let messageContent = msg.content
+    if (msg.files?.length) {
+      const fileInfo = msg.files
+        .map(
+          (file) =>
+            `📎 文件「${file.fileName}」已下载到: ${file.localPath} (${(file.size / 1024).toFixed(
+              1,
+            )} KB)`,
+        )
+        .join('\n')
+      messageContent = messageContent ? `${messageContent}\n\n${fileInfo}` : fileInfo
+    }
+
+    const replies = await session.handleMessage(messageContent, {
       images: msg.images,
       onTextDelta: streaming
         ? (delta, meta) => {

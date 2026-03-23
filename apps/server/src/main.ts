@@ -724,17 +724,18 @@ export async function startZeroOS(options?: StartOptions): Promise<ZeroOS> {
     channelDefinitions.set(definition.name, definition)
 
     if (definition.type === 'feishu') {
+      const agentName = buildAgentName(definition.name)
       const feishuChannel = new FeishuChannel({
         name: definition.name,
         appId: definition.credentials?.appId ?? '',
         appSecret: definition.credentials?.appSecret ?? '',
         encryptKey: definition.credentials?.encryptKey,
         verificationToken: definition.credentials?.verificationToken,
+        downloadsDir: join(ZERO_DIR, 'workspace', agentName, 'uploads'),
       })
 
       if (definition.credentials) {
         const channelName = definition.name
-        const agentName = buildAgentName(channelName)
         const activeStreamingSessions = new Set<FeishuStreamingSession>()
         allActiveStreamingSessions.push(activeStreamingSessions)
         const feishuAdapter = new FeishuAdapter(feishuChannel, {
